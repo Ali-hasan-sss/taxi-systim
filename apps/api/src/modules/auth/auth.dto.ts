@@ -14,9 +14,15 @@ export const refreshDto = z.object({
   refreshToken: z.string().min(10)
 });
 
-export const adminLoginDto = z.object({
-  email: z.string().email(),
-  password: passwordField
-});
+export const adminLoginDto = z
+  .object({
+    email: z.string().email().optional(),
+    phone: z.string().min(8, "رقم الهاتف قصير جدًا").optional(),
+    password: passwordField
+  })
+  .refine((v) => Boolean(v.email || v.phone), {
+    message: "يجب إدخال email أو phone",
+    path: ["email"]
+  });
 
 export const coordinatorLoginDto = phoneLoginDto;

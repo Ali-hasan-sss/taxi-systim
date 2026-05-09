@@ -17,7 +17,7 @@ export const authController = {
   async adminLogin(req: Request, res: Response, next: NextFunction) {
     try {
       const input = adminLoginDto.parse(req.body);
-      const result = await authService.adminLogin(input.email, input.password);
+      const result = await authService.adminLogin({ email: input.email, phone: input.phone }, input.password);
       res.json(result);
     } catch (err) {
       next(err);

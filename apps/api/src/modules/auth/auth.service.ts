@@ -90,8 +90,10 @@ export const authService = {
     return { ...tokens, user: toPublicUser(user) };
   },
 
-  async adminLogin(email: string, password: string) {
-    const result = await this.loginByEmail(email, password);
+  async adminLogin(identifier: { email?: string; phone?: string }, password: string) {
+    const result = identifier.email
+      ? await this.loginByEmail(identifier.email, password)
+      : await this.loginByPhone(identifier.phone ?? "", password);
     if (result.user.role !== RoleEnum.ADMIN) {
       throw new AppError("Admin access only", 403);
     }
