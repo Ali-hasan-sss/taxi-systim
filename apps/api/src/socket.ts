@@ -1,12 +1,82 @@
 import type { Server } from "socket.io";
-import { OrderBroadcastTarget } from "@prisma/client";
+import { OrderBroadcastTarget, OrderVehicleRequirement, VehicleKind, type Order } from "@prisma/client";
 import { socketEvents } from "@taxi/config";
+import { prisma } from "./shared/prisma";
 import { redis, redisEnabled } from "./shared/redis";
-import { orderToSocketPayload } from "./modules/orders/orders.service";
-import type { Order } from "@prisma/client";
+import { orderToSocketPayload } from "./modules/orders/order-socket-payload";
+import { driverMatchesOrderVehicle, driverWhereMatchesOrderVehicle } from "./modules/orders/order-vehicle-filter";
 
 const memOnline = new Map<string, boolean>();
 const memLocations = new Map<string, { lat: number; lng: number }>();
+
+/** سائقون أرسلوا driver:online — طلبات «نوع السيارة: غير مهم» تُبث هنا ليصل الطلب للجميع */
+const ROOM_DRIVERS_ONLINE = "drivers-online";
+/** طلبات تتطلب سيارة عامة فقط */
+const ROOM_ORDER_VEHICLE_PUBLIC = "orders:vehicle:public";
+/** طلبات تتطلب سيارة خاصة فقط */
+const ROOM_ORDER_VEHICLE_PRIVATE = "orders:vehicle:private";
+/** غرفة تطبيقات المنسقين — لاستلام NEW_ORDER دون إرساله لكل السوكيتات */
+const ROOM_COORDINATORS = "coordinators";
+
+/** يعمل مع `Socket` المحلي ومع `RemoteSocket` الناتج عن `fetchSockets` */
+function syncOrderVehicleRooms(
+  socket: { leave: (room: string) => void | Promise<void>; join: (room: string) => void | Promise<void> },
+  vehicleKind: VehicleKind | null
+) {
+  void socket.leave(ROOM_ORDER_VEHICLE_PUBLIC);
+  void socket.leave(ROOM_ORDER_VEHICLE_PRIVATE);
+  if (vehicleKind === VehicleKind.PUBLIC) void socket.join(ROOM_ORDER_VEHICLE_PUBLIC);
+  else if (vehicleKind === VehicleKind.PRIVATE) void socket.join(ROOM_ORDER_VEHICLE_PRIVATE);
+}
+
+async function eligibleOnlineDriverDbIdsForOrderVehicle(order: Order): Promise<string[]> {
+  const rows = await prisma.driver.findMany({
+    where: {
+      isOnline: true,
+      user: { isActive: true },
+      ...driverWhereMatchesOrderVehicle(order.vehicleRequirement)
+    },
+    select: { id: true }
+  });
+  return rows.map((r) => r.id);
+}
+
+/** منطق استهداف طلب جديد: أقرب 3 متصلين بموقع يطابقون نوع السيارة، أو كل المتصلين المطابقين عند «الجميع» أو عند غياب إحداثيات/مواقع. */
+async function collectNewOrderTargetDriverDbIds(order: Order): Promise<string[]> {
+  if (order.broadcastTarget === OrderBroadcastTarget.ALL) {
+    return eligibleOnlineDriverDbIdsForOrderVehicle(order);
+  }
+
+  const refLat = order.pickupLat;
+  const refLng = order.pickupLng;
+  if (refLat == null || refLng == null) {
+    return eligibleOnlineDriverDbIdsForOrderVehicle(order);
+  }
+
+  const withLoc = await getDriverLocationsForNearest();
+  if (withLoc.length === 0) {
+    return eligibleOnlineDriverDbIdsForOrderVehicle(order);
+  }
+
+  const kindRows = await prisma.driver.findMany({
+    where: { id: { in: withLoc.map((d) => d.driverId) } },
+    select: { id: true, vehicleKind: true }
+  });
+  const kindMap = new Map(kindRows.map((r) => [r.id, r.vehicleKind]));
+  const ranked = withLoc
+    .map((d) => ({
+      driverId: d.driverId,
+      dKm: haversineKm(refLat, refLng, d.lat, d.lng),
+      vehicleKind: kindMap.get(d.driverId) ?? null
+    }))
+    .filter((d) => driverMatchesOrderVehicle(order.vehicleRequirement, d.vehicleKind))
+    .sort((a, b) => a.dKm - b.dKm);
+  const top = ranked.slice(0, 3).map((d) => d.driverId);
+  if (top.length === 0) {
+    return eligibleOnlineDriverDbIdsForOrderVehicle(order);
+  }
+  return top;
+}
 
 export const socketWrite = async (cb: () => Promise<unknown>) => {
   if (!redisEnabled) return;
@@ -74,35 +144,54 @@ export async function getDriverLocationsForNearest(): Promise<Array<{ driverId: 
   return out;
 }
 
+/**
+ * بعد تعديل نوع السيارة من الأدمن: إعادة إلحاق سوكيتات السائق بغرف `orders:vehicle:*`
+ * دون الحاجة لإعادة تشغيل «متصل».
+ */
+export async function resyncDriverOrderVehicleRooms(io: Server, driverDbId: string): Promise<void> {
+  const row = await prisma.driver.findUnique({
+    where: { id: driverDbId },
+    select: { vehicleKind: true }
+  });
+  const vehicleKind = row?.vehicleKind ?? null;
+  const sockets = await io.in(`driver:${driverDbId}`).fetchSockets();
+  for (const s of sockets) {
+    syncOrderVehicleRooms(s, vehicleKind);
+  }
+}
+
 export async function broadcastNewOrder(io: Server, order: Order) {
   const payload = orderToSocketPayload(order);
+  io.to(ROOM_COORDINATORS).emit(socketEvents.NEW_ORDER, payload);
 
   if (order.broadcastTarget === OrderBroadcastTarget.ALL) {
-    io.emit(socketEvents.NEW_ORDER, payload);
+    if (order.vehicleRequirement === OrderVehicleRequirement.ANY) {
+      io.to(ROOM_DRIVERS_ONLINE).emit(socketEvents.NEW_ORDER, payload);
+      return;
+    }
+    if (order.vehicleRequirement === OrderVehicleRequirement.PUBLIC) {
+      io.to(ROOM_ORDER_VEHICLE_PUBLIC).emit(socketEvents.NEW_ORDER, payload);
+      return;
+    }
+    io.to(ROOM_ORDER_VEHICLE_PRIVATE).emit(socketEvents.NEW_ORDER, payload);
     return;
   }
 
-  const refLat = order.pickupLat;
-  const refLng = order.pickupLng;
-  if (refLat == null || refLng == null) {
-    io.emit(socketEvents.NEW_ORDER, payload);
-    return;
+  const targetIds = await collectNewOrderTargetDriverDbIds(order);
+  for (const id of targetIds) {
+    io.to(`driver:${id}`).emit(socketEvents.NEW_ORDER, payload);
   }
+}
 
-  const drivers = await getDriverLocationsForNearest();
-  const ranked = drivers
-    .map((d) => ({ ...d, dKm: haversineKm(refLat, refLng, d.lat, d.lng) }))
-    .sort((a, b) => a.dKm - b.dKm);
-  const top = ranked.slice(0, 3);
-
-  if (top.length === 0) {
-    io.emit(socketEvents.NEW_ORDER, payload);
-    return;
-  }
-
-  for (const d of top) {
-    io.to(`driver:${d.driverId}`).emit(socketEvents.NEW_ORDER, payload);
-  }
+/** نفس منطق استهداف طلب جديد (سوكيت) لإرسال إشعار دفع للسائقين المعنيين */
+export async function getPushTargetDriverUserIdsForNewOrder(order: Order): Promise<string[]> {
+  const driverIds = await collectNewOrderTargetDriverDbIds(order);
+  if (driverIds.length === 0) return [];
+  const drivers = await prisma.driver.findMany({
+    where: { id: { in: driverIds } },
+    select: { userId: true }
+  });
+  return [...new Set(drivers.map((d) => d.userId))];
 }
 
 /** إسناد من المنسق: للسائق المختار + بث عام لتحديث واجهات المنسق */
@@ -114,6 +203,20 @@ export function emitOrderAssigned(io: Server, order: Order) {
   io.emit(socketEvents.ORDER_ASSIGNED, payload);
 }
 
+/** بعد قبول سائق لطلب معلق — نفس حمولة الإسناد ليزيل الطلب من قوائم البقية */
+export function emitDriverClaimedOrder(io: Server, order: Order) {
+  const payload = orderToSocketPayload(order);
+  io.emit(socketEvents.ORDER_ASSIGNED, payload);
+}
+
+export function emitPendingOrderCancelled(io: Server, orderId: string) {
+  io.emit(socketEvents.ORDER_PENDING_CANCELLED, { orderId });
+}
+
+export function emitOrderStatusUpdated(io: Server, order: Order) {
+  io.emit(socketEvents.ORDER_STATUS_UPDATED, orderToSocketPayload(order));
+}
+
 export const initSocket = (io: Server) => {
   io.on("connection", (socket) => {
     socket.on("driver:register", (driverId: string) => {
@@ -122,9 +225,31 @@ export const initSocket = (io: Server) => {
       void socket.join("drivers");
     });
 
+    socket.on("coordinator:register", (_coordinatorId: string) => {
+      void socket.join(ROOM_COORDINATORS);
+    });
+
     socket.on("driver:online", async (driverId: string) => {
-      if (typeof driverId === "string" && driverId) memOnline.set(driverId, true);
+      if (typeof driverId !== "string" || !driverId) return;
+      memOnline.set(driverId, true);
+      void socket.join(ROOM_DRIVERS_ONLINE);
+      let vehicleKind: VehicleKind | null = null;
+      try {
+        const row = await prisma.driver.findUnique({
+          where: { id: driverId },
+          select: { vehicleKind: true }
+        });
+        vehicleKind = row?.vehicleKind ?? null;
+      } catch {
+        /* تجاهل */
+      }
+      syncOrderVehicleRooms(socket, vehicleKind);
       await socketWrite(() => redis.hset("drivers:online", driverId, "1"));
+      try {
+        await prisma.driver.update({ where: { id: driverId }, data: { isOnline: true } });
+      } catch {
+        /* تجاهل */
+      }
       io.emit(socketEvents.DRIVER_ONLINE, { driverId });
     });
 
@@ -133,7 +258,17 @@ export const initSocket = (io: Server) => {
         memLocations.set(payload.driverId, { lat: payload.lat, lng: payload.lng });
       }
       await socketWrite(() => redis.hset("drivers:locations", payload.driverId, JSON.stringify(payload)));
-      io.emit(socketEvents.DRIVER_LOCATION_UPDATED, payload);
+      let isBusy = false;
+      try {
+        const row = await prisma.driver.findUnique({
+          where: { id: payload.driverId },
+          select: { isBusy: true }
+        });
+        isBusy = row?.isBusy ?? false;
+      } catch {
+        /* تجاهل */
+      }
+      io.emit(socketEvents.DRIVER_LOCATION_UPDATED, { ...payload, isBusy });
     });
 
     socket.on("driver:offline", async (driverId: string) => {
@@ -141,7 +276,17 @@ export const initSocket = (io: Server) => {
         memOnline.delete(driverId);
         memLocations.delete(driverId);
       }
+      void socket.leave(ROOM_DRIVERS_ONLINE);
+      void socket.leave(ROOM_ORDER_VEHICLE_PUBLIC);
+      void socket.leave(ROOM_ORDER_VEHICLE_PRIVATE);
       await socketWrite(() => redis.hdel("drivers:online", driverId));
+      try {
+        if (typeof driverId === "string" && driverId) {
+          await prisma.driver.update({ where: { id: driverId }, data: { isOnline: false } });
+        }
+      } catch {
+        /* تجاهل */
+      }
       io.emit(socketEvents.DRIVER_OFFLINE, { driverId });
     });
   });

@@ -28,3 +28,5 @@ authRouter.post("/refresh", authController.refresh);
 authRouter.get("/me", requireAuth, authController.me);
 authRouter.get("/admin/me", requireAuth, requireRole("ADMIN"), authController.me);
 authRouter.get("/coordinator/me", requireAuth, requireRole("COORDINATOR"), authController.coordinatorMe);
+authRouter.post("/push-token", requireAuth, authController.registerPushToken);
+authRouter.delete("/push-token", requireAuth, authController.clearPushToken);

@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "https://taxi.qmenussy.com/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
 const SESSION_KEY = "taxi_admin_session";
 
 export interface AdminLoginResponse {
@@ -12,6 +12,15 @@ export interface AdminLoginResponse {
   };
 }
 
+export type VehicleKind = "PUBLIC" | "PRIVATE";
+
+export interface EmployeeDriverProfile {
+  vehicleBrand: string | null;
+  vehicleKind: VehicleKind | null;
+  vehicleColor: string | null;
+  vehicleNumber: string | null;
+}
+
 export interface Employee {
   id: string;
   email: string | null;
@@ -20,6 +29,7 @@ export interface Employee {
   role: "ADMIN" | "COORDINATOR" | "DRIVER";
   isActive: boolean;
   createdAt: string;
+  driver?: EmployeeDriverProfile | null;
 }
 
 interface StoredSession {
@@ -138,6 +148,12 @@ export const api = {
       fullName: string;
       phone?: string;
       role: Employee["role"];
+      driverProfile?: {
+        vehicleBrand?: string | null;
+        vehicleKind?: VehicleKind | null;
+        vehicleColor?: string | null;
+        plateNumber?: string | null;
+      };
     }
   ) {
     const res = await authorizedFetch(
@@ -155,7 +171,19 @@ export const api = {
   async updateEmployee(
     accessToken: string,
     userId: string,
-    payload: { email?: string; password?: string; fullName?: string; phone?: string; role?: Employee["role"] }
+    payload: {
+      email?: string;
+      password?: string;
+      fullName?: string;
+      phone?: string;
+      role?: Employee["role"];
+      driverProfile?: {
+        vehicleBrand?: string | null;
+        vehicleKind?: VehicleKind | null;
+        vehicleColor?: string | null;
+        plateNumber?: string | null;
+      };
+    }
   ) {
     const res = await authorizedFetch(
       `/users/${userId}`,

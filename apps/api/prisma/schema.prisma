@@ -16,7 +16,9 @@ enum OrderStatus {
   PENDING
   ACCEPTED
   ARRIVED
+  EN_ROUTE_TO_CUSTOMER
   STARTED
+  STUCK
   COMPLETED
   CANCELLED
 }
@@ -24,6 +26,19 @@ enum OrderStatus {
 enum OrderBroadcastTarget {
   ALL
   NEAREST_THREE
+}
+
+/** نوع سيارة السائق (يحدده الأدمن) */
+enum VehicleKind {
+  PUBLIC
+  PRIVATE
+}
+
+/** متطلب نوع السيارة للطلب (يحدده المنسق عند الإنشاء) */
+enum OrderVehicleRequirement {
+  ANY
+  PUBLIC
+  PRIVATE
 }
 
 enum CommissionType {
@@ -51,6 +66,8 @@ model User {
   phone          String?        @unique
   role           Role
   isActive       Boolean        @default(true)
+  /** رمز Expo Push لجهاز واحد (آخر تسجيل من تطبيق السائق/المنسق) */
+  expoPushToken  String?
   refreshTokens  RefreshToken[]
   notifications  Notification[]
   coordinator    Coordinator?
@@ -62,7 +79,11 @@ model User {
 model Driver {
   id               String                  @id @default(cuid())
   userId           String                  @unique
+  /** رقم اللوحة */
   vehicleNumber    String?
+  vehicleBrand     String?
+  vehicleKind      VehicleKind?
+  vehicleColor     String?
   isOnline         Boolean                 @default(false)
   isBusy           Boolean                 @default(false)
   user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -96,6 +117,7 @@ model Order {
   dropoffLat       Float?
   dropoffLng       Float?
   notes            String?
+  vehicleRequirement OrderVehicleRequirement @default(ANY)
   amount           Decimal      @db.Decimal(10, 2)
   broadcastTarget  OrderBroadcastTarget @default(ALL)
   status           OrderStatus  @default(PENDING)

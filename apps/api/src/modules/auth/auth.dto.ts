@@ -26,3 +26,7 @@ export const adminLoginDto = z
   });
 
 export const coordinatorLoginDto = phoneLoginDto;
+
+export const expoPushTokenDto = z.object({
+  token: z.string().min(20, "رمز الإشعار قصير جدًا")
+});

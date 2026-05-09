@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -7,29 +7,40 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { io, type Socket } from "socket.io-client";
 import { CoordinatorOrderCard } from "../../src/components/CoordinatorOrderCard";
 import {
+  type CoordinatorActiveOrdersSegment,
   type CoordinatorOrderRow,
   type DriverForAssignment,
   coordinatorAssignOrder,
   coordinatorCancelOrder,
+  coordinatorResumeStuckOrder,
   coordinatorSearchDriversForAssignment,
   coordinatorListOrders,
   coordinatorMe,
+  coordinatorOrderStats,
   getSocketOrigin
 } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
+import { playOrderStuckSound } from "../../src/lib/order-stuck-sound";
 import { clearSession, getSession } from "../../src/lib/session";
+import { useCoordinatorStore } from "../../src/store";
+import { rtlText } from "../../src/lib/rtl-text";
 
 export default function OrdersTab() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const setStuckOrdersCount = useCoordinatorStore((s) => s.setStuckOrdersCount);
   const [orders, setOrders] = useState<CoordinatorOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,6 +57,7 @@ export default function OrdersTab() {
   const assignSearchAbortRef = useRef<AbortController | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [listSegment, setListSegment] = useState<CoordinatorActiveOrdersSegment | null>(null);
   const loadMoreLock = useRef(false);
 
   const load = useCallback(async (isRefresh = false) => {
@@ -58,13 +70,17 @@ export default function OrdersTab() {
     else setLoading(true);
     setError(null);
     try {
-      const [me, page] = await Promise.all([
+      const listOpts =
+        listSegment != null ? { segment: listSegment } : undefined;
+      const [me, page, stats] = await Promise.all([
         coordinatorMe(session.accessToken),
-        coordinatorListOrders(session.accessToken, "active")
+        coordinatorListOrders(session.accessToken, "active", listOpts),
+        coordinatorOrderStats(session.accessToken)
       ]);
       setMyCoordinatorId(me.coordinatorId);
       setOrders(page.orders);
       setNextCursor(page.nextCursor);
+      setStuckOrdersCount(stats.stuckActive ?? 0);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "حدث خطأ";
       setError(msg);
@@ -76,7 +92,7 @@ export default function OrdersTab() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [router]);
+  }, [router, listSegment]);
 
   const loadMore = useCallback(async () => {
     if (nextCursor == null || loadMoreLock.current || loading || refreshing) {
@@ -91,7 +107,11 @@ export default function OrdersTab() {
     setLoadingMore(true);
     setError(null);
     try {
-      const page = await coordinatorListOrders(session.accessToken, "active", { cursor: nextCursor });
+      const listOpts =
+        listSegment != null
+          ? { cursor: nextCursor, segment: listSegment }
+          : { cursor: nextCursor };
+      const page = await coordinatorListOrders(session.accessToken, "active", listOpts);
       setOrders((prev) => {
         const seen = new Set(prev.map((o) => o.id));
         const out = [...prev];
@@ -115,7 +135,7 @@ export default function OrdersTab() {
       loadMoreLock.current = false;
       setLoadingMore(false);
     }
-  }, [nextCursor, loading, refreshing, router]);
+  }, [nextCursor, loading, refreshing, router, listSegment]);
 
   useFocusEffect(
     useCallback(() => {
@@ -123,29 +143,61 @@ export default function OrdersTab() {
     }, [load])
   );
 
+  const myCoordinatorIdRef = useRef<string | null>(null);
+  myCoordinatorIdRef.current = myCoordinatorId;
+  const coordinatorSocketRef = useRef<Socket | null>(null);
+
   useEffect(() => {
     const origin = getSocketOrigin();
     let socket: Socket | null = null;
     try {
       socket = io(origin, { transports: ["websocket"] });
+      coordinatorSocketRef.current = socket;
+      const registerCoordinator = () => {
+        const id = myCoordinatorIdRef.current;
+        if (id && socket?.connected) {
+          socket.emit("coordinator:register", id);
+        }
+      };
+      socket.on("connect", registerCoordinator);
+      if (socket.connected) registerCoordinator();
       const maybeReload = (payload: { coordinatorId?: string }) => {
-        if (!myCoordinatorId) {
+        const cid = myCoordinatorIdRef.current;
+        if (!cid) {
           void load(true);
           return;
         }
-        if (payload?.coordinatorId === myCoordinatorId) {
+        if (payload?.coordinatorId === cid) {
           void load(true);
         }
       };
+      const onStatusUpdated = (raw: unknown) => {
+        const p = raw as { coordinatorId?: string; status?: string };
+        const cid = myCoordinatorIdRef.current;
+        if (p?.status === "STUCK" && cid && p.coordinatorId === cid) {
+          void playOrderStuckSound();
+        }
+        maybeReload(p);
+      };
       socket.on("NEW_ORDER", maybeReload);
       socket.on("ORDER_ASSIGNED", maybeReload);
+      socket.on("ORDER_STATUS_UPDATED", onStatusUpdated);
     } catch {
       /* ignore */
     }
     return () => {
+      coordinatorSocketRef.current = null;
       socket?.disconnect();
     };
-  }, [myCoordinatorId, load]);
+  }, [load]);
+
+  useEffect(() => {
+    const id = myCoordinatorIdRef.current;
+    const s = coordinatorSocketRef.current;
+    if (id && s?.connected) {
+      s.emit("coordinator:register", id);
+    }
+  }, [myCoordinatorId]);
 
   const openAssignModal = (orderId: string) => {
     assignSearchAbortRef.current?.abort();
@@ -233,6 +285,24 @@ export default function OrdersTab() {
     }
   };
 
+  const runResumeStuck = async (orderId: string) => {
+    const session = await getSession();
+    if (!session?.accessToken) {
+      router.replace("/login");
+      return;
+    }
+    setActionOrderId(orderId);
+    try {
+      await coordinatorResumeStuckOrder(session.accessToken, orderId);
+      await load(true);
+      feedback.success("أُعيد الطلب للسائق نفسه — في الطريق إلى الزبون.", "تمت الإعادة");
+    } catch (e) {
+      feedback.error(e instanceof Error ? e.message : "تعذر إعادة الطلب للسائق.");
+    } finally {
+      setActionOrderId(null);
+    }
+  };
+
   const runAssign = async (driver: DriverForAssignment) => {
     if (driver.isBusy) {
       feedback.warning("هذا السائق مشغول بطلب آخر. اختر سائقًا آخر أو انتظر.");
@@ -259,55 +329,115 @@ export default function OrdersTab() {
 
   const renderItem = ({ item }: { item: CoordinatorOrderRow }) => {
     const pending = item.status === "PENDING";
+    const stuck = item.status === "STUCK";
     const busy = actionOrderId === item.id;
 
-    return (
-      <CoordinatorOrderCard
-        item={item}
-        footer={
-          pending ? (
-            <View style={styles.actions}>
-              <Pressable
-                style={[styles.btnDanger, busy && styles.btnDisabled]}
-                disabled={!!busy}
-                onPress={() => confirmCancel(item.id)}
-              >
-                {busy ? (
-                  <ActivityIndicator color="#fecaca" size="small" />
-                ) : (
-                  <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
-                )}
-              </Pressable>
-              <Pressable
-                style={[styles.btnPrimary, (busy || assignSubmitting) && styles.btnDisabled]}
-                disabled={!!busy || assignSubmitting}
-                onPress={() => void openAssignModal(item.id)}
-              >
-                <Text style={styles.btnPrimaryText}>إسناد لسائق</Text>
-              </Pressable>
-            </View>
-          ) : undefined
-        }
-      />
-    );
+    let footer: ReactNode;
+    if (pending) {
+      footer = (
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.btnDanger, busy && styles.btnDisabled]}
+            disabled={!!busy}
+            onPress={() => confirmCancel(item.id)}
+          >
+            {busy ? (
+              <ActivityIndicator color="#fecaca" size="small" />
+            ) : (
+              <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
+            )}
+          </Pressable>
+          <Pressable
+            style={[styles.btnPrimary, (busy || assignSubmitting) && styles.btnDisabled]}
+            disabled={!!busy || assignSubmitting}
+            onPress={() => void openAssignModal(item.id)}
+          >
+            <Text style={styles.btnPrimaryText}>إسناد لسائق</Text>
+          </Pressable>
+        </View>
+      );
+    } else if (stuck) {
+      footer = (
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.btnDanger, busy && styles.btnDisabled]}
+            disabled={!!busy}
+            onPress={() => confirmCancel(item.id)}
+          >
+            {busy ? (
+              <ActivityIndicator color="#fecaca" size="small" />
+            ) : (
+              <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
+            )}
+          </Pressable>
+          <Pressable
+            style={[styles.btnResumeStuck, busy && styles.btnDisabled]}
+            disabled={!!busy}
+            onPress={() => void runResumeStuck(item.id)}
+          >
+            {busy ? (
+              <ActivityIndicator color="#e0f2fe" size="small" />
+            ) : (
+              <Text style={styles.btnResumeStuckText}>إعادة للسائق</Text>
+            )}
+          </Pressable>
+        </View>
+      );
+    } else {
+      footer = undefined;
+    }
+
+    return <CoordinatorOrderCard item={item} footer={footer} />;
   };
 
   if (loading && orders.length === 0) {
     return (
-      <View style={styles.centered}>
+      <View style={[styles.centered, { paddingTop: insets.top + 12 }]}>
         <ActivityIndicator size="large" color="#38bdf8" />
         <Text style={styles.loadingText}>جاري تحميل طلباتك…</Text>
       </View>
     );
   }
 
+  const listBottomPad = coordinatorTabBarOuterHeight(insets.bottom) + 24;
+
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
       <Text style={styles.title}>طلباتي</Text>
       <Text style={styles.subtitle}>
-        الطلبات النشطة فقط (يحددها الخادم). المكتملة والملغاة في تبويب الأرشيف. مرّر للأسفل لتحميل المزيد (10 لكل
-        دفعة). للطلب المعلق: إلغاء أو إسناد لسائق.
+        صفِّ حسب الحالة. المكتملة والملغاة في الأرشيف. مرّر للأسفل لتحميل المزيد (10 لكل دفعة).
       </Text>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterScroll}
+        style={styles.filterScrollView}
+      >
+        {(
+          [
+            { key: "all" as const, label: "الكل" },
+            { key: "pending" as const, label: "معلقة" },
+            { key: "in_progress" as const, label: "في الطريق" },
+            { key: "stuck" as const, label: "متعثرة" }
+          ] as const
+        ).map(({ key, label }) => {
+          const active = key === "all" ? listSegment === null : listSegment === key;
+          return (
+            <Pressable
+              key={key}
+              onPress={() => setListSegment(key === "all" ? null : key)}
+              style={({ pressed }) => [
+                styles.filterChip,
+                active && styles.filterChipActive,
+                pressed && styles.filterChipPressed
+              ]}
+            >
+              <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -315,7 +445,11 @@ export default function OrdersTab() {
         data={orders}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        contentContainerStyle={orders.length === 0 ? styles.emptyList : styles.list}
+        contentContainerStyle={
+          orders.length === 0
+            ? [styles.emptyList, { paddingBottom: listBottomPad }]
+            : [styles.list, { paddingBottom: listBottomPad }]
+        }
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor="#38bdf8" />}
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.35}
@@ -327,17 +461,26 @@ export default function OrdersTab() {
           ) : null
         }
         ListEmptyComponent={
-          <Text style={styles.empty}>لا توجد طلبات نشطة. أنشئ طلبًا من تبويب الرئيسية.</Text>
+          <Text style={styles.empty}>
+            {listSegment === null
+              ? "لا توجد طلبات نشطة. أنشئ طلبًا من الشاشة الرئيسية."
+              : listSegment === "pending"
+                ? "لا توجد طلبات معلقة ضمن هذا التصفية."
+                : listSegment === "in_progress"
+                  ? "لا توجد طلبات في الطريق ضمن هذا التصفية."
+                  : "لا توجد طلبات متعثرة ضمن هذا التصفية."}
+          </Text>
         }
       />
 
       <Modal visible={assignModalOpen} animationType="slide" transparent onRequestClose={() => !assignSubmitting && setAssignModalOpen(false)}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.modalRoot}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
+          style={[styles.modalRoot, styles.rtlScreen]}
         >
           <Pressable style={styles.modalBackdrop} onPress={() => !assignSubmitting && setAssignModalOpen(false)} />
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, styles.rtlScreen, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
             <Text style={styles.modalTitle}>اختر سائقًا</Text>
             <Text style={styles.modalHint}>ابدأ بالكتابة (حرفان على الأقل) — البحث يُنفَّذ بعد توقف الكتابة قليلًا</Text>
             <TextInput
@@ -346,10 +489,10 @@ export default function OrdersTab() {
               placeholder="اسم السائق أو جزء من الهاتف…"
               placeholderTextColor="#64748b"
               style={styles.searchInput}
-              textAlign="right"
               editable={!assignSubmitting}
               autoCorrect={false}
               autoCapitalize="none"
+              returnKeyType="search"
             />
             {assignLoading ? (
               <ActivityIndicator style={styles.modalLoading} color="#38bdf8" size="large" />
@@ -359,6 +502,7 @@ export default function OrdersTab() {
                 keyExtractor={(item) => item.id}
                 style={styles.driverFlatList}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
                 nestedScrollEnabled
                 renderItem={({ item: d }) => (
                   <Pressable
@@ -398,10 +542,14 @@ export default function OrdersTab() {
 }
 
 const styles = StyleSheet.create({
+  rtlScreen: {
+    direction: "rtl",
+    alignItems: "stretch"
+  },
   root: {
     flex: 1,
     backgroundColor: "#0f172a",
-    paddingTop: 56
+    direction: "rtl"
   },
   centered: {
     flex: 1,
@@ -413,38 +561,80 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     color: "#94a3b8",
-    fontSize: 15
+    fontSize: 15,
+    ...rtlText,
+    width: "100%"
   },
   title: {
     fontSize: 22,
     fontWeight: "800",
     color: "#f8fafc",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 8,
     paddingHorizontal: 20
   },
   subtitle: {
     fontSize: 13,
     color: "#94a3b8",
-    textAlign: "right",
+    ...rtlText,
     lineHeight: 20,
-    marginBottom: 16,
+    marginBottom: 10,
     paddingHorizontal: 20
+  },
+  filterScrollView: {
+    flexGrow: 0,
+    marginBottom: 12
+  },
+  filterScroll: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 4,
+    alignItems: "center"
+  },
+  filterChip: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    backgroundColor: "#1e293b",
+    borderWidth: 1,
+    borderColor: "#334155",
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: 44
+  },
+  filterChipActive: {
+    backgroundColor: "#1d4ed8",
+    borderColor: "#3b82f6"
+  },
+  filterChipPressed: {
+    opacity: 0.9
+  },
+  filterChipText: {
+    color: "#94a3b8",
+    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 22,
+    ...rtlText,
+    ...Platform.select({ android: { includeFontPadding: false }, default: {} })
+  },
+  filterChipTextActive: {
+    color: "#eff6ff"
   },
   error: {
     color: "#f87171",
-    textAlign: "right",
+    ...rtlText,
     paddingHorizontal: 20,
     marginBottom: 8
   },
   list: {
     paddingHorizontal: 20,
-    paddingBottom: 32
+    alignItems: "stretch"
   },
   emptyList: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingBottom: 32
+    alignItems: "stretch"
   },
   listFooterLoader: {
     paddingVertical: 20,
@@ -453,7 +643,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     gap: 10,
-    justifyContent: "flex-end",
+    justifyContent: "flex-start",
     flexWrap: "wrap",
     marginTop: 4
   },
@@ -468,7 +658,8 @@ const styles = StyleSheet.create({
   btnDangerText: {
     color: "#fecaca",
     fontWeight: "800",
-    fontSize: 14
+    fontSize: 14,
+    ...rtlText
   },
   btnPrimary: {
     backgroundColor: "#2563eb",
@@ -481,14 +672,29 @@ const styles = StyleSheet.create({
   btnPrimaryText: {
     color: "#fff",
     fontWeight: "800",
-    fontSize: 14
+    fontSize: 14,
+    ...rtlText
+  },
+  btnResumeStuck: {
+    backgroundColor: "#0369a1",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    minWidth: 120,
+    alignItems: "center"
+  },
+  btnResumeStuckText: {
+    color: "#e0f2fe",
+    fontWeight: "800",
+    fontSize: 14,
+    ...rtlText
   },
   btnDisabled: {
     opacity: 0.55
   },
   empty: {
     color: "#64748b",
-    textAlign: "center",
+    ...rtlText,
     marginTop: 40,
     fontSize: 15,
     lineHeight: 24
@@ -506,7 +712,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     padding: 20,
-    paddingBottom: 28,
     maxHeight: "85%",
     minHeight: 280,
     borderWidth: 1,
@@ -516,13 +721,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
     color: "#f8fafc",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 6
   },
   modalHint: {
     fontSize: 12,
     color: "#94a3b8",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 12
   },
   searchInput: {
@@ -533,7 +738,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     color: "#f8fafc",
-    marginBottom: 12
+    marginBottom: 12,
+    ...rtlText
   },
   modalLoading: {
     marginVertical: 32,
@@ -551,7 +757,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#0f172a",
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: "#334155"
+    borderColor: "#334155",
+    alignItems: "stretch"
   },
   driverRowDisabled: {
     opacity: 0.45
@@ -560,17 +767,17 @@ const styles = StyleSheet.create({
     color: "#f8fafc",
     fontWeight: "800",
     fontSize: 16,
-    textAlign: "right"
+    ...rtlText
   },
   driverMeta: {
     color: "#94a3b8",
     fontSize: 12,
-    textAlign: "right",
+    ...rtlText,
     marginTop: 4
   },
   noDrivers: {
     color: "#64748b",
-    textAlign: "center",
+    ...rtlText,
     paddingVertical: 16
   },
   modalClose: {
@@ -581,6 +788,7 @@ const styles = StyleSheet.create({
   modalCloseText: {
     color: "#38bdf8",
     fontWeight: "800",
-    fontSize: 16
+    fontSize: 16,
+    ...rtlText
   }
 });

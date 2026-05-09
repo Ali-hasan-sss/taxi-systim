@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -11,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextInput as TextInputRef,
   View
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -18,13 +20,16 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   type CoordinatorOrderStats,
-  type OrderBroadcastTarget,
+  type OrderVehicleRequirement,
   coordinatorCreateOrder,
   coordinatorMe,
   coordinatorOrderStats
 } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
+import { shouldLoadExpoPushModule } from "../../src/lib/push-environment";
 import { clearSession, getSession } from "../../src/lib/session";
+import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
+import { rtlText } from "../../src/lib/rtl-text";
 
 /** عرض تاريخ ملخص «اليوم» (YYYY-MM-DD من الخادم) بصيغة عربية بتوقيت سوريا */
 function formatSyriaDayLabel(ymd: string): string {
@@ -47,27 +52,31 @@ function formatSyriaDayLabel(ymd: string): string {
   }
 }
 
+const orderModalSheetMaxHeight = Math.round(Dimensions.get("window").height * 0.92);
+
 function resetOrderForm(setters: {
   setFromAddr: (v: string) => void;
   setToAddr: (v: string) => void;
   setPhone: (v: string) => void;
   setAmountText: (v: string) => void;
-  setBroadcast: (v: OrderBroadcastTarget) => void;
-  setRefLat: (v: number | null) => void;
-  setRefLng: (v: number | null) => void;
+  setOrderNotes: (v: string) => void;
+  setVehicleRequirement: (v: OrderVehicleRequirement) => void;
 }) {
   setters.setFromAddr("");
   setters.setToAddr("");
   setters.setPhone("");
   setters.setAmountText("");
-  setters.setBroadcast("ALL");
-  setters.setRefLat(null);
-  setters.setRefLng(null);
+  setters.setOrderNotes("");
+  setters.setVehicleRequirement("ANY");
 }
 
 export default function HomeTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const avatarAnchorRef = useRef<View>(null);
+  const [userMenuAnchor, setUserMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(
+    null
+  );
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [name, setName] = useState("");
   const [phoneDisplay, setPhoneDisplay] = useState("");
@@ -78,16 +87,19 @@ export default function HomeTab() {
   const [toAddr, setToAddr] = useState("");
   const [phone, setPhone] = useState("");
   const [amountText, setAmountText] = useState("");
-  const [broadcast, setBroadcast] = useState<OrderBroadcastTarget>("ALL");
-  const [refLat, setRefLat] = useState<number | null>(null);
-  const [refLng, setRefLng] = useState<number | null>(null);
-  const [locLoading, setLocLoading] = useState(false);
+  const [orderNotes, setOrderNotes] = useState("");
+  const [vehicleRequirement, setVehicleRequirement] = useState<OrderVehicleRequirement>("ANY");
   const [submitting, setSubmitting] = useState(false);
+  const orderFromRef = useRef<TextInputRef>(null);
+  const orderToRef = useRef<TextInputRef>(null);
+  const orderPhoneRef = useRef<TextInputRef>(null);
+  const orderAmountRef = useRef<TextInputRef>(null);
   const [orderStats, setOrderStats] = useState<CoordinatorOrderStats>({
     active: 0,
     pending: 0,
     completed: 0,
-    cancelled: 0
+    cancelled: 0,
+    stuckToday: 0
   });
 
   const closeOrderModal = () => {
@@ -129,6 +141,7 @@ export default function HomeTab() {
       return () => {
         ok = false;
         setUserMenuOpen(false);
+        setUserMenuAnchor(null);
       };
     }, [loadDashboard])
   );
@@ -147,32 +160,40 @@ export default function HomeTab() {
 
   const logout = async () => {
     setUserMenuOpen(false);
+    setUserMenuAnchor(null);
+    if (shouldLoadExpoPushModule()) {
+      const { unregisterCoordinatorPushOnServer } = await import("../../src/lib/expo-push");
+      await unregisterCoordinatorPushOnServer();
+    }
     await clearSession();
     router.replace("/login");
   };
 
-  const fetchRefLocation = async () => {
-    if (Platform.OS === "web") {
-      feedback.warning("تحديد الموقع متاح في تطبيق الهاتف فقط، وليس من المتصفح.");
-      return;
-    }
-    setLocLoading(true);
-    try {
-      const Location = await import("expo-location");
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        feedback.info("لم يُمنح الإذن. يمكنك تفعيله من إعدادات الجهاز.", "الموقع");
+  const openUserMenu = () => {
+    const applyAnchor = (top: number, left: number, width: number) => {
+      setUserMenuAnchor({ top, left, width });
+      setUserMenuOpen(true);
+    };
+
+    const fallback = () => {
+      const sw = Dimensions.get("window").width;
+      const panelW = Math.min(240, sw * 0.88);
+      const left = Math.max(12, sw - insets.right - panelW - 12);
+      applyAnchor(insets.top + 52, left, panelW);
+    };
+
+    avatarAnchorRef.current?.measureInWindow((x, y, w, h) => {
+      if (w <= 0 || h <= 0) {
+        fallback();
         return;
       }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setRefLat(pos.coords.latitude);
-      setRefLng(pos.coords.longitude);
-      feedback.success("تم حفظ موقعك كنقطة مرجعية لخيار أقرب السائقين.", "تم الحفظ");
-    } catch {
-      feedback.error("تعذر قراءة الموقع. تحقق من تشغيل GPS والمحاولة مجددًا.");
-    } finally {
-      setLocLoading(false);
-    }
+      const sw = Dimensions.get("window").width;
+      const panelW = Math.min(Math.max(220, 200), sw * 0.88);
+      let left = x + w - panelW;
+      if (left < 12) left = 12;
+      if (left + panelW > sw - 12) left = sw - 12 - panelW;
+      applyAnchor(y + h + 6, left, panelW);
+    });
   };
 
   const submitOrder = async () => {
@@ -197,11 +218,6 @@ export default function HomeTab() {
       return;
     }
 
-    if (broadcast === "NEAREST_THREE" && (refLat == null || refLng == null)) {
-      feedback.warning('لخيار «أقرب 3 سائقين» اضغط أولًا «موقعي كنقطة مرجعية».');
-      return;
-    }
-
     setSubmitting(true);
     try {
       const created = await coordinatorCreateOrder(session.accessToken, {
@@ -209,9 +225,9 @@ export default function HomeTab() {
         dropoffAddress: toAddr.trim(),
         customerPhone: phone.trim(),
         amount,
-        broadcastTarget: broadcast,
-        pickupLat: broadcast === "NEAREST_THREE" ? refLat! : undefined,
-        pickupLng: broadcast === "NEAREST_THREE" ? refLng! : undefined
+        broadcastTarget: "ALL",
+        vehicleRequirement,
+        notes: orderNotes.trim() || undefined
       });
       feedback.success(
         `تم بث الطلب إلى السائقين.\nالمعرّف: ${created.id.slice(0, 8)}…`,
@@ -222,9 +238,8 @@ export default function HomeTab() {
         setToAddr,
         setPhone,
         setAmountText,
-        setBroadcast,
-        setRefLat,
-        setRefLng
+        setOrderNotes,
+        setVehicleRequirement
       });
       closeOrderModal();
       try {
@@ -239,6 +254,8 @@ export default function HomeTab() {
     }
   };
 
+  const homeScrollBottomPad = 40 + coordinatorTabBarOuterHeight(insets.bottom);
+
   return (
     <View style={styles.shell}>
       <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
@@ -250,55 +267,79 @@ export default function HomeTab() {
             accessibilityLabel="منسق التكسي"
           />
         </View>
-        <Pressable
-          onPress={() => setUserMenuOpen(true)}
-          style={styles.avatarBtn}
-          accessibilityRole="button"
-          accessibilityLabel="قائمة الحساب"
-          hitSlop={8}
-        >
-          <View style={styles.avatarCircle}>
-            <Ionicons name="person" size={20} color="#0f172a" />
-          </View>
-        </Pressable>
+        <View ref={avatarAnchorRef} collapsable={false} style={styles.avatarAnchor}>
+          <Pressable
+            onPress={openUserMenu}
+            style={styles.avatarBtn}
+            accessibilityRole="button"
+            accessibilityLabel="قائمة الحساب"
+            hitSlop={8}
+          >
+            <View style={styles.avatarCircle}>
+              <Ionicons name="person" size={20} color="#0f172a" />
+            </View>
+          </Pressable>
+        </View>
       </View>
 
       <Modal
         visible={userMenuOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setUserMenuOpen(false)}
+        onRequestClose={() => {
+          setUserMenuOpen(false);
+          setUserMenuAnchor(null);
+        }}
       >
-        <View style={styles.menuModalRoot} pointerEvents="box-none">
-          <Pressable style={styles.menuBackdrop} onPress={() => setUserMenuOpen(false)} />
-          <View
-            style={[
-              styles.dropdownPanel,
-              { top: insets.top + 8, right: Math.max(16, insets.right + 4) }
-            ]}
-          >
-            <Text style={styles.dropdownTitle} numberOfLines={1}>
-              {name || "منسق"}
-            </Text>
-            <Text style={styles.dropdownSubtitle} numberOfLines={1}>
-              {phoneDisplay}
-            </Text>
-            <View style={styles.dropdownDivider} />
-            <Pressable
-              style={styles.dropdownRow}
-              onPress={() => void logout()}
-              accessibilityRole="button"
-              accessibilityLabel="تسجيل الخروج"
-            >
-              <Ionicons name="log-out-outline" size={22} color="#fecaca" />
-              <Text style={styles.dropdownLogoutText}>تسجيل الخروج</Text>
-            </Pressable>
+        <View style={[styles.menuModalRoot, styles.rtlScreen]} pointerEvents="box-none">
+          <Pressable
+            style={styles.menuBackdrop}
+            onPress={() => {
+              setUserMenuOpen(false);
+              setUserMenuAnchor(null);
+            }}
+          />
+          {/* طبقة LTR فقط لموضع القائمة: measureInWindow إحداثيات فيزيائية؛ مع RTL العام كان left يُعكس */}
+          <View style={styles.menuPositionLayer} pointerEvents="box-none">
+            {userMenuAnchor ? (
+              <View
+                style={[
+                  styles.dropdownPanel,
+                  {
+                    top: userMenuAnchor.top,
+                    left: userMenuAnchor.left,
+                    width: userMenuAnchor.width
+                  }
+                ]}
+              >
+                <Text style={styles.dropdownTitle} numberOfLines={1}>
+                  {name || "منسق"}
+                </Text>
+                <Text style={styles.dropdownSubtitle} numberOfLines={1}>
+                  {phoneDisplay}
+                </Text>
+                <View style={styles.dropdownDivider} />
+                <Pressable
+                  style={styles.dropdownRow}
+                  onPress={() => void logout()}
+                  accessibilityRole="button"
+                  accessibilityLabel="تسجيل الخروج"
+                >
+                  <Text style={styles.dropdownLogoutText}>تسجيل الخروج</Text>
+                  <Ionicons name="log-out-outline" size={22} color="#fecaca" />
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         </View>
       </Modal>
 
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scroll, { paddingBottom: homeScrollBottomPad }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        automaticallyAdjustKeyboardInsets
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#38bdf8" />}
       >
         <View style={styles.hero}>
@@ -327,6 +368,10 @@ export default function HomeTab() {
             <Text style={styles.tileValue}>{orderStats.active}</Text>
             <Text style={styles.tileLabel}>رحلات نشطة</Text>
           </View>
+          <View style={[styles.statTile, styles.statTileStuck]}>
+            <Text style={styles.tileValue}>{orderStats.stuckToday}</Text>
+            <Text style={styles.tileLabel}>متعثرة اليوم</Text>
+          </View>
           <View style={[styles.statTile, styles.statTileDone]}>
             <Text style={styles.tileValue}>{orderStats.completed}</Text>
             <Text style={styles.tileLabel}>مكتملة</Text>
@@ -344,121 +389,144 @@ export default function HomeTab() {
         transparent
         onRequestClose={closeOrderModal}
       >
-        <View style={styles.modalRoot}>
+        <View style={[styles.modalRoot, styles.rtlScreen]}>
           <Pressable style={styles.modalBackdrop} onPress={closeOrderModal} accessibilityRole="button" />
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.modalKeyboard}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(insets.top, 12) : 0}
+            style={[styles.modalKeyboard, styles.rtlScreen]}
           >
-            <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>طلب جديد</Text>
-              <Pressable onPress={closeOrderModal} hitSlop={12} style={styles.modalClose}>
-                <Text style={styles.modalCloseText}>إغلاق</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.modalSubtitle}>يُبث الطلب فور الحفظ للسائقين حسب الخيار.</Text>
-
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalScrollContent}
-              keyboardShouldPersistTaps="handled"
+            <View
+              style={[
+                styles.modalSheet,
+                styles.rtlScreen,
+                {
+                  height: orderModalSheetMaxHeight,
+                  maxHeight: orderModalSheetMaxHeight,
+                  paddingBottom: Math.max(insets.bottom, 12)
+                }
+              ]}
             >
-              <Text style={styles.label}>من (الانطلاق)</Text>
-              <TextInput
-                value={fromAddr}
-                onChangeText={setFromAddr}
-                placeholder="عنوان أو وصف نقطة الانطلاق"
-                placeholderTextColor="#64748b"
-                style={styles.input}
-                textAlign="right"
-              />
-
-              <Text style={styles.label}>إلى (الوجهة)</Text>
-              <TextInput
-                value={toAddr}
-                onChangeText={setToAddr}
-                placeholder="عنوان أو وصف الوجهة"
-                placeholderTextColor="#64748b"
-                style={styles.input}
-                textAlign="right"
-              />
-
-              <Text style={styles.label}>رقم الزبون</Text>
-              <TextInput
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="07xxxxxxxx"
-                placeholderTextColor="#64748b"
-                style={styles.input}
-                keyboardType="phone-pad"
-                textAlign="right"
-              />
-
-              <Text style={styles.label}>تكلفة الطلب</Text>
-              <TextInput
-                value={amountText}
-                onChangeText={setAmountText}
-                placeholder="مثال: 25 أو 25.5"
-                placeholderTextColor="#64748b"
-                style={styles.input}
-                keyboardType="decimal-pad"
-                textAlign="right"
-              />
-
-              <Text style={styles.label}>من يستقبل الطلب؟</Text>
-              <View style={styles.row}>
-                <Pressable
-                  onPress={() => setBroadcast("ALL")}
-                  style={[styles.chip, broadcast === "ALL" && styles.chipOn]}
-                >
-                  <Text style={[styles.chipText, broadcast === "ALL" && styles.chipTextOn]}>جميع السائقين</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setBroadcast("NEAREST_THREE")}
-                  style={[styles.chip, broadcast === "NEAREST_THREE" && styles.chipOn]}
-                >
-                  <Text style={[styles.chipText, broadcast === "NEAREST_THREE" && styles.chipTextOn]}>
-                    أقرب 3 سائقين
-                  </Text>
-                </Pressable>
-              </View>
-
-              {broadcast === "NEAREST_THREE" ? (
-                <View style={styles.refBox}>
-                  <Text style={styles.refHint}>
-                    نحسب المسافة من موقعك الحالي إلى آخر مواقع السائقين المتصلين. يجب أن يسجّل السائق دخوله وموقعه عبر
-                    التطبيق.
-                  </Text>
-                  <Pressable
-                    onPress={fetchRefLocation}
-                    disabled={locLoading}
-                    style={[styles.refBtn, locLoading && styles.disabled]}
-                  >
-                    {locLoading ? (
-                      <ActivityIndicator color="#e2e8f0" />
-                    ) : (
-                      <Text style={styles.refBtnText}>موقعي كنقطة مرجعية</Text>
-                    )}
-                  </Pressable>
-                  {refLat != null && refLng != null ? (
-                    <Text style={styles.refOk}>✓ تم حفظ الإحداثيات</Text>
-                  ) : null}
-                </View>
-              ) : null}
-
-              <Pressable
-                onPress={submitOrder}
-                disabled={submitting}
-                style={[styles.submit, submitting && styles.disabled]}
+              <ScrollView
+                style={styles.modalScroll}
+                contentContainerStyle={[
+                  styles.modalScrollContent,
+                  { paddingBottom: Math.max(insets.bottom, 16) + 100 }
+                ]}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
               >
-                {submitting ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.submitText}>إنشاء الطلب وبثّه</Text>
-                )}
-              </Pressable>
-            </ScrollView>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>طلب جديد</Text>
+                  <Pressable onPress={closeOrderModal} hitSlop={12} style={styles.modalClose}>
+                    <Text style={styles.modalCloseText}>إغلاق</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.modalSubtitle}>
+                  يُبث الطلب فور الحفظ إلى جميع السائقين المؤهلين حسب نوع السيارة أدناه.
+                </Text>
+
+                <Text style={styles.label}>نوع السيارة المطلوب</Text>
+                <View style={styles.row}>
+                  <Pressable
+                    onPress={() => setVehicleRequirement("ANY")}
+                    style={[styles.chip, vehicleRequirement === "ANY" && styles.chipOn]}
+                  >
+                    <Text style={[styles.chipText, vehicleRequirement === "ANY" && styles.chipTextOn]}>غير مهم</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setVehicleRequirement("PUBLIC")}
+                    style={[styles.chip, vehicleRequirement === "PUBLIC" && styles.chipOn]}
+                  >
+                    <Text style={[styles.chipText, vehicleRequirement === "PUBLIC" && styles.chipTextOn]}>عامة</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setVehicleRequirement("PRIVATE")}
+                    style={[styles.chip, vehicleRequirement === "PRIVATE" && styles.chipOn]}
+                  >
+                    <Text style={[styles.chipText, vehicleRequirement === "PRIVATE" && styles.chipTextOn]}>خاصة</Text>
+                  </Pressable>
+                </View>
+
+                <Text style={styles.label}>من (الانطلاق)</Text>
+                <TextInput
+                  ref={orderFromRef}
+                  value={fromAddr}
+                  onChangeText={setFromAddr}
+                  placeholder="عنوان أو وصف نقطة الانطلاق"
+                  placeholderTextColor="#64748b"
+                  style={styles.input}
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => orderToRef.current?.focus()}
+                />
+
+                <Text style={styles.label}>إلى (الوجهة)</Text>
+                <TextInput
+                  ref={orderToRef}
+                  value={toAddr}
+                  onChangeText={setToAddr}
+                  placeholder="عنوان أو وصف الوجهة"
+                  placeholderTextColor="#64748b"
+                  style={styles.input}
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => orderPhoneRef.current?.focus()}
+                />
+
+                <Text style={styles.label}>رقم الزبون</Text>
+                <TextInput
+                  ref={orderPhoneRef}
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder="07xxxxxxxx"
+                  placeholderTextColor="#64748b"
+                  style={styles.input}
+                  keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "phone-pad"}
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => orderAmountRef.current?.focus()}
+                />
+
+                <Text style={styles.label}>تكلفة الطلب</Text>
+                <TextInput
+                  ref={orderAmountRef}
+                  value={amountText}
+                  onChangeText={setAmountText}
+                  placeholder="مثال: 25 أو 25.5"
+                  placeholderTextColor="#64748b"
+                  style={styles.input}
+                  keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "decimal-pad"}
+                  returnKeyType="done"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => void submitOrder()}
+                />
+
+                <Text style={styles.label}>ملاحظات إضافية (اختياري)</Text>
+                <TextInput
+                  value={orderNotes}
+                  onChangeText={setOrderNotes}
+                  placeholder="تعليمات للسائق، لون مميز، نقطة لقاء…"
+                  placeholderTextColor="#64748b"
+                  style={[styles.input, styles.inputMultiline]}
+                  multiline
+                  textAlignVertical="top"
+                />
+
+                <Pressable
+                  onPress={() => void submitOrder()}
+                  disabled={submitting}
+                  style={[styles.submit, submitting && styles.disabled]}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.submitText}>إنشاء الطلب وبثّه</Text>
+                  )}
+                </Pressable>
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
         </View>
@@ -468,9 +536,14 @@ export default function HomeTab() {
 }
 
 const styles = StyleSheet.create({
+  rtlScreen: {
+    direction: "rtl",
+    alignItems: "stretch"
+  },
   shell: {
     flex: 1,
-    backgroundColor: "#0f172a"
+    backgroundColor: "#0f172a",
+    direction: "rtl"
   },
   /** ارتفاع موحّد للّوجو وللأفتار (44). direction ltr يثبّت الشعار يسار الشاشة والأفتار يمينها مع RTL للنصوص. */
   topBar: {
@@ -506,6 +579,10 @@ const styles = StyleSheet.create({
     width: 128,
     maxWidth: "100%"
   },
+  avatarAnchor: {
+    justifyContent: "center",
+    alignItems: "center"
+  },
   avatarBtn: {
     justifyContent: "center",
     alignItems: "center"
@@ -527,10 +604,15 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(15, 23, 42, 0.55)"
   },
+  menuPositionLayer: {
+    ...StyleSheet.absoluteFillObject,
+    direction: "ltr",
+    pointerEvents: "box-none"
+  },
   dropdownPanel: {
     position: "absolute",
     minWidth: 220,
-    maxWidth: "85%",
+    direction: "rtl",
     backgroundColor: "#1e293b",
     borderRadius: 14,
     borderWidth: 1,
@@ -548,13 +630,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     color: "#f8fafc",
-    textAlign: "right"
+    ...rtlText
   },
   dropdownSubtitle: {
     marginTop: 4,
     fontSize: 13,
     color: "#94a3b8",
-    textAlign: "right"
+    ...rtlText
   },
   dropdownDivider: {
     height: 1,
@@ -564,7 +646,7 @@ const styles = StyleSheet.create({
   dropdownRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
+    justifyContent: "flex-start",
     gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 4
@@ -572,11 +654,22 @@ const styles = StyleSheet.create({
   dropdownLogoutText: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#fecaca"
+    color: "#fecaca",
+    ...rtlText,
+    flex: 1
+  },
+  scrollView: {
+    flex: 1,
+    alignSelf: "stretch",
+    width: "100%",
+    direction: "rtl"
   },
   scroll: {
+    flexGrow: 1,
     padding: 20,
-    paddingBottom: 40
+    alignItems: "stretch",
+    direction: "rtl",
+    width: "100%"
   },
   hero: {
     backgroundColor: "#1e293b",
@@ -584,30 +677,31 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: "#334155"
+    borderColor: "#334155",
+    alignItems: "stretch"
   },
   greeting: {
     fontSize: 22,
     fontWeight: "800",
     color: "#f8fafc",
-    textAlign: "right"
+    ...rtlText
   },
   email: {
     marginTop: 6,
     color: "#94a3b8",
-    textAlign: "right"
+    ...rtlText
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "800",
     color: "#e2e8f0",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 8
   },
   sectionHint: {
     fontSize: 14,
     color: "#94a3b8",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 16,
     lineHeight: 22
   },
@@ -615,27 +709,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#64748b",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 14,
     marginTop: -6
   },
   openOrderBtn: {
     backgroundColor: "#2563eb",
     paddingVertical: 16,
+    paddingHorizontal: 16,
     borderRadius: 12,
     alignItems: "center",
+    justifyContent: "center",
     marginBottom: 24
   },
   openOrderBtnText: {
     color: "#fff",
     fontWeight: "800",
-    fontSize: 16
+    fontSize: 16,
+    textAlign: "center",
+    writingDirection: "rtl",
+    width: "100%"
   },
   label: {
     color: "#94a3b8",
     fontSize: 13,
     fontWeight: "700",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 6,
     marginTop: 10
   },
@@ -647,7 +746,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     color: "#f8fafc",
-    fontSize: 16
+    fontSize: 16,
+    ...rtlText
+  },
+  inputMultiline: {
+    minHeight: 88,
+    paddingTop: 12
   },
   row: {
     flexDirection: "row",
@@ -671,41 +775,11 @@ const styles = StyleSheet.create({
   chipText: {
     color: "#94a3b8",
     fontWeight: "700",
-    fontSize: 14
+    fontSize: 14,
+    ...rtlText
   },
   chipTextOn: {
     color: "#38bdf8"
-  },
-  refBox: {
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "#0f172a",
-    borderWidth: 1,
-    borderColor: "#334155"
-  },
-  refHint: {
-    color: "#94a3b8",
-    fontSize: 13,
-    textAlign: "right",
-    lineHeight: 20,
-    marginBottom: 12
-  },
-  refBtn: {
-    backgroundColor: "#334155",
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center"
-  },
-  refBtnText: {
-    color: "#e2e8f0",
-    fontWeight: "800"
-  },
-  refOk: {
-    marginTop: 8,
-    color: "#4ade80",
-    textAlign: "right",
-    fontWeight: "700"
   },
   submit: {
     marginTop: 20,
@@ -735,13 +809,17 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    marginBottom: 4
+    marginBottom: 4,
+    alignItems: "stretch"
   },
   statTilePending: {
     borderColor: "#b45309"
   },
   statTileActive: {
     borderColor: "#2563eb"
+  },
+  statTileStuck: {
+    borderColor: "#c2410c"
   },
   statTileDone: {
     borderColor: "#15803d"
@@ -753,20 +831,20 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "800",
     color: "#38bdf8",
-    textAlign: "right"
+    ...rtlText
   },
   tileLabel: {
     marginTop: 6,
     fontSize: 13,
     color: "#94a3b8",
-    textAlign: "right",
+    ...rtlText,
     fontWeight: "700"
   },
   tileSub: {
     marginTop: 4,
     fontSize: 11,
     color: "#64748b",
-    textAlign: "right"
+    ...rtlText
   },
   modalRoot: {
     flex: 1,
@@ -778,16 +856,17 @@ const styles = StyleSheet.create({
   },
   modalKeyboard: {
     width: "100%",
-    maxHeight: "92%"
+    maxHeight: "92%",
+    flexShrink: 1
   },
   modalSheet: {
-    maxHeight: "92%",
+    width: "100%",
     backgroundColor: "#1e293b",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
     borderColor: "#334155",
-    paddingBottom: 8
+    overflow: "hidden"
   },
   modalHeader: {
     flexDirection: "row",
@@ -795,13 +874,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 18,
-    paddingBottom: 8
+    paddingBottom: 8,
+    alignSelf: "stretch"
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: "800",
     color: "#f8fafc",
-    textAlign: "right"
+    ...rtlText,
+    flex: 1
   },
   modalClose: {
     paddingVertical: 6,
@@ -810,21 +891,25 @@ const styles = StyleSheet.create({
   modalCloseText: {
     color: "#38bdf8",
     fontWeight: "800",
-    fontSize: 16
+    fontSize: 16,
+    ...rtlText
   },
   modalSubtitle: {
     paddingHorizontal: 20,
     paddingBottom: 12,
     color: "#94a3b8",
     fontSize: 13,
-    textAlign: "right",
+    ...rtlText,
     lineHeight: 20
   },
   modalScroll: {
-    flexGrow: 0
+    flex: 1,
+    minHeight: 0,
+    width: "100%"
   },
   modalScrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 32
+    alignItems: "stretch",
+    direction: "rtl"
   }
 });

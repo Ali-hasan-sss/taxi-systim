@@ -1,8 +1,88 @@
-import { CommissionType, OrderBroadcastTarget, OrderStatus, Prisma, Role } from "@prisma/client";
+import {
+  CommissionType,
+  FinancialTransactionType,
+  OrderBroadcastTarget,
+  OrderStatus,
+  Prisma,
+  Role
+} from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
 import { syriaCalendarDayIso } from "../../shared/syria-time";
+import { getDriverLocationsForNearest } from "../../socket";
 import type { CreateOrderDto } from "./orders.dto";
+import { driverMatchesOrderVehicle } from "./order-vehicle-filter";
+
+const orderIncludeDriverUser = {
+  driver: { include: { user: { select: { fullName: true, phone: true } } } }
+} as const;
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+async function listPendingVisibleToDriver(driverDbId: string) {
+  const driverRow = await prisma.driver.findUnique({
+    where: { id: driverDbId },
+    select: { vehicleKind: true }
+  });
+  const driverKind = driverRow?.vehicleKind ?? null;
+
+  const all = await prisma.order.findMany({
+    where: { status: OrderStatus.PENDING, driverId: null },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: 100,
+    include: orderIncludeDriverUser
+  });
+
+  const nearestLocs = await getDriverLocationsForNearest();
+  const out: typeof all = [];
+
+  for (const order of all) {
+    if (!driverMatchesOrderVehicle(order.vehicleRequirement, driverKind)) {
+      continue;
+    }
+    if (order.broadcastTarget === OrderBroadcastTarget.ALL) {
+      out.push(order);
+      continue;
+    }
+    const refLat = order.pickupLat;
+    const refLng = order.pickupLng;
+    if (refLat == null || refLng == null) {
+      out.push(order);
+      continue;
+    }
+    if (nearestLocs.length === 0) {
+      out.push(order);
+      continue;
+    }
+    const locIds = nearestLocs.map((d) => d.driverId);
+    const locKinds = await prisma.driver.findMany({
+      where: { id: { in: locIds } },
+      select: { id: true, vehicleKind: true }
+    });
+    const locKindMap = new Map(locKinds.map((r) => [r.id, r.vehicleKind]));
+    const ranked = nearestLocs
+      .map((d) => ({
+        ...d,
+        dKm: haversineKm(refLat, refLng, d.lat, d.lng),
+        vehicleKind: locKindMap.get(d.driverId) ?? null
+      }))
+      .filter((d) => driverMatchesOrderVehicle(order.vehicleRequirement, d.vehicleKind))
+      .sort((a, b) => a.dKm - b.dKm);
+    const topIds = new Set(ranked.slice(0, 3).map((d) => d.driverId));
+    if (topIds.has(driverDbId)) out.push(order);
+  }
+
+  return out;
+}
 
 const toNum = (d: Prisma.Decimal | number) => Number(d);
 
@@ -29,7 +109,109 @@ function decodeOrderCursor(cursor: string): { createdAt: Date; id: string } | nu
   }
 }
 
+/** السائق «مشغول» ولا يقبل طلبًا جديدًا */
+const DRIVER_BUSY_STATUSES: OrderStatus[] = [
+  OrderStatus.EN_ROUTE_TO_CUSTOMER,
+  OrderStatus.STARTED,
+  OrderStatus.ACCEPTED,
+  OrderStatus.ARRIVED
+];
+
+/** في الطريق إلى الزبون (بما في ذلك القيم القديمة) */
+const EN_ROUTE_LIKE: OrderStatus[] = [
+  OrderStatus.EN_ROUTE_TO_CUSTOMER,
+  OrderStatus.ACCEPTED,
+  OrderStatus.ARRIVED
+];
+
+/** مقارنة نصية حتى لا يفشل PostgreSQL إن لم تُضف قيمة STUCK للـ enum بعد (قبل migrate). */
+async function countStuckTodaySyriaForCoordinator(coordinatorId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ c: bigint }>>`
+    SELECT COUNT(*)::bigint AS c
+    FROM "Order" o
+    WHERE o."coordinatorId" = ${coordinatorId}
+      AND o."status"::text = 'STUCK'
+      AND (
+        (o."updatedAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Damascus'
+      )::date = (
+        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')
+      )::date
+  `;
+  return Number(rows[0]?.c ?? 0n);
+}
+
+async function countStuckTodaySyriaForDriver(driverId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ c: bigint }>>`
+    SELECT COUNT(*)::bigint AS c
+    FROM "Order" o
+    WHERE o."driverId" = ${driverId}
+      AND o."status"::text = 'STUCK'
+      AND (
+        (o."updatedAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Damascus'
+      )::date = (
+        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')
+      )::date
+  `;
+  return Number(rows[0]?.c ?? 0n);
+}
+
+/**
+ * مجموع العمولة المستحقة (غير المسددة بعد) للطلبات التي أُكملت «اليوم» بتوقيت دمشق.
+ * يطابق مجاميع `remainingAmount` في سجلات العمولة المرتبطة بهذه الطلبات.
+ */
+async function sumCommissionDueTodaySyriaForDriver(driverId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ s: string | null }>>`
+    SELECT COALESCE(SUM(c."remainingAmount"), 0)::text AS s
+    FROM "Commission" c
+    INNER JOIN "Order" o ON o.id = c."orderId"
+    WHERE c."driverId" = ${driverId}
+      AND o."completedAt" IS NOT NULL
+      AND (
+        (o."completedAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Damascus'
+      )::date = (
+        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')
+      )::date
+  `;
+  const t = rows[0]?.s ?? "0";
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export const ordersService = {
+  serializeDriverOrderRow(row: Prisma.OrderGetPayload<{ include: typeof orderIncludeDriverUser }>) {
+    return {
+      id: row.id,
+      driverId: row.driverId,
+      customerName: row.customerName,
+      customerPhone: row.customerPhone,
+      pickupAddress: row.pickupAddress,
+      dropoffAddress: row.dropoffAddress,
+      amount: row.amount.toString(),
+      status: row.status,
+      broadcastTarget: row.broadcastTarget,
+      vehicleRequirement: row.vehicleRequirement,
+      notes: row.notes,
+      createdAt: row.createdAt.toISOString(),
+      driver: row.driver
+        ? {
+            id: row.driver.id,
+            user: {
+              fullName: row.driver.user.fullName ?? "",
+              phone: row.driver.user.phone ?? null
+            },
+            vehicleBrand: row.driver.vehicleBrand ?? null,
+            vehicleColor: row.driver.vehicleColor ?? null,
+            vehicleNumber: row.driver.vehicleNumber ?? null,
+            vehicleKind: row.driver.vehicleKind ?? null
+          }
+        : null
+    };
+  },
+
+  serializeCoordinatorOrderRow(row: Prisma.OrderGetPayload<{ include: typeof orderIncludeDriverUser }>) {
+    return this.serializeDriverOrderRow(row);
+  },
+
   async createOrder(coordinatorUserId: string, payload: CreateOrderDto) {
     const coordinator = await prisma.coordinator.upsert({
       where: { userId: coordinatorUserId },
@@ -48,7 +230,8 @@ export const ordersService = {
         pickupAddress: payload.pickupAddress.trim(),
         dropoffAddress: payload.dropoffAddress.trim(),
         amount: payload.amount,
-        notes: payload.notes?.trim(),
+        notes: payload.notes?.trim() || undefined,
+        vehicleRequirement: payload.vehicleRequirement,
         broadcastTarget: payload.broadcastTarget,
         pickupLat: payload.pickupLat,
         pickupLng: payload.pickupLng,
@@ -65,16 +248,60 @@ export const ordersService = {
       where: { id: orderId, coordinatorId: coordinator.id }
     });
     if (!order) throw new AppError("الطلب غير موجود", 404);
-    if (order.status !== OrderStatus.PENDING) {
-      throw new AppError("يمكن إلغاء الطلب المعلق فقط قبل استلام سائق", 400);
-    }
-    if (order.driverId) {
-      throw new AppError("الطلب مُسندًا بالفعل", 400);
+
+    if (order.status === OrderStatus.PENDING) {
+      if (order.driverId) {
+        throw new AppError("الطلب مُسندًا بالفعل", 400);
+      }
+      return prisma.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
+      });
     }
 
-    return prisma.order.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
+    if (order.status === OrderStatus.STUCK) {
+      return prisma.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
+      });
+    }
+
+    throw new AppError("يمكن إلغاء الطلب المعلق قبل الإسناد، أو الطلب المتعثر فقط", 400);
+  },
+
+  /** إعادة طلب متعثر لنفس السائق: «في الطريق إلى الزبون» وتعيين السائق مشغولًا. */
+  async resumeStuckOrderByCoordinator(coordinatorUserId: string, orderId: string) {
+    return prisma.$transaction(async (tx) => {
+      const coordinator = await tx.coordinator.findUnique({ where: { userId: coordinatorUserId } });
+      if (!coordinator) throw new AppError("ملف المنسق غير موجود", 404);
+
+      const order = await tx.order.findFirst({
+        where: { id: orderId, coordinatorId: coordinator.id, status: OrderStatus.STUCK }
+      });
+      if (!order) throw new AppError("الطلب غير موجود أو ليس في حالة متعثرة", 404);
+      if (!order.driverId) throw new AppError("لا يوجد سائق مرتبط بهذا الطلب", 400);
+
+      const otherActive = await tx.order.findFirst({
+        where: {
+          driverId: order.driverId,
+          id: { not: orderId },
+          status: { in: DRIVER_BUSY_STATUSES }
+        }
+      });
+      if (otherActive) {
+        throw new AppError("السائق منشغل بطلب آخر قيد التنفيذ. أنهِه أولًا.", 400);
+      }
+
+      await tx.driver.update({
+        where: { id: order.driverId },
+        data: { isBusy: true }
+      });
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.EN_ROUTE_TO_CUSTOMER },
+        include: orderIncludeDriverUser
+      });
     });
   },
 
@@ -101,6 +328,9 @@ export const ordersService = {
       });
       if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
       if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
+      if (!driverMatchesOrderVehicle(order.vehicleRequirement, driver.vehicleKind)) {
+        throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة)", 400);
+      }
 
       await tx.driver.update({
         where: { id: driverId },
@@ -111,7 +341,7 @@ export const ordersService = {
         where: { id: orderId },
         data: {
           driverId,
-          status: OrderStatus.ACCEPTED,
+          status: OrderStatus.EN_ROUTE_TO_CUSTOMER,
           acceptedAt: new Date()
         },
         include: {
@@ -127,7 +357,14 @@ export const ordersService = {
   async listForCoordinator(
     coordinatorUserId: string,
     scope: "active" | "archive" = "active",
-    opts?: { limit?: number; cursor?: string | null }
+    opts?: {
+      limit?: number;
+      cursor?: string | null;
+      /** نشط: معلّق / في الطريق / متعثرة — بدونها = كل النشط */
+      activeSegment?: "pending" | "in_progress" | "stuck";
+      /** أرشيف: مكتمل أو ملغى — بدونها = الاثنان */
+      archiveSegment?: "completed" | "cancelled";
+    }
   ) {
     const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
     if (!coordinator) {
@@ -138,10 +375,27 @@ export const ordersService = {
     const limit = Math.min(COORDINATOR_ORDERS_PAGE_MAX, Math.max(1, rawLimit));
     const decoded = opts?.cursor ? decodeOrderCursor(opts.cursor) : null;
 
-    const statusWhere =
+    const inProgressStatuses = [
+      OrderStatus.EN_ROUTE_TO_CUSTOMER,
+      OrderStatus.STARTED,
+      OrderStatus.ACCEPTED,
+      OrderStatus.ARRIVED
+    ] as const;
+
+    const statusWhere: Prisma.OrderWhereInput =
       scope === "archive"
-        ? { status: { in: [OrderStatus.COMPLETED, OrderStatus.CANCELLED] } }
-        : { status: { notIn: [OrderStatus.COMPLETED, OrderStatus.CANCELLED] } };
+        ? opts?.archiveSegment === "completed"
+          ? { status: OrderStatus.COMPLETED }
+          : opts?.archiveSegment === "cancelled"
+            ? { status: OrderStatus.CANCELLED }
+            : { status: { in: [OrderStatus.COMPLETED, OrderStatus.CANCELLED] } }
+        : opts?.activeSegment === "pending"
+          ? { status: OrderStatus.PENDING }
+          : opts?.activeSegment === "in_progress"
+            ? { status: { in: [...inProgressStatuses] } }
+            : opts?.activeSegment === "stuck"
+              ? { status: OrderStatus.STUCK }
+              : { status: { notIn: [OrderStatus.COMPLETED, OrderStatus.CANCELLED] } };
 
     const cursorWhere: Prisma.OrderWhereInput | undefined = decoded
       ? {
@@ -161,13 +415,67 @@ export const ordersService = {
       where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take,
-      include: {
-        driver: {
-          include: {
-            user: { select: { fullName: true, phone: true } }
-          }
+      include: orderIncludeDriverUser
+    });
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasMore && page.length > 0 ? encodeOrderCursor(page[page.length - 1]!) : null;
+
+    return { orders: page, nextCursor };
+  },
+
+  /** طلبات السائق المسندة إليه: نشط = غير مكتمل/ملغى، أرشيف = مكتمل أو ملغى أو متعثر (أو شريحة واحدة عبر archiveSegment). */
+  async listForDriver(
+    driverUserId: string,
+    scope: "active" | "archive" = "active",
+    opts?: {
+      limit?: number;
+      cursor?: string | null;
+      archiveSegment?: "completed" | "cancelled" | "stuck";
+    }
+  ) {
+    const driver = await prisma.driver.findUnique({ where: { userId: driverUserId } });
+    if (!driver) {
+      return { orders: [], nextCursor: null };
+    }
+
+    const rawLimit = opts?.limit ?? COORDINATOR_ORDERS_PAGE_DEFAULT;
+    const limit = Math.min(COORDINATOR_ORDERS_PAGE_MAX, Math.max(1, rawLimit));
+    const decoded = opts?.cursor ? decodeOrderCursor(opts.cursor) : null;
+
+    const archiveStatuses = (() => {
+      const seg = opts?.archiveSegment;
+      if (seg === "completed") return [OrderStatus.COMPLETED];
+      if (seg === "cancelled") return [OrderStatus.CANCELLED];
+      if (seg === "stuck") return [OrderStatus.STUCK];
+      return [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.STUCK];
+    })();
+
+    const statusWhere =
+      scope === "archive"
+        ? { status: { in: archiveStatuses } }
+        : { status: { notIn: [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.STUCK] } };
+
+    const cursorWhere: Prisma.OrderWhereInput | undefined = decoded
+      ? {
+          OR: [
+            { createdAt: { lt: decoded.createdAt } },
+            { AND: [{ createdAt: decoded.createdAt }, { id: { lt: decoded.id } }] }
+          ]
         }
-      }
+      : undefined;
+
+    const baseWhere: Prisma.OrderWhereInput = { driverId: driver.id, ...statusWhere };
+    const where: Prisma.OrderWhereInput = cursorWhere ? { AND: [baseWhere, cursorWhere] } : baseWhere;
+
+    const take = limit + 1;
+    const rows = await prisma.order.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take,
+      include: orderIncludeDriverUser
     });
 
     const hasMore = rows.length > limit;
@@ -182,7 +490,15 @@ export const ordersService = {
   async orderStatsForDriver(driverUserId: string) {
     const driver = await prisma.driver.findUnique({ where: { userId: driverUserId } });
     if (!driver) {
-      return { active: 0, pending: 0, completed: 0, cancelled: 0 };
+      return {
+        active: 0,
+        pending: 0,
+        completed: 0,
+        cancelled: 0,
+        stuckToday: 0,
+        commissionDueTodaySyria: 0,
+        summaryDaySyria: syriaCalendarDayIso()
+      };
     }
 
     const grouped = await prisma.order.groupBy({
@@ -194,12 +510,26 @@ export const ordersService = {
     const count = (status: OrderStatus) => grouped.find((g) => g.status === status)?._count._all ?? 0;
 
     const active =
-      count(OrderStatus.ACCEPTED) + count(OrderStatus.ARRIVED) + count(OrderStatus.STARTED);
+      count(OrderStatus.EN_ROUTE_TO_CUSTOMER) +
+      count(OrderStatus.STARTED) +
+      count(OrderStatus.ACCEPTED) +
+      count(OrderStatus.ARRIVED);
     const pending = count(OrderStatus.PENDING);
     const completed = count(OrderStatus.COMPLETED);
     const cancelled = count(OrderStatus.CANCELLED);
+    const summaryDaySyria = syriaCalendarDayIso();
+    const stuckToday = await countStuckTodaySyriaForDriver(driver.id);
+    const commissionDueTodaySyria = await sumCommissionDueTodaySyriaForDriver(driver.id);
 
-    return { active, pending, completed, cancelled };
+    return {
+      active,
+      pending,
+      completed,
+      cancelled,
+      stuckToday,
+      commissionDueTodaySyria,
+      summaryDaySyria
+    };
   },
 
   /**
@@ -211,7 +541,15 @@ export const ordersService = {
 
     const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
     if (!coordinator) {
-      return { active: 0, pending: 0, completed: 0, cancelled: 0, summaryDaySyria };
+      return {
+        active: 0,
+        pending: 0,
+        completed: 0,
+        cancelled: 0,
+        stuckToday: 0,
+        stuckActive: 0,
+        summaryDaySyria
+      };
     }
 
     const rows = await prisma.$queryRaw<Array<{ status: OrderStatus; cnt: bigint }>>`
@@ -232,26 +570,171 @@ export const ordersService = {
     };
 
     const active =
-      count(OrderStatus.ACCEPTED) + count(OrderStatus.ARRIVED) + count(OrderStatus.STARTED);
+      count(OrderStatus.EN_ROUTE_TO_CUSTOMER) +
+      count(OrderStatus.STARTED) +
+      count(OrderStatus.ACCEPTED) +
+      count(OrderStatus.ARRIVED);
     const pending = count(OrderStatus.PENDING);
     const completed = count(OrderStatus.COMPLETED);
     const cancelled = count(OrderStatus.CANCELLED);
+    const stuckToday = await countStuckTodaySyriaForCoordinator(coordinator.id);
+    const stuckActive = await prisma.order.count({
+      where: { coordinatorId: coordinator.id, status: OrderStatus.STUCK }
+    });
 
-    return { active, pending, completed, cancelled, summaryDaySyria };
+    return { active, pending, completed, cancelled, stuckToday, stuckActive, summaryDaySyria };
   },
 
-  async acceptOrder(orderId: string, driverId: string) {
-    return prisma.order.updateMany({
-      where: { id: orderId, status: OrderStatus.PENDING },
-      data: { status: OrderStatus.ACCEPTED, driverId, acceptedAt: new Date() }
+  /** غرفة السائق: طلب قيد التنفيذ فقط إن وُجد، وإلا الطلبات المعلقة المتاحة له (بث). */
+  async driverOrderRoom(driverUserId: string) {
+    const driver = await prisma.driver.findUnique({ where: { userId: driverUserId } });
+    if (!driver) {
+      return { inProgress: null, pending: [] };
+    }
+
+    const inProgress = await prisma.order.findFirst({
+      where: {
+        driverId: driver.id,
+        status: { in: DRIVER_BUSY_STATUSES }
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      include: orderIncludeDriverUser
+    });
+
+    if (inProgress) {
+      return { inProgress, pending: [] };
+    }
+
+    if (!driver.isOnline) {
+      return { inProgress: null, pending: [] };
+    }
+
+    const pending = await listPendingVisibleToDriver(driver.id);
+    return { inProgress: null, pending };
+  },
+
+  async acceptOrderByDriver(driverUserId: string, orderId: string) {
+    return prisma.$transaction(async (tx) => {
+      const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+      if (driver.isBusy) throw new AppError("لديك طلب قيد التنفيذ. أنهِه أولًا.", 400);
+
+      const busyOrder = await tx.order.findFirst({
+        where: {
+          driverId: driver.id,
+          status: { in: DRIVER_BUSY_STATUSES }
+        }
+      });
+      if (busyOrder) throw new AppError("لديك طلب قيد التنفيذ. أنهِه أولًا.", 400);
+
+      const orderRow = await tx.order.findFirst({
+        where: { id: orderId, status: OrderStatus.PENDING, driverId: null }
+      });
+      if (!orderRow) throw new AppError("الطلب غير متاح أو قبِلَه سائق آخر", 409);
+      if (!driverMatchesOrderVehicle(orderRow.vehicleRequirement, driver.vehicleKind)) {
+        throw new AppError("نوع سيارتك لا يطابق متطلب هذا الطلب (عامة/خاصة)", 400);
+      }
+
+      const updated = await tx.order.updateMany({
+        where: { id: orderId, status: OrderStatus.PENDING, driverId: null },
+        data: {
+          driverId: driver.id,
+          status: OrderStatus.EN_ROUTE_TO_CUSTOMER,
+          acceptedAt: new Date()
+        }
+      });
+      if (updated.count !== 1) {
+        throw new AppError("الطلب غير متاح أو قبِلَه سائق آخر", 409);
+      }
+
+      await tx.driver.update({
+        where: { id: driver.id },
+        data: { isBusy: true }
+      });
+
+      return tx.order.findFirstOrThrow({
+        where: { id: orderId },
+        include: orderIncludeDriverUser
+      });
     });
   },
 
-  async completeOrder(orderId: string) {
+  async markCustomerBoardedByDriver(driverUserId: string, orderId: string) {
     return prisma.$transaction(async (tx) => {
+      const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+
+      const order = await tx.order.findFirst({
+        where: {
+          id: orderId,
+          driverId: driver.id,
+          status: { in: EN_ROUTE_LIKE }
+        }
+      });
+      if (!order) {
+        throw new AppError("الطلب غير موجود أو لا يمكن تأكيد الركوب في هذه المرحلة", 400);
+      }
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.STARTED,
+          startedAt: order.startedAt ?? new Date()
+        },
+        include: orderIncludeDriverUser
+      });
+    });
+  },
+
+  async reportCustomerNoShowByDriver(driverUserId: string, orderId: string) {
+    return prisma.$transaction(async (tx) => {
+      const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+
+      const order = await tx.order.findFirst({
+        where: {
+          id: orderId,
+          driverId: driver.id,
+          status: { in: EN_ROUTE_LIKE }
+        }
+      });
+      if (!order) {
+        throw new AppError("الطلب غير موجود أو لا يمكن تسجيل «لم أجد الزبون» في هذه المرحلة", 400);
+      }
+
+      await tx.driver.update({
+        where: { id: driver.id },
+        data: { isBusy: false }
+      });
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.STUCK },
+        include: orderIncludeDriverUser
+      });
+    });
+  },
+
+  async completeOrder(orderId: string, driverUserId: string) {
+    return prisma.$transaction(async (tx) => {
+      const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+
       const order = await tx.order.findUnique({ where: { id: orderId } });
-      if (!order || !order.driverId) throw new AppError("Invalid order", 400);
-      if (order.status === OrderStatus.COMPLETED) return order;
+      if (!order || order.driverId !== driver.id) {
+        throw new AppError("الطلب غير موجود أو غير مصرح بإكماله", 404);
+      }
+
+      if (order.status === OrderStatus.COMPLETED) {
+        return tx.order.findFirstOrThrow({
+          where: { id: orderId },
+          include: orderIncludeDriverUser
+        });
+      }
+
+      if (order.status !== OrderStatus.STARTED) {
+        throw new AppError("أكمل «تم ركوب الزبون» أولًا ثم «تم توصيل الزبون».", 400);
+      }
 
       const setting = await tx.systemSettings.findFirst({ where: { key: "commission" } });
       if (!setting) throw new AppError("Missing commission settings", 400);
@@ -308,39 +791,111 @@ export const ordersService = {
         }
       });
 
-      return order;
+      return tx.order.findFirstOrThrow({
+        where: { id: orderId },
+        include: orderIncludeDriverUser
+      });
+    });
+  },
+
+  /**
+   * تعديل أجرة طلب مكتمل: يعيد حساب العمولة ويحدّث رصيد السائق إن وُجدت عمولة غير مُسدَّدة بعد.
+   * لا يُسمح إن وُجدت دفعات على سجل العمولة.
+   */
+  async updateCompletedOrderAmountByCoordinator(coordinatorUserId: string, orderId: string, newAmount: number) {
+    const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
+    if (!coordinator) throw new AppError("ملف المنسق غير موجود", 404);
+
+    if (!Number.isFinite(newAmount) || newAmount <= 0) {
+      throw new AppError("المبلغ يجب أن يكون رقمًا أكبر من صفر", 400);
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({
+        where: { id: orderId, coordinatorId: coordinator.id, status: OrderStatus.COMPLETED }
+      });
+      if (!order) {
+        throw new AppError("الطلب غير موجود أو ليس مكتملًا أو لا يخصّك", 404);
+      }
+
+      const oldAmount = toNum(order.amount);
+      if (oldAmount === newAmount) {
+        return tx.order.findFirstOrThrow({
+          where: { id: orderId },
+          include: orderIncludeDriverUser
+        });
+      }
+
+      const setting = await tx.systemSettings.findFirst({ where: { key: "commission" } });
+      if (!setting) throw new AppError("إعدادات العمولة غير موجودة", 400);
+
+      const settingValue = toNum(setting.commissionValue);
+      const newCalculated =
+        setting.commissionType === CommissionType.PERCENTAGE
+          ? (newAmount * settingValue) / 100
+          : settingValue;
+
+      const commission = await tx.commission.findUnique({ where: { orderId: order.id } });
+
+      if (commission) {
+        const paid = toNum(commission.paidAmount);
+        if (paid > 0) {
+          throw new AppError("لا يمكن تعديل الأجرة بعد تسديد جزء من عمولة السائق", 400);
+        }
+
+        const oldCalculated = toNum(commission.calculatedCommission);
+        const dEarnings = newAmount - oldAmount;
+        const dCommission = newCalculated - oldCalculated;
+        const dAvailable = newAmount - newCalculated - (oldAmount - oldCalculated);
+
+        await tx.commission.update({
+          where: { orderId: order.id },
+          data: {
+            orderAmount: new Prisma.Decimal(newAmount.toFixed(2)),
+            commissionType: setting.commissionType,
+            commissionValue: setting.commissionValue,
+            calculatedCommission: new Prisma.Decimal(newCalculated.toFixed(2)),
+            remainingAmount: new Prisma.Decimal(newCalculated.toFixed(2))
+          }
+        });
+
+        if (order.driverId) {
+          const balance = await tx.driverBalance.findUnique({ where: { driverId: order.driverId } });
+          if (balance) {
+            await tx.driverBalance.update({
+              where: { driverId: order.driverId },
+              data: {
+                totalEarnings: new Prisma.Decimal((toNum(balance.totalEarnings) + dEarnings).toFixed(2)),
+                totalCommissions: new Prisma.Decimal((toNum(balance.totalCommissions) + dCommission).toFixed(2)),
+                remainingDebt: new Prisma.Decimal((toNum(balance.remainingDebt) + dCommission).toFixed(2)),
+                availableBalance: new Prisma.Decimal((toNum(balance.availableBalance) + dAvailable).toFixed(2))
+              }
+            });
+          }
+
+          await tx.financialTransaction.create({
+            data: {
+              driverId: order.driverId,
+              type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+              amount: new Prisma.Decimal(dCommission.toFixed(2)),
+              notes: `تعديل أجرة الطلب: ${oldAmount} → ${newAmount} (فرق عمولة ${dCommission})`,
+              referenceId: order.id
+            }
+          });
+        }
+      }
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: { amount: new Prisma.Decimal(newAmount.toFixed(2)) }
+      });
+
+      return tx.order.findFirstOrThrow({
+        where: { id: orderId },
+        include: orderIncludeDriverUser
+      });
     });
   }
 };
 
-export function orderToSocketPayload(order: {
-  id: string;
-  coordinatorId: string;
-  driverId: string | null;
-  customerName: string;
-  customerPhone: string | null;
-  pickupAddress: string;
-  dropoffAddress: string;
-  pickupLat: number | null;
-  pickupLng: number | null;
-  amount: Prisma.Decimal;
-  status: OrderStatus;
-  broadcastTarget: OrderBroadcastTarget;
-  createdAt: Date;
-}) {
-  return {
-    orderId: order.id,
-    coordinatorId: order.coordinatorId,
-    driverId: order.driverId,
-    customerName: order.customerName,
-    customerPhone: order.customerPhone,
-    pickupAddress: order.pickupAddress,
-    dropoffAddress: order.dropoffAddress,
-    pickupLat: order.pickupLat,
-    pickupLng: order.pickupLng,
-    amount: toNum(order.amount),
-    status: order.status,
-    broadcastTarget: order.broadcastTarget,
-    createdAt: order.createdAt.toISOString()
-  };
-}
+export { orderToSocketPayload } from "./order-socket-payload";

@@ -1,7 +1,18 @@
 import { z } from "zod";
+import { VehicleKind } from "@prisma/client";
 import { isValidPhoneDigits, normalizePhoneDigits } from "../../shared/phone";
 
 export const roleEnum = z.enum(["ADMIN", "COORDINATOR", "DRIVER"]);
+
+const driverProfileDto = z
+  .object({
+    vehicleBrand: z.string().max(120).optional().nullable(),
+    vehicleKind: z.nativeEnum(VehicleKind).optional().nullable(),
+    vehicleColor: z.string().max(80).optional().nullable(),
+    /** رقم لوحة السيارة */
+    plateNumber: z.string().max(40).optional().nullable()
+  })
+  .optional();
 
 export const listUsersQueryDto = z.object({
   role: roleEnum.optional(),
@@ -17,7 +28,8 @@ export const createUserDto = z
     password: z.string().min(6),
     fullName: z.string().min(2),
     phone: z.string().optional(),
-    role: roleEnum
+    role: roleEnum,
+    driverProfile: driverProfileDto
   })
   .superRefine((data, ctx) => {
     if (data.role === "ADMIN") {
@@ -47,7 +59,8 @@ export const updateUserDto = z
     password: z.string().min(6).optional(),
     fullName: z.string().min(2).optional(),
     phone: z.string().nullable().optional(),
-    role: roleEnum.optional()
+    role: roleEnum.optional(),
+    driverProfile: driverProfileDto
   })
   .superRefine((data, ctx) => {
     if (data.email !== undefined && data.email !== null && String(data.email).trim() !== "") {

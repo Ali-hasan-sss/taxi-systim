@@ -4,7 +4,9 @@ export type OrderStatus =
   | "PENDING"
   | "ACCEPTED"
   | "ARRIVED"
+  | "EN_ROUTE_TO_CUSTOMER"
   | "STARTED"
+  | "STUCK"
   | "COMPLETED"
   | "CANCELLED";
 

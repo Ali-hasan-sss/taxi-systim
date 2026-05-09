@@ -7,6 +7,7 @@ import {
   View,
   useWindowDimensions
 } from "react-native";
+import { rtlText } from "./rtl-text";
 
 export type FeedbackTone = "success" | "error" | "warning" | "info";
 
@@ -182,6 +183,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#334155",
     borderLeftWidth: 4,
+    direction: "rtl",
+    alignItems: "stretch",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
@@ -192,7 +195,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
     color: "#f8fafc",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 12,
     lineHeight: 26
   },
@@ -200,14 +203,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 24,
     color: "#cbd5e1",
-    textAlign: "right",
+    ...rtlText,
     marginBottom: 22
   },
   actionsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-    justifyContent: "flex-end",
+    justifyContent: "flex-start",
     marginTop: 4
   },
   btnSecondary: {
@@ -216,12 +219,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#334155",
     minWidth: 108,
-    alignItems: "center"
+    alignItems: "flex-start"
   },
   btnSecondaryText: {
     color: "#e2e8f0",
     fontWeight: "800",
-    fontSize: 15
+    fontSize: 15,
+    ...rtlText
   },
   btnDanger: {
     paddingVertical: 12,
@@ -229,12 +233,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#7f1d1d",
     minWidth: 128,
-    alignItems: "center"
+    alignItems: "flex-start"
   },
   btnDangerText: {
     color: "#fecaca",
     fontWeight: "800",
-    fontSize: 15
+    fontSize: 15,
+    ...rtlText
   },
   btnPrimary: {
     paddingVertical: 12,
@@ -242,7 +247,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#2563eb",
     minWidth: 108,
-    alignItems: "center"
+    alignItems: "flex-start"
   },
   btnPrimaryFull: {
     marginTop: 4,
@@ -250,12 +255,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 12,
     backgroundColor: "#2563eb",
-    alignItems: "center"
+    alignItems: "flex-start"
   },
   btnPrimaryText: {
     color: "#fff",
     fontWeight: "800",
-    fontSize: 16
+    fontSize: 16,
+    ...rtlText
   },
   pressed: {
     opacity: 0.88

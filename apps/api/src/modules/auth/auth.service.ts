@@ -157,5 +157,15 @@ export const authService = {
       select: { id: true }
     });
     return { ...user, coordinatorId: coordinator?.id ?? null };
+  },
+
+  async setExpoPushToken(userId: string, token: string) {
+    const t = token.trim();
+    if (!t) throw new AppError("رمز الإشعار غير صالح", 400);
+    await prisma.user.update({ where: { id: userId }, data: { expoPushToken: t } });
+  },
+
+  async clearExpoPushToken(userId: string) {
+    await prisma.user.update({ where: { id: userId }, data: { expoPushToken: null } });
   }
 };

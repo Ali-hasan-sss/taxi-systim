@@ -1,4 +1,8 @@
 import type { Request, Response } from "express";
+import type { Server } from "socket.io";
+import { Role } from "@prisma/client";
+import { resyncDriverOrderVehicleRooms } from "../../socket";
+import { prisma } from "../../shared/prisma";
 import { createUserDto, listUsersQueryDto, setStatusDto, updateUserDto } from "./users.dto";
 import { usersService } from "./users.service";
 
@@ -18,6 +22,13 @@ export const usersController = {
   async update(req: Request, res: Response) {
     const dto = updateUserDto.parse(req.body);
     const user = await usersService.update(req.params.userId, dto);
+    if (dto.driverProfile && user.role === Role.DRIVER) {
+      const io = req.app.get("io") as Server | undefined;
+      if (io) {
+        const row = await prisma.driver.findUnique({ where: { userId: user.id }, select: { id: true } });
+        if (row?.id) void resyncDriverOrderVehicleRooms(io, row.id);
+      }
+    }
     res.json(user);
   },
 

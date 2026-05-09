@@ -12,11 +12,14 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { coordinatorLogin } from "../src/lib/api";
 import { saveSession } from "../src/lib/session";
+import { rtlText } from "../src/lib/rtl-text";
 
 export default function LoginScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -52,11 +55,20 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.root}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={[
+        styles.root,
+        { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingHorizontal: 24 }
+      ]}
+      keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
+    >
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        automaticallyAdjustKeyboardInsets
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.card}>
           <Text style={styles.badge}>منسق</Text>
@@ -71,7 +83,6 @@ export default function LoginScreen() {
             placeholder="مثال: 07xxxxxxxx"
             placeholderTextColor="#64748b"
             style={styles.input}
-            textAlign="right"
             returnKeyType="next"
           />
 
@@ -84,7 +95,6 @@ export default function LoginScreen() {
               placeholder="••••••••"
               placeholderTextColor="#64748b"
               style={styles.inputPassword}
-              textAlign="right"
               autoCorrect={false}
               returnKeyType="done"
               onSubmitEditing={onLogin}
@@ -112,20 +122,22 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    padding: 24,
-    backgroundColor: "#0f172a"
+    backgroundColor: "#0f172a",
+    direction: "rtl"
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: "center",
-    paddingVertical: 24
+    paddingVertical: 16,
+    alignItems: "stretch"
   },
   card: {
     backgroundColor: "#1e293b",
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
-    borderColor: "#334155"
+    borderColor: "#334155",
+    alignItems: "stretch"
   },
   badge: {
     alignSelf: "flex-start",
@@ -143,21 +155,21 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: "800",
     color: "#f8fafc",
-    textAlign: "right"
+    ...rtlText
   },
   subtitle: {
     fontSize: 14,
     color: "#94a3b8",
     marginTop: 6,
     marginBottom: 24,
-    textAlign: "right",
+    ...rtlText,
     lineHeight: 22
   },
   label: {
     fontSize: 13,
     color: "#cbd5e1",
     marginBottom: 6,
-    textAlign: "right"
+    ...rtlText
   },
   input: {
     borderWidth: 1,
@@ -168,7 +180,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#f1f5f9",
     marginBottom: 14,
-    textAlign: "right"
+    ...rtlText
   },
   passwordRow: {
     flexDirection: "row",
@@ -177,7 +189,8 @@ const styles = StyleSheet.create({
     borderColor: "#475569",
     borderRadius: 12,
     marginBottom: 14,
-    paddingLeft: 8
+    paddingHorizontal: 8,
+    direction: "rtl"
   },
   inputPassword: {
     flex: 1,
@@ -185,7 +198,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: "#f1f5f9",
-    textAlign: "right"
+    ...rtlText
   },
   eyeBtn: {
     padding: 10
@@ -193,7 +206,7 @@ const styles = StyleSheet.create({
   error: {
     color: "#f87171",
     marginBottom: 12,
-    textAlign: "right",
+    ...rtlText,
     lineHeight: 22,
     fontSize: 14
   },
@@ -210,6 +223,7 @@ const styles = StyleSheet.create({
   buttonText: {
     color: "#fff",
     fontSize: 17,
-    fontWeight: "700"
+    fontWeight: "700",
+    ...rtlText
   }
 });

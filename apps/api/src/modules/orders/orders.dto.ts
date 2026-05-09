@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OrderBroadcastTarget } from "@prisma/client";
+import { OrderBroadcastTarget, OrderVehicleRequirement } from "@prisma/client";
 
 export const createOrderDto = z
   .object({
@@ -8,7 +8,8 @@ export const createOrderDto = z
     pickupAddress: z.string().min(2),
     dropoffAddress: z.string().min(2),
     amount: z.number().positive(),
-    notes: z.string().optional(),
+    notes: z.string().max(2000).optional(),
+    vehicleRequirement: z.nativeEnum(OrderVehicleRequirement).default(OrderVehicleRequirement.ANY),
     broadcastTarget: z.nativeEnum(OrderBroadcastTarget).default(OrderBroadcastTarget.ALL),
     pickupLat: z.number().finite().optional(),
     pickupLng: z.number().finite().optional()
@@ -39,3 +40,9 @@ export const assignOrderDto = z.object({
 });
 
 export type AssignOrderDto = z.infer<typeof assignOrderDto>;
+
+export const updateCompletedOrderAmountDto = z.object({
+  amount: z.number().positive()
+});
+
+export type UpdateCompletedOrderAmountDto = z.infer<typeof updateCompletedOrderAmountDto>;

@@ -9,6 +9,15 @@ function queryParamQ(raw: unknown): string | undefined {
 }
 
 export const driversController = {
+  async me(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const profile = await driversService.profileForDriver(req.auth!.userId);
+      res.json(profile);
+    } catch (e) {
+      next(e);
+    }
+  },
+
   async forAssignment(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const q = queryParamQ(req.query.q);

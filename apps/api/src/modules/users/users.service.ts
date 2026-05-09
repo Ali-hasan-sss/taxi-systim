@@ -1,8 +1,15 @@
 import bcrypt from "bcryptjs";
-import { Role } from "@prisma/client";
+import { Role, VehicleKind } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
 import { normalizePhoneDigits } from "../../shared/phone";
+
+export type DriverProfilePayload = {
+  vehicleBrand?: string | null;
+  vehicleKind?: VehicleKind | null;
+  vehicleColor?: string | null;
+  plateNumber?: string | null;
+};
 
 export const usersService = {
   async list(filters: { role?: Role; isActive?: boolean }) {
@@ -18,7 +25,15 @@ export const usersService = {
         phone: true,
         role: true,
         isActive: true,
-        createdAt: true
+        createdAt: true,
+        driver: {
+          select: {
+            vehicleBrand: true,
+            vehicleKind: true,
+            vehicleColor: true,
+            vehicleNumber: true
+          }
+        }
       },
       orderBy: { createdAt: "desc" }
     });
@@ -30,6 +45,7 @@ export const usersService = {
     fullName: string;
     phone?: string;
     role: Role;
+    driverProfile?: DriverProfilePayload;
   }) {
     const passwordHash = await bcrypt.hash(payload.password, 10);
     const email =
@@ -67,6 +83,18 @@ export const usersService = {
       });
       if (payload.role === Role.DRIVER) {
         await tx.driver.create({ data: { userId: user.id } });
+        if (payload.driverProfile) {
+          const dp = payload.driverProfile;
+          await tx.driver.update({
+            where: { userId: user.id },
+            data: {
+              vehicleBrand: dp.vehicleBrand?.trim() || null,
+              vehicleKind: dp.vehicleKind ?? null,
+              vehicleColor: dp.vehicleColor?.trim() || null,
+              vehicleNumber: dp.plateNumber?.trim() || null
+            }
+          });
+        }
       }
       return user;
     });
@@ -74,7 +102,14 @@ export const usersService = {
 
   async update(
     userId: string,
-    payload: { email?: string; password?: string; fullName?: string; phone?: string | null; role?: Role }
+    payload: {
+      email?: string;
+      password?: string;
+      fullName?: string;
+      phone?: string | null;
+      role?: Role;
+      driverProfile?: DriverProfilePayload;
+    }
   ) {
     const existing = await prisma.user.findUnique({ where: { id: userId } });
     if (!existing) throw new AppError("المستخدم غير موجود", 404);
@@ -135,6 +170,25 @@ export const usersService = {
         create: { userId: updated.id },
         update: {}
       });
+      if (payload.driverProfile) {
+        const dp = payload.driverProfile;
+        const data: {
+          vehicleBrand?: string | null;
+          vehicleKind?: VehicleKind | null;
+          vehicleColor?: string | null;
+          vehicleNumber?: string | null;
+        } = {};
+        if (dp.vehicleBrand !== undefined) data.vehicleBrand = dp.vehicleBrand?.trim() || null;
+        if (dp.vehicleKind !== undefined) data.vehicleKind = dp.vehicleKind;
+        if (dp.vehicleColor !== undefined) data.vehicleColor = dp.vehicleColor?.trim() || null;
+        if (dp.plateNumber !== undefined) data.vehicleNumber = dp.plateNumber?.trim() || null;
+        if (Object.keys(data).length > 0) {
+          await prisma.driver.update({
+            where: { userId: updated.id },
+            data
+          });
+        }
+      }
     }
     return updated;
   },

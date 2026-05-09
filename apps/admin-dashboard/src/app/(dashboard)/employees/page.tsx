@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, type Employee } from "../../../lib/api";
+import { api, type Employee, type VehicleKind } from "../../../lib/api";
 
 type RoleFilter = "ALL" | "ADMIN" | "COORDINATOR" | "DRIVER";
 
@@ -11,6 +11,22 @@ const roleText: Record<Employee["role"], string> = {
   COORDINATOR: "منسق",
   DRIVER: "سائق"
 };
+
+const vehicleKindText: Record<VehicleKind, string> = {
+  PUBLIC: "عامة",
+  PRIVATE: "خاصة"
+};
+
+function formatDriverVehicleRow(item: Employee): string {
+  if (item.role !== "DRIVER" || !item.driver) return "—";
+  const d = item.driver;
+  const parts: string[] = [];
+  if (d.vehicleBrand?.trim()) parts.push(d.vehicleBrand.trim());
+  if (d.vehicleKind) parts.push(vehicleKindText[d.vehicleKind]);
+  if (d.vehicleColor?.trim()) parts.push(d.vehicleColor.trim());
+  if (d.vehicleNumber?.trim()) parts.push(`لوحة: ${d.vehicleNumber.trim()}`);
+  return parts.length ? parts.join(" · ") : "—";
+}
 
 export default function EmployeesPage() {
   const router = useRouter();
@@ -28,6 +44,10 @@ export default function EmployeesPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Employee["role"]>("COORDINATOR");
+  const [vehicleBrand, setVehicleBrand] = useState("");
+  const [vehicleKind, setVehicleKind] = useState<"" | VehicleKind>("");
+  const [vehicleColor, setVehicleColor] = useState("");
+  const [plateNumber, setPlateNumber] = useState("");
 
   const token = useMemo(() => {
     const raw = typeof window !== "undefined" ? localStorage.getItem("taxi_admin_session") : null;
@@ -74,8 +94,19 @@ export default function EmployeesPage() {
     setPhone("");
     setPassword("");
     setRole("COORDINATOR");
+    setVehicleBrand("");
+    setVehicleKind("");
+    setVehicleColor("");
+    setPlateNumber("");
     setShowModal(false);
   };
+
+  const driverProfilePayload = () => ({
+    vehicleBrand: vehicleBrand.trim() || null,
+    vehicleKind: vehicleKind === "" ? null : vehicleKind,
+    vehicleColor: vehicleColor.trim() || null,
+    plateNumber: plateNumber.trim() || null
+  });
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -103,6 +134,9 @@ export default function EmployeesPage() {
         } else {
           patch.phone = phone.trim();
         }
+        if (role === "DRIVER") {
+          patch.driverProfile = driverProfilePayload();
+        }
         await api.updateEmployee(token, editId, patch);
       } else if (role === "ADMIN") {
         await api.createEmployee(token, {
@@ -117,7 +151,8 @@ export default function EmployeesPage() {
           fullName: name,
           phone: phone.trim(),
           password,
-          role
+          role,
+          ...(role === "DRIVER" ? { driverProfile: driverProfilePayload() } : {})
         });
       }
       resetForm();
@@ -142,6 +177,11 @@ export default function EmployeesPage() {
     setPhone(item.phone ?? "");
     setPassword("");
     setRole(item.role);
+    const d = item.driver;
+    setVehicleBrand(d?.vehicleBrand?.trim() ?? "");
+    setVehicleKind(d?.vehicleKind ?? "");
+    setVehicleColor(d?.vehicleColor?.trim() ?? "");
+    setPlateNumber(d?.vehicleNumber?.trim() ?? "");
     setShowModal(true);
   };
 
@@ -199,6 +239,10 @@ export default function EmployeesPage() {
             setPhone("");
             setPassword("");
             setRole("COORDINATOR");
+            setVehicleBrand("");
+            setVehicleKind("");
+            setVehicleColor("");
+            setPlateNumber("");
             setShowModal(true);
           }}
         >
@@ -241,6 +285,7 @@ export default function EmployeesPage() {
                   <th>البريد</th>
                   <th>الهاتف</th>
                   <th>الدور</th>
+                  <th>المركبة (سائق)</th>
                   <th>الحالة</th>
                   <th>الإجراءات</th>
                 </tr>
@@ -252,6 +297,7 @@ export default function EmployeesPage() {
                     <td>{item.email ?? "—"}</td>
                     <td>{item.phone ?? "—"}</td>
                     <td>{roleText[item.role]}</td>
+                    <td className="employees-vehicle-cell">{formatDriverVehicleRow(item)}</td>
                     <td>
                       <label className="switch-row">
                         <button
@@ -328,6 +374,42 @@ export default function EmployeesPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required={!editId}
                 />
+                {role === "DRIVER" ? (
+                  <>
+                    <input
+                      className="input-styled"
+                      placeholder="ماركة السيارة"
+                      value={vehicleBrand}
+                      onChange={(e) => setVehicleBrand(e.target.value)}
+                    />
+                    <div className="select-wrap select-wrap--narrow">
+                      <select
+                        className="select-styled"
+                        value={vehicleKind}
+                        onChange={(e) => setVehicleKind(e.target.value as "" | VehicleKind)}
+                      >
+                        <option value="">نوع السيارة (اختياري)</option>
+                        <option value="PUBLIC">عامة</option>
+                        <option value="PRIVATE">خاصة</option>
+                      </select>
+                      <span className="select-wrap__chevron" aria-hidden>
+                        ▼
+                      </span>
+                    </div>
+                    <input
+                      className="input-styled"
+                      placeholder="لون السيارة"
+                      value={vehicleColor}
+                      onChange={(e) => setVehicleColor(e.target.value)}
+                    />
+                    <input
+                      className="input-styled"
+                      placeholder="رقم اللوحة"
+                      value={plateNumber}
+                      onChange={(e) => setPlateNumber(e.target.value)}
+                    />
+                  </>
+                ) : null}
               </div>
 
               <div className="select-wrap select-wrap--narrow">

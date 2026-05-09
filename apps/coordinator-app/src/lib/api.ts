@@ -94,6 +94,11 @@ export function getSocketOrigin(): string {
 
 export type OrderBroadcastTarget = "ALL" | "NEAREST_THREE";
 
+/** متطلب نوع السيارة للطلب (افتراضي الخادم: ANY = غير مهم) */
+export type OrderVehicleRequirement = "ANY" | "PUBLIC" | "PRIVATE";
+
+export type DriverVehicleKind = "PUBLIC" | "PRIVATE";
+
 export interface CoordinatorLoginResponse {
   accessToken: string;
   refreshToken: string;
@@ -181,6 +186,10 @@ export interface CoordinatorOrderStats {
   pending: number;
   completed: number;
   cancelled: number;
+  /** طلبات «متعثرة» سُجِّلت اليوم (توقيت سوريا) */
+  stuckToday: number;
+  /** طلبات STUCK الحالية للمنسق (للشارات) */
+  stuckActive?: number;
   /** YYYY-MM-DD اليوم المعتمد بتوقيت سوريا (دمشق) لهذه الإحصائية */
   summaryDaySyria?: string;
 }
@@ -202,12 +211,16 @@ export async function coordinatorOrderStats(accessToken: string): Promise<Coordi
     pending: typeof data.pending === "number" ? data.pending : 0,
     completed: typeof data.completed === "number" ? data.completed : 0,
     cancelled: typeof data.cancelled === "number" ? data.cancelled : 0,
+    stuckToday: typeof data.stuckToday === "number" ? data.stuckToday : 0,
+    stuckActive: typeof data.stuckActive === "number" ? data.stuckActive : undefined,
     summaryDaySyria: typeof data.summaryDaySyria === "string" ? data.summaryDaySyria : undefined
   };
 }
 
 export interface CoordinatorOrderRow {
   id: string;
+  /** مُسند حتى لو غاب كائن `driver` في الاستجابة */
+  driverId?: string | null;
   customerName: string;
   customerPhone: string | null;
   pickupAddress: string;
@@ -215,10 +228,17 @@ export interface CoordinatorOrderRow {
   amount: string;
   status: string;
   broadcastTarget: string;
+  /** يُعرَض كـ «غير مهم» إن غاب من استجابات قديمة */
+  vehicleRequirement?: OrderVehicleRequirement;
+  notes?: string | null;
   createdAt: string;
   driver: null | {
     id: string;
     user: { fullName: string; phone: string | null };
+    vehicleBrand?: string | null;
+    vehicleColor?: string | null;
+    vehicleNumber?: string | null;
+    vehicleKind?: DriverVehicleKind | null;
   };
 }
 
@@ -228,6 +248,8 @@ export interface LiveDriverDto {
   lng: number;
   fullName: string;
   phone: string | null;
+  /** مشغول بطلب قيد التنفيذ */
+  isBusy: boolean;
 }
 
 export async function coordinatorLiveDrivers(accessToken: string): Promise<LiveDriverDto[]> {
@@ -290,6 +312,23 @@ export async function coordinatorCancelOrder(accessToken: string, orderId: strin
   }
 }
 
+/** إعادة طلب متعثر لنفس السائق إلى «في الطريق إلى الزبون». */
+export async function coordinatorResumeStuckOrder(
+  accessToken: string,
+  orderId: string
+): Promise<CoordinatorOrderRow> {
+  const res = await coordinatorFetchWithRefresh(
+    `/orders/${encodeURIComponent(orderId)}/resume-stuck`,
+    { method: "PATCH" },
+    accessToken
+  );
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? "فشل إعادة الطلب للسائق");
+  }
+  return res.json() as Promise<CoordinatorOrderRow>;
+}
+
 export async function coordinatorAssignOrder(
   accessToken: string,
   orderId: string,
@@ -311,7 +350,35 @@ export async function coordinatorAssignOrder(
   return res.json() as Promise<CoordinatorOrderRow>;
 }
 
+/** تعديل أجرة طلب مكتمل (الأرشيف). يعيد صف الطلب كما في القائمة. */
+export async function coordinatorUpdateCompletedOrderAmount(
+  accessToken: string,
+  orderId: string,
+  amount: number
+): Promise<CoordinatorOrderRow> {
+  const res = await coordinatorFetchWithRefresh(
+    `/orders/${encodeURIComponent(orderId)}/amount`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount })
+    },
+    accessToken
+  );
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? "فشل تعديل المبلغ");
+  }
+  return res.json() as Promise<CoordinatorOrderRow>;
+}
+
 export type CoordinatorOrdersListScope = "active" | "archive";
+
+/** تبويب طلباتي: معلّق / في الطريق / متعثرة */
+export type CoordinatorActiveOrdersSegment = "pending" | "in_progress" | "stuck";
+
+/** الأرشيف: مكتمل أو ملغى */
+export type CoordinatorArchiveOrdersSegment = "completed" | "cancelled";
 
 export interface CoordinatorOrdersPage {
   orders: CoordinatorOrderRow[];
@@ -324,7 +391,12 @@ export const COORDINATOR_ORDERS_PAGE_SIZE = 10;
 export async function coordinatorListOrders(
   accessToken: string,
   scope: CoordinatorOrdersListScope = "active",
-  opts?: { cursor?: string | null; limit?: number }
+  opts?: {
+    cursor?: string | null;
+    limit?: number;
+    /** مع `active`: pending | in_progress | stuck. مع `archive`: completed | cancelled */
+    segment?: CoordinatorActiveOrdersSegment | CoordinatorArchiveOrdersSegment;
+  }
 ): Promise<CoordinatorOrdersPage> {
   const limit = opts?.limit ?? COORDINATOR_ORDERS_PAGE_SIZE;
   const params = new URLSearchParams();
@@ -333,6 +405,9 @@ export async function coordinatorListOrders(
   params.set("t", String(Date.now()));
   if (opts?.cursor) {
     params.set("cursor", opts.cursor);
+  }
+  if (opts?.segment) {
+    params.set("segment", opts.segment);
   }
   const res = await coordinatorFetchWithRefresh(`/orders?${params.toString()}`, { cache: "no-store" }, accessToken);
   if (!res.ok) {
@@ -353,6 +428,8 @@ export async function coordinatorCreateOrder(
     dropoffAddress: string;
     amount: number;
     broadcastTarget: OrderBroadcastTarget;
+    vehicleRequirement?: OrderVehicleRequirement;
+    notes?: string;
     customerPhone?: string;
     customerName?: string;
     pickupLat?: number;
@@ -389,4 +466,24 @@ export async function coordinatorCreateOrder(
     broadcastTarget: OrderBroadcastTarget;
     status: string;
   }>;
+}
+
+export async function registerExpoPushToken(accessToken: string, expoToken: string): Promise<void> {
+  const res = await coordinatorFetchWithRefresh(
+    "/auth/push-token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: expoToken })
+    },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر تسجيل إشعارات الجهاز");
+  }
+}
+
+export async function clearExpoPushToken(accessToken: string): Promise<void> {
+  await coordinatorFetchWithRefresh("/auth/push-token", { method: "DELETE" }, accessToken);
 }

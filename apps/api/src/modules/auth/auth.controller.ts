@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { authService } from "./auth.service";
-import { adminLoginDto, coordinatorLoginDto, loginDto, refreshDto } from "./auth.dto";
+import { adminLoginDto, coordinatorLoginDto, expoPushTokenDto, loginDto, refreshDto } from "./auth.dto";
 import type { AuthRequest } from "../../shared/auth";
 
 export const authController = {
@@ -57,6 +57,25 @@ export const authController = {
     try {
       const user = await authService.coordinatorMe(req.auth!.userId);
       res.json(user);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async registerPushToken(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const body = expoPushTokenDto.parse(req.body);
+      await authService.setExpoPushToken(req.auth!.userId, body.token);
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async clearPushToken(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      await authService.clearExpoPushToken(req.auth!.userId);
+      res.status(204).end();
     } catch (err) {
       next(err);
     }

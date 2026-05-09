@@ -30,6 +30,14 @@
             "backgroundColor": "#0f172a"
           }
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/logo-icon.png",
+          "color": "#38bdf8",
+          "defaultChannel": "default"
+        }
       ]
     ],
     "ios": {
@@ -41,6 +49,8 @@
     "android": {
       "package": "com.taxioffice.coordinator",
       "versionCode": 1,
+      "usesCleartextTraffic": true,
+      "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo-icon.png",
@@ -53,6 +63,7 @@
     },
     "extra": {
       "router": {},
+      "mapTileUrlTemplate": "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
       "eas": {
         "projectId": "940978d6-15fc-421b-974b-f68c94e550a1"
       }

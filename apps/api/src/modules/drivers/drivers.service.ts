@@ -1,5 +1,6 @@
 import { Role } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
+import { AppError } from "../../shared/app-error";
 import { getDriverLocationsForNearest } from "../../socket";
 
 const ASSIGN_SEARCH_MIN_LEN = 2;
@@ -18,6 +19,16 @@ async function syncMissingDriverRows() {
 }
 
 export const driversService = {
+  async profileForDriver(userId: string) {
+    await syncMissingDriverRows();
+    const driver = await prisma.driver.findFirst({
+      where: { userId, user: { role: Role.DRIVER, isActive: true } },
+      select: { id: true, isBusy: true, isOnline: true }
+    });
+    if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+    return driver;
+  },
+
   /** قائمة السائقين للإسناد (بحث بالاسم/الهاتف؛ لا نتائج إذا كان الاستعلام أقصر من حرفين) */
   async listForAssignment(qRaw?: string | null) {
     const q = typeof qRaw === "string" ? qRaw.trim() : "";
@@ -74,7 +85,8 @@ export const driversService = {
         lat: l.lat,
         lng: l.lng,
         fullName: row?.user.fullName?.trim() || "سائق",
-        phone: row?.user.phone ?? null
+        phone: row?.user.phone ?? null,
+        isBusy: row?.isBusy ?? false
       };
     });
   }
