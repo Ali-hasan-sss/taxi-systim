@@ -1,0 +1,22 @@
+# بيئة محلية
+.env
+.env.local
+.env.*.local
+
+# توقيع أندرويد محلي (لا تُرفع أبدًا إلى Git)
+*.keystore
+*.jks
+*.p12
+upload-keystore.properties
+credentials.json
+google-services.json
+GoogleService-Info.plist
+
+# Expo / EAS محلي
+.expo/
+expo-env.d.ts
+
+# مخرجات
+dist/
+*.apk
+*.aab

@@ -1,0 +1,11 @@
+{
+  "name": "@taxi/ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "peerDependencies": {
+    "react": "^18.3.1"
+  }
+}

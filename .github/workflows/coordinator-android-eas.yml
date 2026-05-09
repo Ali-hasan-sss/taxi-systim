@@ -1,0 +1,62 @@
+# بناء تطبيق المنسق (أندرويد) عبر Expo Application Services (EAS).
+# يتطلب إكمال الإعداد لمرة واحدة محليًا: eas login && eas init داخل apps/coordinator-app
+# ثم دفع app.json المحدّث (يحتوي extra.eas.projectId و owner الصحيح).
+
+name: Coordinator Android (EAS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "ملف البناء في eas.json"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - preview
+  push:
+    tags:
+      - "coordinator-android-v*"
+
+concurrency:
+  group: coordinator-android-eas-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: EAS Build Android
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install monorepo dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve EAS profile
+        id: profile
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ github.event.inputs.profile }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=production" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: EAS Build (Android)
+        working-directory: apps/coordinator-app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: pnpm exec eas build --platform android --profile "${{ steps.profile.outputs.value }}" --non-interactive --wait

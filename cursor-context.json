@@ -1,0 +1,192 @@
+{
+    "projectName": "Taxi Office Management System",
+    "architecture": "monorepo",
+    "backend": {
+      "runtime": "Node.js",
+      "framework": "Express.js",
+      "language": "TypeScript",
+      "orm": "Prisma",
+      "database": "PostgreSQL",
+      "realtime": "Socket.IO",
+      "cache": "Redis",
+      "documentation": "Swagger OpenAPI",
+      "validation": "Zod",
+      "auth": "JWT + Refresh Tokens",
+      "patterns": [
+        "Repository Pattern",
+        "Service Layer",
+        "Controller Layer",
+        "DTO Validation",
+        "Centralized Error Handling",
+        "RBAC Authorization"
+      ]
+    },
+    "frontend": {
+      "adminDashboard": {
+        "framework": "Next.js App Router",
+        "language": "TypeScript",
+        "styling": "TailwindCSS",
+        "ui": "shadcn/ui",
+        "state": "Zustand",
+        "serverState": "React Query",
+        "charts": "Recharts"
+      },
+      "driverApp": {
+        "framework": "React Native Expo",
+        "language": "TypeScript",
+        "routing": "Expo Router",
+        "maps": "React Native Maps",
+        "state": "Zustand",
+        "serverState": "React Query"
+      },
+      "coordinatorApp": {
+        "framework": "React Native Expo",
+        "language": "TypeScript",
+        "routing": "Expo Router",
+        "maps": "React Native Maps",
+        "state": "Zustand",
+        "serverState": "React Query"
+      }
+    },
+    "roles": [
+      "ADMIN",
+      "COORDINATOR",
+      "DRIVER"
+    ],
+    "orderStatuses": [
+      "PENDING",
+      "ACCEPTED",
+      "ARRIVED",
+      "STARTED",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "commissionSystem": {
+      "enabled": true,
+      "types": [
+        "PERCENTAGE",
+        "FIXED"
+      ],
+      "settingsTable": true,
+      "automaticCalculation": true
+    },
+    "realtimeFeatures": [
+      "Live Driver Tracking",
+      "Realtime Orders",
+      "Driver Online Status",
+      "Realtime Dashboard Updates",
+      "Socket.IO Broadcasting"
+    ],
+    "requiredDatabaseModels": [
+      "User",
+      "Driver",
+      "Coordinator",
+      "Order",
+      "Notification",
+      "DriverLocationHistory",
+      "SystemSettings",
+      "RefreshToken"
+    ],
+    "systemRequirements": {
+      "driverApp": [
+        "Login",
+        "Receive Orders",
+        "Accept Orders",
+        "Start Trip",
+        "Complete Trip",
+        "Broadcast GPS",
+        "Order History",
+        "Earnings"
+      ],
+      "coordinatorApp": [
+        "Login",
+        "Create Orders",
+        "Broadcast Orders",
+        "Track Drivers",
+        "Track Trips",
+        "View Orders"
+      ],
+      "adminDashboard": [
+        "Analytics",
+        "Drivers Monitoring",
+        "Orders Monitoring",
+        "Commissions",
+        "Users Management",
+        "Settings",
+        "Realtime Statistics"
+      ]
+    },
+    "projectStructure": {
+      "apps": [
+        "api",
+        "admin-dashboard",
+        "driver-app",
+        "coordinator-app"
+      ],
+      "packages": [
+        "ui",
+        "types",
+        "utils",
+        "config"
+      ]
+    },
+    "codeRequirements": [
+      "Production Ready",
+      "Scalable",
+      "Clean Code",
+      "SOLID Principles",
+      "Reusable Components",
+      "Environment Variables",
+      "Docker Support",
+      "Swagger Documentation",
+      "Prisma Migrations",
+      "Seed Scripts",
+      "Type Safety",
+      "Centralized Logging",
+      "Rate Limiting",
+      "Security Best Practices"
+    ],
+    "trackingStrategy": {
+      "realtimeLocationStorage": "Redis",
+      "historyStorage": "PostgreSQL"
+    },
+    "socketEvents": [
+      "NEW_ORDER",
+      "ORDER_ACCEPTED",
+      "ORDER_STARTED",
+      "ORDER_COMPLETED",
+      "DRIVER_LOCATION_UPDATED",
+      "DRIVER_ONLINE",
+      "DRIVER_OFFLINE"
+    ]
+    ,
+        "accountingSystem": {
+          "enabled": true,
+          "features": [
+            "Driver Balances",
+            "Commission Tracking",
+            "Paid and Unpaid Commissions",
+            "Partial Payments",
+            "Financial Reports",
+            "Payment History",
+            "Manual Adjustments"
+          ],
+          "commissionPaymentStatuses": [
+            "UNPAID",
+            "PARTIAL",
+            "PAID"
+          ],
+          "requiredModels": [
+            "Commission",
+            "CommissionPayment",
+            "DriverBalance",
+            "FinancialTransaction"
+          ],
+          "automaticProcesses": [
+            "Create commission after completed order",
+            "Update driver balances",
+            "Calculate remaining debt"
+          ]
+        }
+      
+  }
