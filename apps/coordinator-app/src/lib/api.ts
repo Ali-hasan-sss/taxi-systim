@@ -3,12 +3,13 @@ import { Platform } from "react-native";
 import { mapCoordinatorLoginError, mapRefreshTokenError } from "./auth-errors";
 
 /**
- * المنفذ الافتراضي لـ API في المونوريبو (انظر API_PORT في apps/api).
+ * المنفذ الافتراضي لـ API في التطوير المحلي (انظر API_PORT في apps/api).
  * للمحاكي Android بدون إعداد: غالبًا http://10.0.2.2:4000/api
  * للجهاز الحقيقي مع Expo Go: يُشتق IP الحاسوب من خادم التطوير تلقائيًا في وضع التطوير.
- * لتثبيت عنوان يدويًا: EXPO_PUBLIC_API_URL=http://192.168.x.x:4000/api
+ * في الإنتاج، إذا لم يُمرر EXPO_PUBLIC_API_URL، نستخدم https://taxi.qmenussy.com/api.
  */
 const API_PORT = 4000;
+const PROD_API_BASE = "https://taxi.qmenussy.com/api";
 
 function stripTrailingSlashes(s: string): string {
   return s.replace(/\/+$/, "");
@@ -42,12 +43,15 @@ function resolveApiBase(): string {
     if (host) {
       return stripTrailingSlashes(`http://${host}:${API_PORT}/api`);
     }
+    if (Platform.OS === "android") {
+      return stripTrailingSlashes(`http://10.0.2.2:${API_PORT}/api`);
+    }
+    return stripTrailingSlashes(`http://localhost:${API_PORT}/api`);
   }
 
-  if (Platform.OS === "android") {
-    return stripTrailingSlashes(`http://10.0.2.2:${API_PORT}/api`);
+  if (!__DEV__) {
+    return stripTrailingSlashes(PROD_API_BASE);
   }
-
   return stripTrailingSlashes(`http://localhost:${API_PORT}/api`);
 }
 

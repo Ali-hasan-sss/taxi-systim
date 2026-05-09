@@ -41,6 +41,7 @@
     "android": {
       "package": "com.taxioffice.coordinator",
       "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo-icon.png",
         "backgroundColor": "#0f172a"

@@ -26,7 +26,7 @@
 
 ```bash
 cd apps/coordinator-app
-pnpm exec eas secret:create --name EXPO_PUBLIC_API_URL --value "https://your-api.example.com/api" --type string
+pnpm exec eas secret:create --name EXPO_PUBLIC_API_URL --value "https://taxi.qmenussy.com/api" --type string
 ```
 
 أو من لوحة المشروع في expo.dev → **Environment variables**.

@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -51,50 +52,59 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.root}>
-      <View style={styles.card}>
-        <Text style={styles.badge}>منسق</Text>
-        <Text style={styles.title}>تسجيل الدخول</Text>
-        <Text style={styles.subtitle}>تطبيق منسقي شركة التكسي — الدخول برقم الهاتف وكلمة المرور فقط.</Text>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.root}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      >
+        <View style={styles.card}>
+          <Text style={styles.badge}>منسق</Text>
+          <Text style={styles.title}>تسجيل الدخول</Text>
+          <Text style={styles.subtitle}>تطبيق منسقي شركة التكسي — الدخول برقم الهاتف وكلمة المرور فقط.</Text>
 
-        <Text style={styles.label}>رقم الهاتف</Text>
-        <TextInput
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-          placeholder="مثال: 07xxxxxxxx"
-          placeholderTextColor="#64748b"
-          style={styles.input}
-          textAlign="right"
-        />
-
-        <Text style={styles.label}>كلمة المرور</Text>
-        <View style={styles.passwordRow}>
+          <Text style={styles.label}>رقم الهاتف</Text>
           <TextInput
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            placeholder="••••••••"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+            placeholder="مثال: 07xxxxxxxx"
             placeholderTextColor="#64748b"
-            style={styles.inputPassword}
+            style={styles.input}
             textAlign="right"
-            autoCorrect={false}
+            returnKeyType="next"
           />
-          <Pressable
-            onPress={() => setShowPassword((v) => !v)}
-            style={styles.eyeBtn}
-            accessibilityLabel={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
-          >
-            <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={22} color="#94a3b8" />
+
+          <Text style={styles.label}>كلمة المرور</Text>
+          <View style={styles.passwordRow}>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              placeholder="••••••••"
+              placeholderTextColor="#64748b"
+              style={styles.inputPassword}
+              textAlign="right"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={onLogin}
+            />
+            <Pressable
+              onPress={() => setShowPassword((v) => !v)}
+              style={styles.eyeBtn}
+              accessibilityLabel={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+            >
+              <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={22} color="#94a3b8" />
+            </Pressable>
+          </View>
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <Pressable style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]} onPress={onLogin} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>دخول</Text>}
           </Pressable>
         </View>
-
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
-        <Pressable style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]} onPress={onLogin} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>دخول</Text>}
-        </Pressable>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -102,9 +112,13 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    justifyContent: "center",
     padding: 24,
     backgroundColor: "#0f172a"
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingVertical: 24
   },
   card: {
     backgroundColor: "#1e293b",

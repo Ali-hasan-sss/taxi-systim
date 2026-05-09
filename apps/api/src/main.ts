@@ -16,7 +16,8 @@ const app = express();
 /** يمنع ETag وبالتالي 304 بدون جسم — عملاء الجوال (OkHttp) يكسرون JSON على 304 */
 app.set("etag", false);
 app.use(helmet());
-app.use(cors({ origin: process.env.API_ORIGIN ?? "*" }));
+// طلب المستخدم: السماح بجميع الأصول مؤقتًا لتجاوز مشاكل CORS على الويب والتطبيق.
+app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowedHeaders: "*" }));
 app.use(express.json());
 app.use(morgan("combined"));
 app.use(rateLimit({ windowMs: 60_000, limit: 120 }));

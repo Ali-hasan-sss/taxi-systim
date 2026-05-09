@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "https://taxi.qmenussy.com/api";
 const SESSION_KEY = "taxi_admin_session";
 
 export interface AdminLoginResponse {
