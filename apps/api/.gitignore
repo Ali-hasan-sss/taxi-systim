@@ -6,7 +6,6 @@ dist
 .env
 *.log
 coverage
-apps/api/prisma/migrations
 
 # توقيع أندرويد (أي تطبيق) — لا يُرفع
 *.keystore

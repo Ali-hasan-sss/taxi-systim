@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Driver" ADD COLUMN "isBusy" BOOLEAN NOT NULL DEFAULT false;
