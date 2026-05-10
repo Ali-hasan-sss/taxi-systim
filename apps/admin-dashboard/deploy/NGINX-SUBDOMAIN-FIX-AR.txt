@@ -8,7 +8,7 @@
 --- 1) تحقق أن كتلة الداشبورد مُحمَّلة فعلًا ---
 
   ls -la /etc/nginx/sites-enabled/
-  sudo nginx -T 2>/dev/null | grep -n admintaxi
+  ls -la /etc/nginx/sites-enabled/
 
 يجب أن ترى listen 443 و server_name admintaxi.qmenussy.com و proxy_pass
 إلى upstream taxi_admin_nextjs (أو 127.0.0.1:3001).
