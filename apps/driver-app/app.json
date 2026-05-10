@@ -51,6 +51,7 @@
     "android": {
       "package": "com.taxioffice.driver",
       "versionCode": 1,
+      "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo-icon.png",
@@ -63,7 +64,9 @@
     },
     "extra": {
       "router": {},
-      "eas": {}
+      "eas": {
+        "projectId": "a5adbf73-b1d3-4b5e-8893-e95577612349"
+      }
     },
     "owner": "alihasan_123"
   }

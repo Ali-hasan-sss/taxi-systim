@@ -1,0 +1,11 @@
+# ملفات لا حاجة لرفعها لخوادم EAS (لا تضع هنا pnpm-lock.yaml أو ملفات تعريف الوركسبيس)
+
+*.log
+.env
+.env.*
+!.env.example
+coverage
+**/.turbo
+dist
+.next
+.eas-inspect

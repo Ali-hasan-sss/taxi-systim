@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "start:prod": "next start -p 3001"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.56.2",

@@ -5,10 +5,11 @@
   "main": "index.js",
   "scripts": {
     "dev": "expo start",
-    "eas:android:preview": "pnpm dlx eas-cli build --platform android --profile preview",
-    "eas:android:production": "pnpm dlx eas-cli build --platform android --profile production"
+    "eas:android:preview": "eas build --platform android --profile preview",
+    "eas:android:production": "eas build --platform android --profile production"
   },
   "dependencies": {
+    "@taxi/expo-api-base": "workspace:*",
     "@expo/metro-runtime": "~6.1.2",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "^2.2.0",
@@ -36,6 +37,7 @@
   "devDependencies": {
     "@types/node": "^22.5.4",
     "@types/react": "~19.1.10",
+    "eas-cli": "18.11.0",
     "typescript": "^5.9.3"
   }
 }

@@ -12,12 +12,13 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { driverLogin } from "../src/lib/api";
 import { saveDriverSession } from "../src/lib/session";
 import { rtlText } from "../src/lib/rtl-text";
 
 export default function LoginScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -53,18 +54,16 @@ export default function LoginScreen() {
     }
   };
 
+  const scrollBottomPad = Math.max(insets.bottom, 12) + 72;
+
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "left", "right", "bottom"]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.kav}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
-      >
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.kav}>
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingTop: 12, paddingBottom: scrollBottomPad }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          automaticallyAdjustKeyboardInsets
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.card}>
@@ -134,8 +133,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: "center",
-    paddingVertical: 16,
+    justifyContent: "flex-start",
     alignItems: "stretch"
   },
   card: {

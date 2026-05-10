@@ -10,6 +10,7 @@
     "eas:android:production": "eas build --platform android --profile production"
   },
   "dependencies": {
+    "@taxi/expo-api-base": "workspace:*",
     "@expo/metro-runtime": "~6.1.2",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "^2.2.0",

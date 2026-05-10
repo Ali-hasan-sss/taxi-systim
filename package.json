@@ -11,6 +11,8 @@
     "dev:coordinator": "pnpm --filter @taxi/coordinator-app dev",
     "eas:coordinator:android:preview": "pnpm --filter @taxi/coordinator-app run eas:android:preview",
     "eas:coordinator:android:production": "pnpm --filter @taxi/coordinator-app run eas:android:production",
+    "eas:driver:android:preview": "pnpm --filter @taxi/driver-app run eas:android:preview",
+    "eas:driver:android:production": "pnpm --filter @taxi/driver-app run eas:android:production",
     "db:migrate:api": "pnpm --filter @taxi/api run prisma:migrate:deploy",
     "db:migrate:api:dev": "pnpm --filter @taxi/api run prisma:migrate",
     "build": "turbo run build",
