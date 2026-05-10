@@ -1,0 +1,31 @@
+دليل سريع: admintaxi.qmenussy.com لا يفتح الداشبورد أو يظهر «غير آمن»
+================================================================
+
+1) DNS (السب دومين «لا يشير»)
+   - في لوحة الدومين: سجل A للاسم admintaxi → نفس IP الـ VPS الذي يشغّل taxi.qmenussy.com.
+   - من جهازك: ping admintaxi.qmenussy.com  يجب أن يعيد IP السيرفر.
+   - إن كان يعيد IP خاطئًا أو لا يحلّ الاسم، انتظر انتشار DNS أو صحّح السجل.
+
+2) التطبيق يعمل داخليًا
+   - curl -I http://127.0.0.1:3001
+   - pm2 status  (عملية taxi-admin)
+
+3) Nginx يخدم الاسم الصحيح
+   - sudo nginx -t
+   - تأكد أن الملف في sites-enabled يحتوي: server_name admintaxi.qmenussy.com;
+   - تعارض CyberPanel: إن كان الموقع مُعرّفًا في CyberPanel على LiteSpeed/Nginx آخر،
+     إمّا عطّل vhost المكرر أو عرّف «Reverse Proxy» من اللوحة إلى 127.0.0.1:3001 وفعّل SSL من اللوحة.
+
+4) «غير آمن» في المتصفح
+   - الشهادة الذاتية (self-signed) = المتصفح يحذّر دائمًا. هذا طبيعي.
+   - للحصول على قفل أخضر: Let's Encrypt فقط.
+   - استخدم الملف nginx-admin-letsencrypt.conf بعد:
+     sudo certbot --nginx -d admintaxi.qmenussy.com
+   - أو من CyberPanel: Websites → SSL → Issue Let’s Encrypt لنفس السب دومين.
+
+5) المنفذ 443/80
+   - sudo ss -tlnp | grep ':80\|:443'
+   - جدار ناري: افتح 80 و 443 للويب.
+
+6) بعد أي تعديل
+   - sudo systemctl reload nginx

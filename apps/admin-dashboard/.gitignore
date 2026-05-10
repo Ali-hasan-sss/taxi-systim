@@ -1,0 +1,12 @@
+node_modules
+.turbo
+dist
+.next
+.expo
+.env
+*.log
+coverage
+
+# توقيع أندرويد (أي تطبيق) — لا يُرفع
+*.keystore
+*.jks

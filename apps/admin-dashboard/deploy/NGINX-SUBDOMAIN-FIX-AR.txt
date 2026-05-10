@@ -1,0 +1,64 @@
+عندما admintaxi.qmenussy.com يفتح نفس موقع الدومين الرئيسي
+============================================================
+
+السبب الشائع: Nginx (أو CyberPanel / OpenLiteSpeed) يوجّه الطلب إلى
+الموقع الافتراضي (default_server) أو إلى كتلة فيها server_name واسع
+يغطي كل السب دومينات.
+
+--- 1) تحقق أن كتلة الداشبورد مُحمَّلة فعلًا ---
+
+  ls -la /etc/nginx/sites-enabled/
+  sudo nginx -T 2>/dev/null | grep -n admintaxi
+
+يجب أن ترى listen 443 و server_name admintaxi.qmenussy.com و proxy_pass
+إلى upstream taxi_admin_nextjs (أو 127.0.0.1:3001).
+
+--- 2) ابحث عن نطاق عام يخطف السب دومين ---
+
+  sudo nginx -T 2>/dev/null | grep server_name
+
+إن وجدت شيئًا مثل:
+  server_name *.qmenussy.com;
+  server_name .qmenussy.com;
+فقد تتداخل مع admintaxi. الحلول:
+  - تضييق server_name في موقع الدومين الرئيسي إلى أسماء صريحة فقط
+    (qmenussy.com www api socket …) دون wildcard، أو
+  - الإبقاء على wildcard وإضافة كتلة منفصلة لـ admintaxi بنفس المنفذ 443
+    مع server_name محدد (عادةً تسبق الأولوية للاسم الأدق — راجع توثيق nginx).
+
+--- 3) default_server على 443 أو 80 ---
+
+  sudo nginx -T 2>/dev/null | grep default_server
+
+إن كان الموقع الرئيسي هو default_server لـ 443 ولم تُطابق أي كتلة
+Host المرسل، يُخدم الافتراضي. تأكد أن الطلب يصل بـ:
+  Host: admintaxi.qmenussy.com
+
+اختبار من السيرفر:
+
+  curl -sI https://admintaxi.qmenussy.com/
+  curl -sI http://127.0.0.1:3001/
+
+إن كان الثاني يعيد Next.js والأول يعيد HTML الموقع الرئيسي، المشكلة
+في اختيار الـ vhost في Nginx (أمامه بروكسي آخر).
+
+--- 4) CyberPanel ---
+
+إن كان الواجهة الأمامية OpenLiteSpeed أو إدارة من CyberPanel:
+قد يكون السب دومين غير مُعرّف كموقع مستقل في اللوحة، inلذلك يُخدم
+الموقع الافتراضي. أنشئ موقعًا للسب دومين admintaxi.qmenussy.com
+ووجّهه إلى Reverse Proxy http://127.0.0.1:3001 أو عطّل التعارض
+مع Nginx اليدوي.
+
+--- 5) ترتيب الروابط في sites-enabled (تجربة) ---
+
+  sudo ln -sf /etc/nginx/sites-available/taxi-admin /etc/nginx/sites-enabled/00-taxi-admin
+  sudo rm -f /etc/nginx/sites-enabled/taxi-admin   # إن كان اسمًا آخر
+  sudo nginx -t && sudo systemctl reload nginx
+
+(الأهم هو تطابق server_name وليس الترتيب غالبًا، لكن يساعد أحيانًا مع
+تضارب include.)
+
+--- 6) بعد التعديل ---
+
+  sudo nginx -t && sudo systemctl reload nginx
