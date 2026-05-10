@@ -9,6 +9,8 @@
     "dev:admin": "pnpm --filter @taxi/admin-dashboard dev",
     "dev:driver": "pnpm --filter @taxi/driver-app dev",
     "dev:coordinator": "pnpm --filter @taxi/coordinator-app dev",
+    "eas:coordinator:android:preview": "pnpm --filter @taxi/coordinator-app run eas:android:preview",
+    "eas:coordinator:android:production": "pnpm --filter @taxi/coordinator-app run eas:android:production",
     "db:migrate:api": "pnpm --filter @taxi/api run prisma:migrate:deploy",
     "db:migrate:api:dev": "pnpm --filter @taxi/api run prisma:migrate",
     "build": "turbo run build",
@@ -17,6 +19,7 @@
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "eas-cli": "18.11.0",
     "prettier": "^3.3.3",
     "turbo": "^2.0.14",
     "typescript": "^5.6.2"

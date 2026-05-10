@@ -5,9 +5,15 @@ import { prisma } from "./prisma";
 
 const expo = new Expo();
 
+/** Payload for outbound pushes; `sound` defaults to `"default"` when omitted. */
+export type ExpoPushPayload = Pick<ExpoPushMessage, "title" | "body"> & {
+  data?: ExpoPushMessage["data"];
+  sound?: ExpoPushMessage["sound"];
+};
+
 export async function sendExpoPush(
   tokens: string[],
-  payload: Pick<ExpoPushMessage, "title" | "body" | "data" | "sound">
+  payload: ExpoPushPayload
 ): Promise<void> {
   const unique = [...new Set(tokens.map((t) => t.trim()).filter(Boolean))];
   const valid = unique.filter((t) => Expo.isExpoPushToken(t));

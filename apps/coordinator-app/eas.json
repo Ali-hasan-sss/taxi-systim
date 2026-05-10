@@ -17,6 +17,10 @@
     "preview": {
       "extends": "monorepo",
       "distribution": "internal",
+      "env": {
+        "EXPO_USE_FAST_RESOLVER": "1",
+        "SKIP_PRISMA_POSTINSTALL": "1"
+      },
       "android": {
         "buildType": "apk"
       }
@@ -24,6 +28,10 @@
     "production": {
       "extends": "monorepo",
       "distribution": "store",
+      "env": {
+        "EXPO_USE_FAST_RESOLVER": "1",
+        "SKIP_PRISMA_POSTINSTALL": "1"
+      },
       "android": {
         "buildType": "app-bundle"
       }
