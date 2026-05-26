@@ -159,6 +159,29 @@ export const authService = {
     return { ...user, coordinatorId: coordinator?.id ?? null };
   },
 
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, passwordHash: true }
+    });
+    if (!user) throw new AppError("User not found", 404);
+
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) throw new AppError("كلمة المرور الحالية غير صحيحة", 400);
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash }
+      }),
+      prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() }
+      })
+    ]);
+  },
+
   async setExpoPushToken(userId: string, token: string) {
     const t = token.trim();
     if (!t) throw new AppError("رمز الإشعار غير صالح", 400);

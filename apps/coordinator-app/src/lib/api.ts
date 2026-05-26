@@ -190,22 +190,50 @@ export interface CoordinatorOrderRow {
 
 export interface LiveDriverDto {
   driverId: string;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
   fullName: string;
   phone: string | null;
   /** مشغول بطلب قيد التنفيذ */
   isBusy: boolean;
 }
 
-export async function coordinatorLiveDrivers(accessToken: string): Promise<LiveDriverDto[]> {
-  const res = await coordinatorFetchWithRefresh(`/drivers/live?t=${Date.now()}`, { cache: "no-store" }, accessToken);
+export type LiveDriverStatusFilter = "all" | "available" | "busy";
+
+export interface LiveDriversPage {
+  drivers: LiveDriverDto[];
+  total: number;
+  nextOffset: number | null;
+}
+
+export async function coordinatorLiveDrivers(
+  accessToken: string,
+  opts?: { q?: string; limit?: number; offset?: number; status?: LiveDriverStatusFilter }
+): Promise<LiveDriversPage> {
+  const params = new URLSearchParams({ t: String(Date.now()) });
+  if (typeof opts?.q === "string" && opts.q.trim()) {
+    params.set("q", opts.q.trim());
+  }
+  if (typeof opts?.limit === "number") {
+    params.set("limit", String(opts.limit));
+  }
+  if (typeof opts?.offset === "number") {
+    params.set("offset", String(opts.offset));
+  }
+  if (opts?.status && opts.status !== "all") {
+    params.set("status", opts.status);
+  }
+  const res = await coordinatorFetchWithRefresh(`/drivers/live?${params.toString()}`, { cache: "no-store" }, accessToken);
   if (!res.ok) {
     const errBody = (await res.json().catch(() => ({}))) as { message?: string };
     throw new Error(errBody.message ?? "فشل تحميل السائقين");
   }
-  const data = (await res.json()) as { drivers: LiveDriverDto[] };
-  return data.drivers;
+  const data = (await res.json()) as Partial<LiveDriversPage>;
+  return {
+    drivers: Array.isArray(data.drivers) ? data.drivers : [],
+    total: typeof data.total === "number" ? data.total : 0,
+    nextOffset: typeof data.nextOffset === "number" ? data.nextOffset : null
+  };
 }
 
 export interface DriverForAssignment {
@@ -331,6 +359,19 @@ export interface CoordinatorOrdersPage {
   nextCursor: string | null;
 }
 
+export interface CoordinatorOrdersReportSummary {
+  orderCount: number;
+  totalAmount: string;
+  from: string;
+  to: string;
+}
+
+export interface CoordinatorOrdersReportPage {
+  orders: CoordinatorOrderRow[];
+  nextCursor: string | null;
+  summary: CoordinatorOrdersReportSummary;
+}
+
 export const COORDINATOR_ORDERS_PAGE_SIZE = 10;
 
 /** `active`: طلبات غير المكتملة وغير الملغاة. `archive`: مكتملة أو ملغاة فقط. ترقيم صفحات عبر `cursor`. */
@@ -364,6 +405,47 @@ export async function coordinatorListOrders(
   return {
     orders: Array.isArray(data.orders) ? data.orders : [],
     nextCursor: data.nextCursor ?? null
+  };
+}
+
+export async function coordinatorOrdersReport(
+  accessToken: string,
+  opts?: {
+    from?: string;
+    to?: string;
+    driverId?: string | null;
+    cursor?: string | null;
+    limit?: number;
+  }
+): Promise<CoordinatorOrdersReportPage> {
+  const params = new URLSearchParams();
+  params.set("t", String(Date.now()));
+  if (opts?.from) params.set("from", opts.from);
+  if (opts?.to) params.set("to", opts.to);
+  if (opts?.driverId) params.set("driverId", opts.driverId);
+  if (opts?.cursor) params.set("cursor", opts.cursor);
+  params.set("limit", String(opts?.limit ?? 20));
+
+  const res = await coordinatorFetchWithRefresh(`/orders/reports?${params.toString()}`, { cache: "no-store" }, accessToken);
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? "فشل تحميل التقرير");
+  }
+  const data = (await res.json()) as {
+    orders?: CoordinatorOrderRow[];
+    nextCursor?: string | null;
+    summary?: Partial<CoordinatorOrdersReportSummary>;
+  };
+
+  return {
+    orders: Array.isArray(data.orders) ? data.orders : [],
+    nextCursor: data.nextCursor ?? null,
+    summary: {
+      orderCount: typeof data.summary?.orderCount === "number" ? data.summary.orderCount : 0,
+      totalAmount: typeof data.summary?.totalAmount === "string" ? data.summary.totalAmount : "0.00",
+      from: typeof data.summary?.from === "string" ? data.summary.from : "",
+      to: typeof data.summary?.to === "string" ? data.summary.to : ""
+    }
   };
 }
 

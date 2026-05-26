@@ -1,11 +1,18 @@
 import type { NextFunction, Response } from "express";
 import type { Server } from "socket.io";
 import { OrderStatus } from "@prisma/client";
-import { notifyCoordinatorOrderStuckPush, notifyDriversNewOrderPush } from "../../shared/expo-push";
+import {
+  notifyCoordinatorOrderAcceptedPush,
+  notifyCoordinatorOrderCompletedPush,
+  notifyCoordinatorOrderStuckPush,
+  notifyDriversNewOrderPush
+} from "../../shared/expo-push";
 import { assignOrderDto, createOrderDto, updateCompletedOrderAmountDto } from "./orders.dto";
 import {
   COORDINATOR_ORDERS_PAGE_DEFAULT,
   COORDINATOR_ORDERS_PAGE_MAX,
+  DRIVER_REPORTS_PAGE_DEFAULT,
+  DRIVER_REPORTS_PAGE_MAX,
   ordersService
 } from "./orders.service";
 import type { AuthRequest } from "../../shared/auth";
@@ -18,6 +25,63 @@ import {
 } from "../../socket";
 
 export const ordersController = {
+  async report(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const limitRaw = req.query.limit;
+      const limitStr = Array.isArray(limitRaw) ? limitRaw[0] : limitRaw;
+      let limit = COORDINATOR_ORDERS_PAGE_DEFAULT;
+      if (typeof limitStr === "string") {
+        const n = parseInt(limitStr, 10);
+        if (!Number.isNaN(n)) {
+          limit = Math.max(1, n);
+        }
+      }
+      const cursorRaw = req.query.cursor;
+      const cursorSingle =
+        typeof cursorRaw === "string"
+          ? cursorRaw
+          : Array.isArray(cursorRaw) && typeof cursorRaw[0] === "string"
+            ? cursorRaw[0]
+            : undefined;
+      const fromRaw = req.query.from;
+      const from =
+        typeof fromRaw === "string"
+          ? fromRaw
+          : Array.isArray(fromRaw) && typeof fromRaw[0] === "string"
+            ? fromRaw[0]
+            : undefined;
+      const toRaw = req.query.to;
+      const to =
+        typeof toRaw === "string"
+          ? toRaw
+          : Array.isArray(toRaw) && typeof toRaw[0] === "string"
+            ? toRaw[0]
+            : undefined;
+      const driverRaw = req.query.driverId;
+      const driverId =
+        typeof driverRaw === "string"
+          ? driverRaw
+          : Array.isArray(driverRaw) && typeof driverRaw[0] === "string"
+            ? driverRaw[0]
+            : undefined;
+
+      const page = await ordersService.reportForCoordinator(req.auth!.userId, {
+        from,
+        to,
+        driverId,
+        cursor: cursorSingle,
+        limit
+      });
+      res.json({
+        orders: page.orders.map((o) => ordersService.serializeCoordinatorOrderRow(o)),
+        nextCursor: page.nextCursor,
+        summary: page.summary
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+
   async listMine(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const raw = req.query.scope;
@@ -76,6 +140,51 @@ export const ordersController = {
     }
   },
 
+  async driverReport(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const limitRaw = req.query.limit;
+      const limitStr = Array.isArray(limitRaw) ? limitRaw[0] : limitRaw;
+      let limit = DRIVER_REPORTS_PAGE_DEFAULT;
+      if (typeof limitStr === "string") {
+        const n = parseInt(limitStr, 10);
+        if (!Number.isNaN(n)) {
+          limit = Math.min(DRIVER_REPORTS_PAGE_MAX, Math.max(1, n));
+        }
+      }
+      const cursorRaw = req.query.cursor;
+      const cursorSingle =
+        typeof cursorRaw === "string"
+          ? cursorRaw
+          : Array.isArray(cursorRaw) && typeof cursorRaw[0] === "string"
+            ? cursorRaw[0]
+            : undefined;
+      const fromRaw = req.query.from;
+      const from =
+        typeof fromRaw === "string"
+          ? fromRaw
+          : Array.isArray(fromRaw) && typeof fromRaw[0] === "string"
+            ? fromRaw[0]
+            : undefined;
+      const toRaw = req.query.to;
+      const to =
+        typeof toRaw === "string"
+          ? toRaw
+          : Array.isArray(toRaw) && typeof toRaw[0] === "string"
+            ? toRaw[0]
+            : undefined;
+
+      const page = await ordersService.reportForDriver(req.auth!.userId, {
+        from,
+        to,
+        cursor: cursorSingle,
+        limit
+      });
+      res.json(page);
+    } catch (e) {
+      next(e);
+    }
+  },
+
   async driverOrderRoom(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const { inProgress, pending } = await ordersService.driverOrderRoom(req.auth!.userId);
@@ -93,6 +202,7 @@ export const ordersController = {
       const order = await ordersService.acceptOrderByDriver(req.auth!.userId, req.params.orderId);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitDriverClaimedOrder(io, order);
+      void notifyCoordinatorOrderAcceptedPush(order.id);
       res.json(ordersService.serializeDriverOrderRow(order));
     } catch (e) {
       next(e);
@@ -191,6 +301,7 @@ export const ordersController = {
       const order = await ordersService.completeOrder(req.params.orderId, req.auth!.userId);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderStatusUpdated(io, order);
+      if (order.status === OrderStatus.COMPLETED) void notifyCoordinatorOrderCompletedPush(order.id);
       res.json(ordersService.serializeDriverOrderRow(order));
     } catch (e) {
       next(e);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +12,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
 import { DriverOrderCard } from "../../src/components/DriverOrderCard";
 import { useDriverSocket } from "../../src/driver-socket-context";
 import {
@@ -24,6 +26,7 @@ import {
   socketPayloadToDriverOrderRow
 } from "../../src/lib/api";
 import { SOCKET_EVENTS } from "../../src/lib/socket-events";
+import { getDriverLocationAccessState, isDriverLocationReady } from "../../src/lib/location-access";
 import { clearDriverSession, getDriverSession } from "../../src/lib/session";
 import { useDriverStore } from "../../src/store";
 import { rtlText } from "../../src/lib/rtl-text";
@@ -43,6 +46,7 @@ export default function DriverOrdersTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isOnline = useDriverStore((s) => s.isOnline);
+  const setOnline = useDriverStore((s) => s.setOnline);
   const setRoomPendingCount = useDriverStore((s) => s.setRoomPendingCount);
   const isOnlineRef = useRef(isOnline);
   isOnlineRef.current = isOnline;
@@ -257,6 +261,16 @@ export default function DriverOrdersTab() {
     }
   };
 
+  const onStartWork = async () => {
+    const locationState = await getDriverLocationAccessState();
+    if (!isDriverLocationReady(locationState)) {
+      setOnline(false);
+      router.replace("/location-access");
+      return;
+    }
+    setOnline(true);
+  };
+
   const listBottomPad = driverTabBarOuterHeight(insets.bottom) + 24;
 
   const connectionStatusRow = (
@@ -280,14 +294,16 @@ export default function DriverOrdersTab() {
   if (loading && !inProgress && pending.length === 0 && !error) {
     return (
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-        <View style={styles.headerLoading}>
-          {connectionStatusRow}
-          <Text style={styles.title}>غرفة الطلبات</Text>
-        </View>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>جاري تحميل غرفة الطلبات…</Text>
-        </View>
+        <DriverScreenBackground>
+          <View style={styles.headerLoading}>
+            {connectionStatusRow}
+            <Text style={styles.title}>غرفة الطلبات</Text>
+          </View>
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color="#2563eb" />
+            <Text style={styles.loadingText}>جاري تحميل غرفة الطلبات…</Text>
+          </View>
+        </DriverScreenBackground>
       </SafeAreaView>
     );
   }
@@ -296,27 +312,28 @@ export default function DriverOrdersTab() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-      <View style={styles.header}>
-        {connectionStatusRow}
-        <Text style={styles.title}>غرفة الطلبات</Text>
-        <Text style={styles.subtitle}>
-          {inProgress
-            ? isEnRouteToCustomer(inProgress.status)
-              ? "أنت في الطريق إلى الزبون: أكد «تم ركوب الزبون» أو «لم أجد الزبون»."
-              : "الزبون في السيارة: اضغط «تم توصيل الزبون» بعد إنهاء التوصيل."
-            : "الطلبات المعلقة تظهر لحظيًا. بعد القبول تصبح «في الطريق إلى الزبون». الإلغاء من المنسق فقط."}
-        </Text>
-        {!isOnline ? (
-          <Text style={styles.offlineHint}>فعّل بدء العمل من القائمة لاستلام الطلبات.</Text>
-        ) : null}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-      </View>
+      <DriverScreenBackground>
+        <View style={styles.header}>
+          {connectionStatusRow}
+          <Text style={styles.title}>غرفة الطلبات</Text>
+          <Text style={styles.subtitle}>
+            {inProgress
+              ? isEnRouteToCustomer(inProgress.status)
+                ? "أنت في الطريق إلى الزبون: أكد «تم ركوب الزبون» أو «لم أجد الزبون»."
+                : "الزبون في السيارة: اضغط «تم توصيل الزبون» بعد إنهاء التوصيل."
+              : "الطلبات المعلقة تظهر لحظيًا. بعد القبول تصبح «في الطريق إلى الزبون». الإلغاء من المنسق فقط."}
+          </Text>
+          {!isOnline ? (
+            <Text style={styles.offlineHint}>فعّل بدء العمل من القائمة لاستلام الطلبات.</Text>
+          ) : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+        </View>
 
-      <FlatList
-        data={data}
-        keyExtractor={(item) => item.id}
-        extraData={{ inProgress: !!inProgress, actionOrderId }}
-        renderItem={({ item }) => {
+        <FlatList
+          data={data}
+          keyExtractor={(item) => item.id}
+          extraData={{ inProgress: !!inProgress, actionOrderId }}
+          renderItem={({ item }) => {
           const busy = actionOrderId === item.id;
           if (inProgress) {
             if (isEnRouteToCustomer(item.status)) {
@@ -392,21 +409,31 @@ export default function DriverOrdersTab() {
               }
             />
           );
-        }}
-        contentContainerStyle={
-          data.length === 0
-            ? [styles.emptyList, { paddingBottom: listBottomPad }]
-            : [styles.list, { paddingBottom: listBottomPad }]
-        }
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadRoom(true)} tintColor="#2563eb" />}
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            {isOnline
-              ? "لا توجد طلبات معلقة حاليًا. انتظر إشعار طلب جديد."
-              : "لا توجد طلبات. فعّل بدء العمل من القائمة  لاستلام الطلبات."}
-          </Text>
-        }
-      />
+          }}
+          contentContainerStyle={
+            data.length === 0
+              ? [styles.emptyList, { paddingBottom: listBottomPad }]
+              : [styles.list, { paddingBottom: listBottomPad }]
+          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadRoom(true)} tintColor="#2563eb" />}
+          ListEmptyComponent={
+            isOnline ? (
+              <Text style={styles.empty}>لا توجد طلبات معلقة حاليًا. انتظر إشعار طلب جديد.</Text>
+            ) : (
+              <View style={styles.offlineCenterCard}>
+                <Ionicons name="play-circle-outline" size={42} color="#15803d" />
+                <Text style={styles.offlineCenterTitle}>أنت متوقف عن العمل</Text>
+                <Text style={styles.offlineCenterText}>
+                  اضغط الزر أدناه لبدء العمل مباشرة واستلام الطلبات الجديدة.
+                </Text>
+                <Pressable style={styles.offlineCenterBtn} onPress={() => void onStartWork()}>
+                  <Text style={styles.offlineCenterBtnText}>بدء العمل</Text>
+                </Pressable>
+              </View>
+            )
+          }
+        />
+      </DriverScreenBackground>
     </SafeAreaView>
   );
 }
@@ -414,28 +441,30 @@ export default function DriverOrdersTab() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "transparent",
     direction: "rtl"
   },
   header: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 8
+    paddingBottom: 8,
+    direction: "rtl"
   },
   headerLoading: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 4
+    paddingBottom: 4,
+    direction: "rtl"
   },
   topBar: {
-    flexDirection: "row",
+    flexDirection: "row-reverse",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
     gap: 12
   },
   topBarStatus: {
-    flexDirection: "row",
+    flexDirection: "row-reverse",
     alignItems: "center",
     flex: 1,
     gap: 8
@@ -455,7 +484,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#475569",
     ...rtlText,
-    flex: 1
+    flex: 1,
+    textAlign: "right"
   },
   refreshBtn: {
     backgroundColor: "#e2e8f0",
@@ -491,26 +521,30 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#0f172a",
     ...rtlText,
-    marginBottom: 8
+    marginBottom: 8,
+    textAlign: "right"
   },
   subtitle: {
     fontSize: 13,
     color: "#64748b",
     ...rtlText,
     lineHeight: 20,
-    marginBottom: 8
+    marginBottom: 8,
+    textAlign: "right"
   },
   offlineHint: {
     fontSize: 13,
     color: "#b45309",
     ...rtlText,
     lineHeight: 20,
-    marginBottom: 6
+    marginBottom: 6,
+    textAlign: "right"
   },
   error: {
     color: "#dc2626",
     ...rtlText,
-    marginTop: 8
+    marginTop: 8,
+    textAlign: "right"
   },
   list: {
     paddingHorizontal: 20,
@@ -526,14 +560,62 @@ const styles = StyleSheet.create({
     ...rtlText,
     marginTop: 40,
     fontSize: 15,
-    lineHeight: 24
+    lineHeight: 24,
+    textAlign: "right"
+  },
+  offlineCenterCard: {
+    marginTop: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderWidth: 1,
+    borderColor: "#dbe4f0",
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 24,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 4
+  },
+  offlineCenterTitle: {
+    marginTop: 10,
+    color: "#0f172a",
+    fontSize: 18,
+    fontWeight: "800",
+    ...rtlText,
+    textAlign: "center"
+  },
+  offlineCenterText: {
+    marginTop: 8,
+    color: "#64748b",
+    fontSize: 14,
+    lineHeight: 22,
+    ...rtlText,
+    textAlign: "center"
+  },
+  offlineCenterBtn: {
+    marginTop: 16,
+    backgroundColor: "#15803d",
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    minWidth: 170,
+    alignItems: "center"
+  },
+  offlineCenterBtnText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "800",
+    ...rtlText
   },
   footerRow: {
-    flexDirection: "row",
+    flexDirection: "row-reverse",
     flexWrap: "wrap",
     gap: 10,
     marginTop: 12,
-    justifyContent: "flex-start"
+    justifyContent: "flex-end"
   },
   btnPrimary: {
     flex: 1,

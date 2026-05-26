@@ -1,22 +1,43 @@
 import { useEffect, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
-import { Redirect } from "expo-router";
+import { Redirect, type Href } from "expo-router";
+import { getDriverLocationAccessState, isDriverLocationReady } from "../src/lib/location-access";
 import { getDriverSession } from "../src/lib/session";
+import { useDriverStore } from "../src/store";
 
 void SplashScreen.preventAutoHideAsync();
 
 export default function Index() {
   const [ready, setReady] = useState(false);
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [target, setTarget] = useState<Href | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const s = await getDriverSession();
-        if (alive) setLoggedIn(!!s?.accessToken);
+        if (!alive) return;
+        if (!s?.accessToken) {
+          useDriverStore.getState().setOnline(false);
+          setTarget("/login");
+          return;
+        }
+
+        const locationState = await getDriverLocationAccessState();
+        if (!alive) return;
+
+        if (isDriverLocationReady(locationState)) {
+          useDriverStore.getState().setOnline(true);
+          setTarget("/(tabs)");
+        } else {
+          useDriverStore.getState().setOnline(false);
+          setTarget("/location-access");
+        }
       } catch {
-        if (alive) setLoggedIn(false);
+        if (alive) {
+          useDriverStore.getState().setOnline(false);
+          setTarget("/login");
+        }
       } finally {
         if (alive) {
           await SplashScreen.hideAsync();
@@ -33,6 +54,9 @@ export default function Index() {
     return null;
   }
 
-  if (loggedIn) return <Redirect href="/(tabs)" />;
-  return <Redirect href="/login" />;
+  if (!target) {
+    return null;
+  }
+
+  return <Redirect href={target} />;
 }

@@ -106,6 +106,14 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="archive-outline" size={size ?? 22} color={color} />
         }}
       />
+      <Tabs.Screen
+        name="reports"
+        options={{
+          title: "التقارير",
+          tabBarLabel: "التقارير",
+          tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline" size={size ?? 22} color={color} />
+        }}
+      />
     </Tabs>
   );
 }

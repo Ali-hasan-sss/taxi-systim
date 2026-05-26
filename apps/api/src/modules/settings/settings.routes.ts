@@ -21,6 +21,14 @@ settingsRouter.get("/commission", requireAuth, requireRole("ADMIN"), async (_req
 
 settingsRouter.patch("/commission", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const { commissionType, commissionValue } = req.body as { commissionType: "PERCENTAGE" | "FIXED"; commissionValue: number };
+  if (commissionType !== "PERCENTAGE" && commissionType !== "FIXED") {
+    res.status(400).json({ message: "نوع العمولة غير صالح" });
+    return;
+  }
+  if (!Number.isFinite(commissionValue) || commissionValue < 0) {
+    res.status(400).json({ message: "قيمة العمولة يجب أن تكون رقمًا صالحًا غير سالب" });
+    return;
+  }
   const setting = await prisma.systemSettings.upsert({
     where: { key: "commission" },
     update: { commissionType, commissionValue },

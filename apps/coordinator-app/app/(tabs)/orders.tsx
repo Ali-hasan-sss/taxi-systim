@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CoordinatorCreateOrderModal } from "../../src/components/CoordinatorCreateOrderModal";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { io, type Socket } from "socket.io-client";
 import { CoordinatorOrderCard } from "../../src/components/CoordinatorOrderCard";
@@ -47,6 +47,7 @@ export default function OrdersTab() {
   const [error, setError] = useState<string | null>(null);
   const [myCoordinatorId, setMyCoordinatorId] = useState<string | null>(null);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignOrderId, setAssignOrderId] = useState<string | null>(null);
@@ -472,71 +473,84 @@ export default function OrdersTab() {
           </Text>
         }
       />
+      <Pressable
+        style={[styles.fab, { bottom: coordinatorTabBarOuterHeight(insets.bottom) + 12 }]}
+        onPress={() => setCreateOrderOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="إضافة طلب جديد"
+      >
+        <Text style={styles.fabPlus}>+</Text>
+        <Text style={styles.fabText}>طلب جديد</Text>
+      </Pressable>
 
       <Modal visible={assignModalOpen} animationType="slide" transparent onRequestClose={() => !assignSubmitting && setAssignModalOpen(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
-          style={[styles.modalRoot, styles.rtlScreen]}
-        >
+        <View style={[styles.modalRoot, styles.rtlScreen]}>
           <Pressable style={styles.modalBackdrop} onPress={() => !assignSubmitting && setAssignModalOpen(false)} />
           <View style={[styles.modalSheet, styles.rtlScreen, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
-            <Text style={styles.modalTitle}>اختر سائقًا</Text>
-            <Text style={styles.modalHint}>ابدأ بالكتابة (حرفان على الأقل) — البحث يُنفَّذ بعد توقف الكتابة قليلًا</Text>
-            <TextInput
-              value={assignQuery}
-              onChangeText={setAssignQuery}
-              placeholder="اسم السائق أو جزء من الهاتف…"
-              placeholderTextColor="#64748b"
-              style={styles.searchInput}
-              editable={!assignSubmitting}
-              autoCorrect={false}
-              autoCapitalize="none"
-              returnKeyType="search"
-            />
-            {assignLoading ? (
-              <ActivityIndicator style={styles.modalLoading} color="#38bdf8" size="large" />
-            ) : (
-              <FlatList
-                data={assignDrivers}
-                keyExtractor={(item) => item.id}
-                style={styles.driverFlatList}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-                nestedScrollEnabled
-                renderItem={({ item: d }) => (
-                  <Pressable
-                    style={[styles.driverRow, d.isBusy && styles.driverRowDisabled]}
-                    disabled={assignSubmitting || d.isBusy}
-                    onPress={() => void runAssign(d)}
-                  >
-                    <Text style={styles.driverName}>{d.fullName || "سائق"}</Text>
-                    <Text style={styles.driverMeta}>
-                      {d.phone ?? "—"} · {d.isOnline ? "متصل" : "غير متصل"}
-                      {d.isBusy ? " · مشغول" : ""}
-                    </Text>
-                  </Pressable>
-                )}
-                ListEmptyComponent={
-                  <Text style={styles.noDrivers}>
-                    {assignQuery.trim().length < 2
-                      ? "اكتب حرفين على الأقل للبحث عن سائق."
-                      : "لا يوجد سائق يطابق البحث."}
-                  </Text>
-                }
-              />
-            )}
-            <Pressable
-              style={[styles.modalClose, assignSubmitting && styles.btnDisabled]}
-              disabled={assignSubmitting}
-              onPress={() => setAssignModalOpen(false)}
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.assignScrollContent}
             >
-              <Text style={styles.modalCloseText}>إغلاق</Text>
-            </Pressable>
-            {assignSubmitting ? <ActivityIndicator color="#38bdf8" style={{ marginTop: 8 }} /> : null}
+              <Text style={styles.modalTitle}>اختر سائقًا</Text>
+              <Text style={styles.modalHint}>ابدأ بالكتابة (حرفان على الأقل) — البحث يُنفَّذ بعد توقف الكتابة قليلًا</Text>
+              <TextInput
+                value={assignQuery}
+                onChangeText={setAssignQuery}
+                placeholder="اسم السائق أو جزء من الهاتف…"
+                placeholderTextColor="#64748b"
+                style={styles.searchInput}
+                editable={!assignSubmitting}
+                autoCorrect={false}
+                autoCapitalize="none"
+                returnKeyType="search"
+              />
+              {assignLoading ? (
+                <ActivityIndicator style={styles.modalLoading} color="#38bdf8" size="large" />
+              ) : assignDrivers.length > 0 ? (
+                <View style={styles.assignDriversWrap}>
+                  {assignDrivers.map((d) => (
+                    <Pressable
+                      key={d.id}
+                      style={[styles.driverRow, d.isBusy && styles.driverRowDisabled]}
+                      disabled={assignSubmitting || d.isBusy}
+                      onPress={() => void runAssign(d)}
+                    >
+                      <Text style={styles.driverName}>{d.fullName || "سائق"}</Text>
+                      <Text style={styles.driverMeta}>
+                        {d.phone ?? "—"} · {d.isOnline ? "متصل" : "غير متصل"}
+                        {d.isBusy ? " · مشغول" : ""}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.noDrivers}>
+                  {assignQuery.trim().length < 2
+                    ? "اكتب حرفين على الأقل للبحث عن سائق."
+                    : "لا يوجد سائق يطابق البحث."}
+                </Text>
+              )}
+              <Pressable
+                style={[styles.modalClose, assignSubmitting && styles.btnDisabled]}
+                disabled={assignSubmitting}
+                onPress={() => setAssignModalOpen(false)}
+              >
+                <Text style={styles.modalCloseText}>إغلاق</Text>
+              </Pressable>
+              {assignSubmitting ? <ActivityIndicator color="#38bdf8" style={{ marginTop: 8 }} /> : null}
+            </ScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
+      <CoordinatorCreateOrderModal
+        visible={createOrderOpen}
+        onClose={() => setCreateOrderOpen(false)}
+        onCreated={async () => {
+          await load(true);
+        }}
+      />
     </View>
   );
 }
@@ -640,6 +654,36 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     alignItems: "center"
   },
+  fab: {
+    position: "absolute",
+    end: 20,
+    minWidth: 132,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#2563eb",
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 10
+  },
+  fabPlus: {
+    color: "#ffffff",
+    fontSize: 24,
+    fontWeight: "800",
+    lineHeight: 24
+  },
+  fabText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "800",
+    ...rtlText
+  },
   actions: {
     flexDirection: "row",
     gap: 10,
@@ -741,9 +785,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     ...rtlText
   },
+  assignScrollContent: {
+    alignItems: "stretch",
+    paddingBottom: 8
+  },
   modalLoading: {
     marginVertical: 32,
     minHeight: 120
+  },
+  assignDriversWrap: {
+    marginTop: 4
   },
   driverFlatList: {
     flexGrow: 0,

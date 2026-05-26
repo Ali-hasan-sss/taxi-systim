@@ -84,3 +84,75 @@ export async function notifyCoordinatorOrderStuckPush(order: Order): Promise<voi
     console.error("[expo-push] notifyCoordinatorOrderStuckPush", e);
   }
 }
+
+async function getCoordinatorTokenAndOrderDetails(orderId: string): Promise<{
+  token: string | null;
+  customerName: string;
+  driverName: string;
+} | null> {
+  const row = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      customerName: true,
+      coordinator: {
+        select: {
+          user: {
+            select: {
+              expoPushToken: true
+            }
+          }
+        }
+      },
+      driver: {
+        select: {
+          user: {
+            select: {
+              fullName: true
+            }
+          }
+        }
+      }
+    }
+  });
+  if (!row) return null;
+
+  return {
+    token: row.coordinator.user.expoPushToken ?? null,
+    customerName: row.customerName,
+    driverName: row.driver?.user.fullName?.trim() || "سائق"
+  };
+}
+
+function shortLabel(value: string, max = 60): string {
+  return value.length > max ? `${value.slice(0, max - 3)}...` : value;
+}
+
+export async function notifyCoordinatorOrderAcceptedPush(orderId: string): Promise<void> {
+  try {
+    const row = await getCoordinatorTokenAndOrderDetails(orderId);
+    if (!row?.token) return;
+
+    await sendExpoPush([row.token], {
+      title: "السائق توجّه إلى الزبون",
+      body: `${shortLabel(row.customerName)} - ${shortLabel(row.driverName, 40)}`,
+      data: { type: "ORDER_ACCEPTED", orderId }
+    });
+  } catch (e) {
+    console.error("[expo-push] notifyCoordinatorOrderAcceptedPush", e);
+  }
+}
+
+export async function notifyCoordinatorOrderCompletedPush(orderId: string): Promise<void> {
+  try {
+    const row = await getCoordinatorTokenAndOrderDetails(orderId);
+    if (!row?.token) return;
+
+    await sendExpoPush([row.token], {
+      title: "اكتمل الطلب",
+      body: `${shortLabel(row.customerName)} - بواسطة ${shortLabel(row.driverName, 40)}`,
+      data: { type: "ORDER_COMPLETED", orderId }
+    });
+  } catch (e) {
+    console.error("[expo-push] notifyCoordinatorOrderCompletedPush", e);
+  }
+}

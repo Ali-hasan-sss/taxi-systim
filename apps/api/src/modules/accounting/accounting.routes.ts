@@ -14,4 +14,9 @@ export const accountingRouter = Router();
  *       201:
  *         description: Created
  */
+accountingRouter.get("/report", requireAuth, requireRole("ADMIN"), accountingController.report);
+accountingRouter.get("/report/export.xlsx", requireAuth, requireRole("ADMIN"), accountingController.exportXlsx);
+accountingRouter.post("/compensations", requireAuth, requireRole("ADMIN"), accountingController.recordDriverCompensation);
 accountingRouter.post("/payments", requireAuth, requireRole("ADMIN"), accountingController.recordPayment);
+accountingRouter.post("/payments/settle-order", requireAuth, requireRole("ADMIN"), accountingController.settleOrderCommission);
+accountingRouter.post("/payments/settle-filtered", requireAuth, requireRole("ADMIN"), accountingController.settleFilteredCommissions);

@@ -28,6 +28,7 @@ export const usersService = {
         createdAt: true,
         driver: {
           select: {
+            id: true,
             vehicleBrand: true,
             vehicleKind: true,
             vehicleColor: true,

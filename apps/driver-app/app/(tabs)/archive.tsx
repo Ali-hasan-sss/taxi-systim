@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
 import { DriverOrderCard } from "../../src/components/DriverOrderCard";
 import {
   type DriverArchiveSegment,
@@ -149,88 +150,92 @@ export default function DriverArchiveTab() {
   if (loading && orders.length === 0) {
     return (
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>جاري تحميل الأرشيف…</Text>
-        </View>
+        <DriverScreenBackground>
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color="#2563eb" />
+            <Text style={styles.loadingText}>جاري تحميل الأرشيف…</Text>
+          </View>
+        </DriverScreenBackground>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-      <View style={styles.header}>
-        <Text style={styles.title}>الأرشيف</Text>
-        <Text style={styles.subtitle}>
-          مسندة إليك — 10 طلبات لكل تبويب؛ مرّر لأسفل لتحميل الدفعة التالية.
-        </Text>
-        <View style={styles.tabsRow}>
-          {ARCHIVE_TABS.map((t) => {
-            const active = t.key === segment;
-            return (
-              <Pressable
-                key={t.key}
-                onPress={() => onSelectSegment(t.key)}
-                style={[styles.tab, active && styles.tabActive]}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-              >
-                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{t.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {tabHint ? <Text style={styles.tabHint}>{tabHint}</Text> : null}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-      </View>
-
-      <FlatList
-        key={segment}
-        data={orders}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <DriverOrderCard item={item} variant="archive" />}
-        onLayout={(e) => {
-          listViewportHRef.current = e.nativeEvent.layout.height;
-          tryLoadMoreIfListDoesNotFillScreen();
-        }}
-        onContentSizeChange={(_w, h) => {
-          listContentHRef.current = h;
-          tryLoadMoreIfListDoesNotFillScreen();
-        }}
-        contentContainerStyle={
-          orders.length === 0
-            ? [styles.emptyList, { paddingBottom: listBottomPad }]
-            : [styles.list, { paddingBottom: listBottomPad }]
-        }
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor="#2563eb" />}
-        onScrollBeginDrag={() => {
-          userHasScrolledRef.current = true;
-        }}
-        onScroll={(e) => {
-          if (e.nativeEvent.contentOffset.y > 4) userHasScrolledRef.current = true;
-        }}
-        scrollEventThrottle={100}
-        onEndReached={() => void loadMore()}
-        onEndReachedThreshold={0.15}
-        ListFooterComponent={
-          loadingMore ? (
-            <View style={styles.listFooterLoader}>
-              <ActivityIndicator color="#2563eb" />
-            </View>
-          ) : nextCursor == null && orders.length > 0 ? (
-            <Text style={styles.listEndHint}>انتهى الأرشيف — لا طلبات أخرى</Text>
-          ) : null
-        }
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            {segment === "completed"
-              ? "لا توجد طلبات مكتملة بعد."
-              : segment === "cancelled"
-                ? "لا توجد طلبات ملغاة بعد."
-                : "لا توجد طلبات متعثرة بعد."}
+      <DriverScreenBackground>
+        <View style={styles.header}>
+          <Text style={styles.title}>الأرشيف</Text>
+          <Text style={styles.subtitle}>
+            مسندة إليك — 10 طلبات لكل تبويب؛ مرّر لأسفل لتحميل الدفعة التالية.
           </Text>
-        }
-      />
+          <View style={styles.tabsRow}>
+            {ARCHIVE_TABS.map((t) => {
+              const active = t.key === segment;
+              return (
+                <Pressable
+                  key={t.key}
+                  onPress={() => onSelectSegment(t.key)}
+                  style={[styles.tab, active && styles.tabActive]}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{t.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {tabHint ? <Text style={styles.tabHint}>{tabHint}</Text> : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+        </View>
+
+        <FlatList
+          key={segment}
+          data={orders}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <DriverOrderCard item={item} variant="archive" />}
+          onLayout={(e) => {
+            listViewportHRef.current = e.nativeEvent.layout.height;
+            tryLoadMoreIfListDoesNotFillScreen();
+          }}
+          onContentSizeChange={(_w, h) => {
+            listContentHRef.current = h;
+            tryLoadMoreIfListDoesNotFillScreen();
+          }}
+          contentContainerStyle={
+            orders.length === 0
+              ? [styles.emptyList, { paddingBottom: listBottomPad }]
+              : [styles.list, { paddingBottom: listBottomPad }]
+          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor="#2563eb" />}
+          onScrollBeginDrag={() => {
+            userHasScrolledRef.current = true;
+          }}
+          onScroll={(e) => {
+            if (e.nativeEvent.contentOffset.y > 4) userHasScrolledRef.current = true;
+          }}
+          scrollEventThrottle={100}
+          onEndReached={() => void loadMore()}
+          onEndReachedThreshold={0.15}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.listFooterLoader}>
+                <ActivityIndicator color="#2563eb" />
+              </View>
+            ) : nextCursor == null && orders.length > 0 ? (
+              <Text style={styles.listEndHint}>انتهى الأرشيف — لا طلبات أخرى</Text>
+            ) : null
+          }
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              {segment === "completed"
+                ? "لا توجد طلبات مكتملة بعد."
+                : segment === "cancelled"
+                  ? "لا توجد طلبات ملغاة بعد."
+                  : "لا توجد طلبات متعثرة بعد."}
+            </Text>
+          }
+        />
+      </DriverScreenBackground>
     </SafeAreaView>
   );
 }
@@ -238,13 +243,14 @@ export default function DriverArchiveTab() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "transparent",
     direction: "rtl"
   },
   header: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 8
+    paddingBottom: 8,
+    direction: "rtl"
   },
   centered: {
     flex: 1,
@@ -265,17 +271,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#0f172a",
     ...rtlText,
-    marginBottom: 8
+    marginBottom: 8,
+    textAlign: "right"
   },
   subtitle: {
     fontSize: 13,
     color: "#64748b",
     ...rtlText,
     lineHeight: 20,
-    marginBottom: 10
+    marginBottom: 10,
+    textAlign: "right"
   },
   tabsRow: {
-    flexDirection: "row",
+    flexDirection: "row-reverse",
     flexWrap: "wrap",
     gap: 8,
     marginBottom: 8
@@ -296,7 +304,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#475569",
-    ...rtlText
+    ...rtlText,
+    textAlign: "right"
   },
   tabLabelActive: {
     color: "#ffffff"
@@ -305,12 +314,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#94a3b8",
     ...rtlText,
-    marginBottom: 4
+    marginBottom: 4,
+    textAlign: "right"
   },
   error: {
     color: "#dc2626",
     ...rtlText,
-    marginTop: 8
+    marginTop: 8,
+    textAlign: "right"
   },
   list: {
     paddingHorizontal: 20,
@@ -338,6 +349,7 @@ const styles = StyleSheet.create({
     ...rtlText,
     marginTop: 40,
     fontSize: 15,
-    lineHeight: 24
+    lineHeight: 24,
+    textAlign: "right"
   }
 });

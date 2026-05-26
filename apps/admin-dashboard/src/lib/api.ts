@@ -15,6 +15,7 @@ export interface AdminLoginResponse {
 export type VehicleKind = "PUBLIC" | "PRIVATE";
 
 export interface EmployeeDriverProfile {
+  id?: string;
   vehicleBrand: string | null;
   vehicleKind: VehicleKind | null;
   vehicleColor: string | null;
@@ -30,6 +31,107 @@ export interface Employee {
   isActive: boolean;
   createdAt: string;
   driver?: EmployeeDriverProfile | null;
+}
+
+export type CommissionType = "PERCENTAGE" | "FIXED";
+
+export interface CommissionSetting {
+  id: string;
+  key: string;
+  commissionType: CommissionType;
+  commissionValue: string | number;
+  updatedAt?: string;
+}
+
+export type FinanceOrderStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "ARRIVED"
+  | "EN_ROUTE_TO_CUSTOMER"
+  | "STARTED"
+  | "STUCK"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export type FinancePaymentStatus = "UNPAID" | "PARTIAL" | "PAID";
+
+export interface FinanceOrderRow {
+  id: string;
+  customerName: string;
+  customerPhone: string | null;
+  pickupAddress: string;
+  dropoffAddress: string;
+  amount: string;
+  status: FinanceOrderStatus;
+  createdAt: string;
+  completedAt: string | null;
+  driver: null | {
+    id: string;
+    fullName: string;
+    phone: string | null;
+  };
+  commission: null | {
+    id: string;
+    calculatedCommission: string;
+    paidAmount: string;
+    remainingAmount: string;
+    paymentStatus: FinancePaymentStatus;
+    paidAt: string | null;
+  };
+}
+
+export interface FinanceReportSummary {
+  completedOrdersCount: number;
+  completedOrdersAmount: string;
+  totalCommissionAmount: string;
+  dueCommissionAmount: string;
+  compensationAmount: string;
+  adjustedDueCommissionAmount: string;
+  from: string;
+  to: string;
+}
+
+export interface FinanceReportResponse {
+  rows: FinanceOrderRow[];
+  nextCursor: string | null;
+  summary: FinanceReportSummary;
+}
+
+export interface FinanceExportFile {
+  blob: Blob;
+  filename: string;
+}
+
+export type DriverLiveStatus = "online" | "busy" | "offline";
+
+export type OrderBroadcastTarget = "ALL" | "NEAREST_THREE";
+
+export interface LiveDriverSummary {
+  totalDrivers: number;
+  activeDrivers: number;
+  driversOnMap: number;
+}
+
+export interface AdminLiveDriver {
+  driverId: string;
+  lat: number | null;
+  lng: number | null;
+  fullName: string;
+  phone: string | null;
+  isBusy: boolean;
+  isOnline: boolean;
+  status: DriverLiveStatus;
+  vehicleBrand: string | null;
+  vehicleKind: VehicleKind | null;
+  vehicleColor: string | null;
+  vehicleNumber: string | null;
+}
+
+export interface AdminLiveDriversResponse {
+  drivers: AdminLiveDriver[];
+  total: number;
+  nextOffset: number | null;
+  summary: LiveDriverSummary;
 }
 
 interface StoredSession {
@@ -66,9 +168,31 @@ const clearSession = () => {
   }
 };
 
+export function getSocketOrigin(): string {
+  try {
+    return new URL(API_BASE).origin;
+  } catch {
+    return API_BASE.replace(/\/api\/?$/, "");
+  }
+}
+
 const parseErrorMessage = async (res: Response, fallback: string) => {
   const body = (await res.json().catch(() => ({ message: fallback }))) as { message?: string };
   return body.message ?? fallback;
+};
+
+const parseDownloadFilename = (res: Response, fallback: string) => {
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+  const basicMatch = disposition.match(/filename="?([^"]+)"?/i);
+  return basicMatch?.[1] ?? fallback;
 };
 
 const refreshAccessToken = async () => {
@@ -214,5 +338,207 @@ export const api = {
     const res = await authorizedFetch(`/users/${userId}`, { method: "DELETE" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل حذف الموظف"));
     return res.json() as Promise<{ message: string }>;
+  },
+
+  async getCommissionSettings(accessToken: string) {
+    const res = await authorizedFetch("/settings/commission", { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب إعدادات العمولة"));
+    return res.json() as Promise<CommissionSetting | null>;
+  },
+
+  async updateCommissionSettings(
+    accessToken: string,
+    payload: { commissionType: CommissionType; commissionValue: number }
+  ) {
+    const res = await authorizedFetch(
+      "/settings/commission",
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث إعدادات العمولة"));
+    return res.json() as Promise<CommissionSetting>;
+  },
+
+  async changePassword(
+    accessToken: string,
+    payload: { currentPassword: string; newPassword: string }
+  ) {
+    const res = await authorizedFetch(
+      "/auth/change-password",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تغيير كلمة المرور"));
+  },
+
+  async financeReport(
+    accessToken: string,
+    opts?: {
+      from?: string;
+      to?: string;
+      driverId?: string | null;
+      cursor?: string | null;
+      limit?: number;
+    }
+  ) {
+    const params = new URLSearchParams();
+    if (opts?.from) params.set("from", opts.from);
+    if (opts?.to) params.set("to", opts.to);
+    if (opts?.driverId) params.set("driverId", opts.driverId);
+    if (opts?.cursor) params.set("cursor", opts.cursor);
+    params.set("limit", String(opts?.limit ?? 25));
+
+    const res = await authorizedFetch(`/accounting/report?${params.toString()}`, { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحميل التقرير المالي"));
+    return res.json() as Promise<FinanceReportResponse>;
+  },
+
+  async recordDriverCompensation(
+    accessToken: string,
+    payload: { driverId: string; amount: number; notes?: string }
+  ) {
+    const res = await authorizedFetch(
+      "/accounting/compensations",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تسجيل التعويض"));
+    return res.json() as Promise<{ message: string; driverId: string; amount: number }>;
+  },
+
+  async downloadFinanceExport(
+    accessToken: string,
+    opts?: {
+      from?: string;
+      to?: string;
+      driverId?: string | null;
+    }
+  ): Promise<FinanceExportFile> {
+    const params = new URLSearchParams();
+    if (opts?.from) params.set("from", opts.from);
+    if (opts?.to) params.set("to", opts.to);
+    if (opts?.driverId) params.set("driverId", opts.driverId);
+
+    const query = params.toString();
+    const path = query ? `/accounting/report/export.xlsx?${query}` : "/accounting/report/export.xlsx";
+    const res = await authorizedFetch(path, { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تصدير التقرير"));
+
+    return {
+      blob: await res.blob(),
+      filename: parseDownloadFilename(res, "finance-report.xlsx")
+    };
+  },
+
+  async liveDrivers(
+    accessToken: string,
+    opts?: {
+      q?: string;
+      limit?: number;
+      offset?: number;
+      includeInactive?: boolean;
+    }
+  ) {
+    const params = new URLSearchParams({ t: String(Date.now()) });
+    if (opts?.q?.trim()) params.set("q", opts.q.trim());
+    if (typeof opts?.limit === "number") params.set("limit", String(opts.limit));
+    if (typeof opts?.offset === "number") params.set("offset", String(opts.offset));
+    if (opts?.includeInactive) params.set("includeInactive", "true");
+
+    const res = await authorizedFetch(`/drivers/live?${params.toString()}`, { method: "GET", cache: "no-store" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحميل مواقع السائقين"));
+    const data = (await res.json()) as Partial<AdminLiveDriversResponse>;
+    return {
+      drivers: Array.isArray(data.drivers) ? data.drivers : [],
+      total: typeof data.total === "number" ? data.total : 0,
+      nextOffset: typeof data.nextOffset === "number" ? data.nextOffset : null,
+      summary: {
+        totalDrivers: typeof data.summary?.totalDrivers === "number" ? data.summary.totalDrivers : 0,
+        activeDrivers: typeof data.summary?.activeDrivers === "number" ? data.summary.activeDrivers : 0,
+        driversOnMap: typeof data.summary?.driversOnMap === "number" ? data.summary.driversOnMap : 0
+      }
+    } satisfies AdminLiveDriversResponse;
+  },
+
+  async createOrder(
+    accessToken: string,
+    payload: {
+      customerName?: string;
+      customerPhone?: string;
+      pickupAddress: string;
+      dropoffAddress: string;
+      amount: number;
+      notes?: string;
+      broadcastTarget?: OrderBroadcastTarget;
+    }
+  ) {
+    const res = await authorizedFetch(
+      "/orders",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...payload,
+          broadcastTarget: payload.broadcastTarget ?? "ALL"
+        })
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل إنشاء الطلب"));
+    return res.json() as Promise<{ id: string }>;
+  },
+
+  async assignOrder(accessToken: string, orderId: string, driverId: string) {
+    const res = await authorizedFetch(
+      `/orders/${encodeURIComponent(orderId)}/assign`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driverId })
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل إسناد الطلب"));
+    return res.json() as Promise<{ id: string }>;
+  },
+
+  async settleOrderCommission(accessToken: string, payload: { orderId: string; notes?: string }) {
+    const res = await authorizedFetch(
+      "/accounting/payments/settle-order",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تسديد عمولة الطلب"));
+    return res.json() as Promise<{ message: string; paidCount: number; totalPaid: number }>;
+  },
+
+  async settleFilteredCommissions(
+    accessToken: string,
+    payload: { from?: string; to?: string; driverId?: string | null; notes?: string }
+  ) {
+    const res = await authorizedFetch(
+      "/accounting/payments/settle-filtered",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل التسديد الجماعي"));
+    return res.json() as Promise<{ message: string; paidCount: number; totalPaid: number }>;
+  },
+
+  clearSession() {
+    clearSession();
   }
 };

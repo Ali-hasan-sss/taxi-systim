@@ -22,6 +22,7 @@
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@react-native/debugger-frontend": "0.81.5",
     "eas-cli": "18.11.0",
     "prettier": "^3.3.3",
     "turbo": "^2.0.14",

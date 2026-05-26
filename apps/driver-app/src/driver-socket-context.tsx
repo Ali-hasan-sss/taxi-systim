@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { AppState } from "react-native";
 import * as Location from "expo-location";
 import { io, type Socket } from "socket.io-client";
 import { fetchDriverProfile, getSocketOrigin } from "./lib/api";
+import { getDriverLocationAccessState, isDriverLocationReady } from "./lib/location-access";
 import { getDriverSession } from "./lib/session";
 import { useDriverStore } from "./store";
 
@@ -18,8 +20,8 @@ const DriverSocketContext = createContext<DriverSocketContextValue>({
   socketConnected: false
 });
 
-/** فاصل بث الموقع للخادم (ثوانٍ) — يخفّض الضغط مع بقاء التحديث شبه لحظي */
-export const DRIVER_LOCATION_BROADCAST_INTERVAL_MS = 10_000;
+/** فاصل بث الموقع للخادم — يكفي للإشراف التقريبي من لوحة المنسق */
+export const DRIVER_LOCATION_BROADCAST_INTERVAL_MS = 120_000;
 
 export function DriverSocketProvider({ children }: { children: ReactNode }) {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -27,6 +29,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
   const [socketConnected, setSocketConnected] = useState(false);
   const myDriverIdRef = useRef<string | null>(null);
   const isOnline = useDriverStore((s) => s.isOnline);
+  const setOnline = useDriverStore((s) => s.setOnline);
   const isOnlineRef = useRef(isOnline);
   isOnlineRef.current = isOnline;
 
@@ -48,7 +51,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       }
 
       const origin = getSocketOrigin();
-      sock = io(origin, { transports: ["websocket"], autoConnect: true });
+      sock = io(origin, { transports: ["websocket"], autoConnect: false });
       if (cancelled) {
         sock.disconnect();
         return;
@@ -69,7 +72,9 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       sock.on("connect", onSockConnect);
       sock.on("disconnect", onSockDisconnect);
       setSocketConnected(sock.connected);
-      if (sock.connected) onSockConnect();
+      if (isOnlineRef.current) {
+        sock.connect();
+      }
     })();
 
     return () => {
@@ -86,9 +91,23 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const s = socket;
     const id = myDriverId;
-    if (!s?.connected || !id) return;
-    if (isOnline) s.emit("driver:online", id);
-    else s.emit("driver:offline", id);
+    if (!s || !id) return;
+
+    if (!isOnline) {
+      if (s.connected) {
+        s.emit("driver:offline", id);
+        s.disconnect();
+      }
+      setSocketConnected(false);
+      return;
+    }
+
+    if (!s.connected) {
+      s.connect();
+      return;
+    }
+
+    s.emit("driver:online", id);
   }, [isOnline, myDriverId, socket]);
 
   useEffect(() => {
@@ -141,6 +160,38 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       void sub?.remove();
     };
   }, [isOnline, myDriverId, socket]);
+
+  useEffect(() => {
+    if (!isOnline) return;
+
+    let cancelled = false;
+
+    const enforceLocationRequirement = async () => {
+      const access = await getDriverLocationAccessState();
+      if (cancelled || isDriverLocationReady(access)) return;
+      setOnline(false);
+      if (socket?.connected) {
+        socket.disconnect();
+      }
+      setSocketConnected(false);
+    };
+
+    void enforceLocationRequirement();
+    const interval = setInterval(() => {
+      void enforceLocationRequirement();
+    }, 5000);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void enforceLocationRequirement();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      sub.remove();
+    };
+  }, [isOnline, setOnline, socket]);
 
   return (
     <DriverSocketContext.Provider value={{ socket, myDriverId, socketConnected }}>

@@ -1,11 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Tabs, usePathname } from "expo-router";
+import { Tabs, usePathname, useRouter } from "expo-router";
 import { useEffect } from "react";
 import { AppState, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverAppHeader } from "../../src/components/DriverAppHeader";
 import { DriverSocketProvider } from "../../src/driver-socket-context";
+import { getDriverLocationAccessState, isDriverLocationReady } from "../../src/lib/location-access";
 import { shouldLoadExpoPushModule } from "../../src/lib/push-environment";
+import { getDriverSession } from "../../src/lib/session";
 import { driverTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { rtlText } from "../../src/lib/rtl-text";
 import { useDriverStore } from "../../src/store";
@@ -31,6 +33,7 @@ function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   useEffect(() => {
     if (!shouldLoadExpoPushModule()) return;
@@ -54,9 +57,36 @@ export default function TabsLayout() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const verifyLocationAccess = async () => {
+      const session = await getDriverSession();
+      if (!session?.accessToken || cancelled) return;
+
+      const locationState = await getDriverLocationAccessState();
+      if (cancelled || isDriverLocationReady(locationState)) return;
+
+      useDriverStore.getState().setOnline(false);
+      router.replace("/location-access");
+    };
+
+    void verifyLocationAccess();
+    const sub = AppState.addEventListener("change", (status) => {
+      if (status === "active") {
+        void verifyLocationAccess();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [router]);
+
   return (
     <DriverSocketProvider>
-    <View style={{ flex: 1, backgroundColor: "#f8fafc" }}>
+    <View style={{ flex: 1, backgroundColor: "#edf4ff" }}>
       <DriverAppHeader />
       <Tabs
       screenOptions={{
@@ -65,10 +95,16 @@ export default function TabsLayout() {
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: "#ffffff",
-          borderTopColor: "#e2e8f0",
+          borderTopColor: "#dbe4f0",
+          borderTopWidth: 1,
           paddingTop: 4,
           paddingBottom: Math.max(insets.bottom, 8),
-          height: driverTabBarOuterHeight(insets.bottom)
+          height: driverTabBarOuterHeight(insets.bottom),
+          shadowColor: "#0f172a",
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.08,
+          shadowRadius: 10,
+          elevation: 12
         },
         tabBarActiveTintColor: "#2563eb",
         tabBarInactiveTintColor: "#64748b",
@@ -101,6 +137,14 @@ export default function TabsLayout() {
           title: "الأرشيف",
           tabBarLabel: "الأرشيف",
           tabBarIcon: ({ color, size }) => <Ionicons name="archive-outline" size={size ?? 22} color={color} />
+        }}
+      />
+      <Tabs.Screen
+        name="reports"
+        options={{
+          title: "التقارير",
+          tabBarLabel: "التقارير",
+          tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline" size={size ?? 22} color={color} />
         }}
       />
     </Tabs>

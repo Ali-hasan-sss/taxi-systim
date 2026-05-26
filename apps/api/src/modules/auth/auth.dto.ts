@@ -30,3 +30,13 @@ export const coordinatorLoginDto = phoneLoginDto;
 export const expoPushTokenDto = z.object({
   token: z.string().min(20, "رمز الإشعار قصير جدًا")
 });
+
+export const changePasswordDto = z
+  .object({
+    currentPassword: passwordField,
+    newPassword: passwordField
+  })
+  .refine((v) => v.currentPassword !== v.newPassword, {
+    message: "كلمة المرور الجديدة يجب أن تختلف عن الحالية",
+    path: ["newPassword"]
+  });

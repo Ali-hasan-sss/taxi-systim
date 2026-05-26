@@ -79,12 +79,12 @@ export default function DashboardPage() {
             <Link href="/employees" className="btn btn-primary dashboard-quick-actions__link">
               إدارة الموظفين
             </Link>
-            <button type="button" className="btn btn-primary">
+            <Link href="/settings" className="btn btn-primary dashboard-quick-actions__link">
               إعدادات العمولة
-            </button>
-            <button type="button" className="btn btn-primary">
+            </Link>
+            <Link href="/finance" className="btn btn-primary dashboard-quick-actions__link">
               التقارير المالية
-            </button>
+            </Link>
             <button type="button" className="btn btn-primary">
               إضافة منسق
             </button>

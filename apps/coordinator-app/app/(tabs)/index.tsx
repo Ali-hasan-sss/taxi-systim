@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Dimensions,
   Image,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -11,17 +10,14 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  type TextInput as TextInputRef,
   View
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CoordinatorCreateOrderModal } from "../../src/components/CoordinatorCreateOrderModal";
 import {
   type CoordinatorOrderStats,
-  type OrderVehicleRequirement,
-  coordinatorCreateOrder,
   coordinatorMe,
   coordinatorOrderStats
 } from "../../src/lib/api";
@@ -52,24 +48,6 @@ function formatSyriaDayLabel(ymd: string): string {
   }
 }
 
-const orderModalSheetMaxHeight = Math.round(Dimensions.get("window").height * 0.92);
-
-function resetOrderForm(setters: {
-  setFromAddr: (v: string) => void;
-  setToAddr: (v: string) => void;
-  setPhone: (v: string) => void;
-  setAmountText: (v: string) => void;
-  setOrderNotes: (v: string) => void;
-  setVehicleRequirement: (v: OrderVehicleRequirement) => void;
-}) {
-  setters.setFromAddr("");
-  setters.setToAddr("");
-  setters.setPhone("");
-  setters.setAmountText("");
-  setters.setOrderNotes("");
-  setters.setVehicleRequirement("ANY");
-}
-
 export default function HomeTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -82,18 +60,6 @@ export default function HomeTab() {
   const [phoneDisplay, setPhoneDisplay] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
-
-  const [fromAddr, setFromAddr] = useState("");
-  const [toAddr, setToAddr] = useState("");
-  const [phone, setPhone] = useState("");
-  const [amountText, setAmountText] = useState("");
-  const [orderNotes, setOrderNotes] = useState("");
-  const [vehicleRequirement, setVehicleRequirement] = useState<OrderVehicleRequirement>("ANY");
-  const [submitting, setSubmitting] = useState(false);
-  const orderFromRef = useRef<TextInputRef>(null);
-  const orderToRef = useRef<TextInputRef>(null);
-  const orderPhoneRef = useRef<TextInputRef>(null);
-  const orderAmountRef = useRef<TextInputRef>(null);
   const [orderStats, setOrderStats] = useState<CoordinatorOrderStats>({
     active: 0,
     pending: 0,
@@ -194,64 +160,6 @@ export default function HomeTab() {
       if (left + panelW > sw - 12) left = sw - 12 - panelW;
       applyAnchor(y + h + 6, left, panelW);
     });
-  };
-
-  const submitOrder = async () => {
-    const session = await getSession();
-    if (!session?.accessToken) {
-      router.replace("/login");
-      return;
-    }
-
-    const amount = Number(amountText.replace(",", ".").trim());
-    if (!Number.isFinite(amount) || amount <= 0) {
-      feedback.warning("أدخل تكلفة الطلب رقمًا صالحًا أكبر من صفر.");
-      return;
-    }
-    if (!fromAddr.trim() || !toAddr.trim()) {
-      feedback.warning("أدخل عنوان الانطلاق وعنوان الوجهة.");
-      return;
-    }
-    const phoneOk = phone.trim().length >= 3;
-    if (!phoneOk) {
-      feedback.warning("أدخل رقم زبون صالحًا (3 أرقام على الأقل).");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const created = await coordinatorCreateOrder(session.accessToken, {
-        pickupAddress: fromAddr.trim(),
-        dropoffAddress: toAddr.trim(),
-        customerPhone: phone.trim(),
-        amount,
-        broadcastTarget: "ALL",
-        vehicleRequirement,
-        notes: orderNotes.trim() || undefined
-      });
-      feedback.success(
-        `تم بث الطلب إلى السائقين.\nالمعرّف: ${created.id.slice(0, 8)}…`,
-        "تم إنشاء الطلب"
-      );
-      resetOrderForm({
-        setFromAddr,
-        setToAddr,
-        setPhone,
-        setAmountText,
-        setOrderNotes,
-        setVehicleRequirement
-      });
-      closeOrderModal();
-      try {
-        setOrderStats(await coordinatorOrderStats(session.accessToken));
-      } catch {
-        /* تجاهل فشل تحديث الإحصائيات */
-      }
-    } catch (e) {
-      feedback.error(e instanceof Error ? e.message : "تعذر إنشاء الطلب. حاول مرة أخرى.");
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   const homeScrollBottomPad = 40 + coordinatorTabBarOuterHeight(insets.bottom);
@@ -383,154 +291,19 @@ export default function HomeTab() {
         </View>
       </ScrollView>
 
-      <Modal
+      <CoordinatorCreateOrderModal
         visible={orderModalOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={closeOrderModal}
-      >
-        <View style={[styles.modalRoot, styles.rtlScreen]}>
-          <Pressable style={styles.modalBackdrop} onPress={closeOrderModal} accessibilityRole="button" />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(insets.top, 12) : 0}
-            style={[styles.modalKeyboard, styles.rtlScreen]}
-          >
-            <View
-              style={[
-                styles.modalSheet,
-                styles.rtlScreen,
-                {
-                  height: orderModalSheetMaxHeight,
-                  maxHeight: orderModalSheetMaxHeight,
-                  paddingBottom: Math.max(insets.bottom, 12)
-                }
-              ]}
-            >
-              <ScrollView
-                style={styles.modalScroll}
-                contentContainerStyle={[
-                  styles.modalScrollContent,
-                  { paddingBottom: Math.max(insets.bottom, 16) + 100 }
-                ]}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-                showsVerticalScrollIndicator
-                nestedScrollEnabled
-              >
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>طلب جديد</Text>
-                  <Pressable onPress={closeOrderModal} hitSlop={12} style={styles.modalClose}>
-                    <Text style={styles.modalCloseText}>إغلاق</Text>
-                  </Pressable>
-                </View>
-                <Text style={styles.modalSubtitle}>
-                  يُبث الطلب فور الحفظ إلى جميع السائقين المؤهلين حسب نوع السيارة أدناه.
-                </Text>
-
-                <Text style={styles.label}>نوع السيارة المطلوب</Text>
-                <View style={styles.row}>
-                  <Pressable
-                    onPress={() => setVehicleRequirement("ANY")}
-                    style={[styles.chip, vehicleRequirement === "ANY" && styles.chipOn]}
-                  >
-                    <Text style={[styles.chipText, vehicleRequirement === "ANY" && styles.chipTextOn]}>غير مهم</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setVehicleRequirement("PUBLIC")}
-                    style={[styles.chip, vehicleRequirement === "PUBLIC" && styles.chipOn]}
-                  >
-                    <Text style={[styles.chipText, vehicleRequirement === "PUBLIC" && styles.chipTextOn]}>عامة</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setVehicleRequirement("PRIVATE")}
-                    style={[styles.chip, vehicleRequirement === "PRIVATE" && styles.chipOn]}
-                  >
-                    <Text style={[styles.chipText, vehicleRequirement === "PRIVATE" && styles.chipTextOn]}>خاصة</Text>
-                  </Pressable>
-                </View>
-
-                <Text style={styles.label}>من (الانطلاق)</Text>
-                <TextInput
-                  ref={orderFromRef}
-                  value={fromAddr}
-                  onChangeText={setFromAddr}
-                  placeholder="عنوان أو وصف نقطة الانطلاق"
-                  placeholderTextColor="#64748b"
-                  style={styles.input}
-                  returnKeyType="next"
-                  blurOnSubmit={false}
-                  onSubmitEditing={() => orderToRef.current?.focus()}
-                />
-
-                <Text style={styles.label}>إلى (الوجهة)</Text>
-                <TextInput
-                  ref={orderToRef}
-                  value={toAddr}
-                  onChangeText={setToAddr}
-                  placeholder="عنوان أو وصف الوجهة"
-                  placeholderTextColor="#64748b"
-                  style={styles.input}
-                  returnKeyType="next"
-                  blurOnSubmit={false}
-                  onSubmitEditing={() => orderPhoneRef.current?.focus()}
-                />
-
-                <Text style={styles.label}>رقم الزبون</Text>
-                <TextInput
-                  ref={orderPhoneRef}
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="07xxxxxxxx"
-                  placeholderTextColor="#64748b"
-                  style={styles.input}
-                  keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "phone-pad"}
-                  returnKeyType="next"
-                  blurOnSubmit={false}
-                  onSubmitEditing={() => orderAmountRef.current?.focus()}
-                />
-
-                <Text style={styles.label}>تكلفة الطلب</Text>
-                <TextInput
-                  ref={orderAmountRef}
-                  value={amountText}
-                  onChangeText={setAmountText}
-                  placeholder="مثال: 25 أو 25.5"
-                  placeholderTextColor="#64748b"
-                  style={styles.input}
-                  keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "decimal-pad"}
-                  returnKeyType="done"
-                  blurOnSubmit={false}
-                  onSubmitEditing={() => void submitOrder()}
-                />
-
-                <Text style={styles.label}>ملاحظات إضافية (اختياري)</Text>
-                <TextInput
-                  value={orderNotes}
-                  onChangeText={setOrderNotes}
-                  placeholder="تعليمات للسائق، لون مميز، نقطة لقاء…"
-                  placeholderTextColor="#64748b"
-                  style={[styles.input, styles.inputMultiline]}
-                  multiline
-                  textAlignVertical="top"
-                />
-
-                <Pressable
-                  onPress={() => void submitOrder()}
-                  disabled={submitting}
-                  style={[styles.submit, submitting && styles.disabled]}
-                >
-                  {submitting ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.submitText}>إنشاء الطلب وبثّه</Text>
-                  )}
-                </Pressable>
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+        onClose={closeOrderModal}
+        onCreated={async () => {
+          const session = await getSession();
+          if (!session?.accessToken) return;
+          try {
+            setOrderStats(await coordinatorOrderStats(session.accessToken));
+          } catch {
+            /* ignore */
+          }
+        }}
+      />
     </View>
   );
 }

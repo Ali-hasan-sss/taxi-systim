@@ -119,10 +119,12 @@ function resolveCustomerPhone(row: DriverOrderRow): string | null {
 export function DriverOrderCard({
   item,
   footer,
+  afterAmountRow,
   variant = "default"
 }: {
   item: DriverOrderRow;
   footer?: ReactNode;
+  afterAmountRow?: ReactNode;
   /** أرشيف السائق: بدون رقم زبون ولا اتصال (خصوصية). */
   variant?: "default" | "archive";
 }) {
@@ -177,7 +179,8 @@ export function DriverOrderCard({
         <Text style={styles.amount}>المبلغ: {formatAmount(item.amount)}</Text>
         <Text style={styles.date}>{formatWhen(item.createdAt)}</Text>
       </View>
-      <Text style={[styles.driver, !footer && styles.driverLast]}>
+      {afterAmountRow}
+      <Text style={[styles.driver, !footer && !afterAmountRow && styles.driverLast]}>
         السائق: {item.driver?.user?.fullName?.trim() ? item.driver.user.fullName : "لم يُعيَّن بعد"}
       </Text>
       {footer}
@@ -187,23 +190,23 @@ export function DriverOrderCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#ffffff",
-    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderRadius: 18,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: "#dbe4f0",
     direction: "rtl",
     alignItems: "stretch",
     shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 5
   },
   cardTop: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
+    flexDirection: "row-reverse",
+    justifyContent: "flex-end",
     gap: 8,
     flexWrap: "wrap",
     marginBottom: 10
@@ -233,7 +236,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#0f172a",
     ...rtlText,
-    marginBottom: 8
+    marginBottom: 8,
+    textAlign: "right"
   },
   addressBlock: {
     gap: 10,
@@ -245,38 +249,44 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 10,
-    fontWeight: "600"
+    fontWeight: "600",
+    textAlign: "right"
   },
   pickupBox: {
     backgroundColor: "#eff6ff",
     borderWidth: 1,
     borderColor: "#93c5fd",
     borderRadius: 12,
-    padding: 12
+    padding: 12,
+    alignItems: "flex-end"
   },
   dropoffBox: {
     backgroundColor: "#ecfdf5",
     borderWidth: 1,
     borderColor: "#6ee7b7",
     borderRadius: 12,
-    padding: 12
+    padding: 12,
+    alignItems: "flex-end"
   },
   addressBoxLabel: {
     fontSize: 12,
     fontWeight: "800",
     color: "#334155",
     ...rtlText,
-    marginBottom: 6
+    marginBottom: 6,
+    textAlign: "right"
   },
   addressBoxText: {
     fontSize: 14,
     color: "#1e293b",
     ...rtlText,
-    lineHeight: 22
+    lineHeight: 22,
+    textAlign: "right"
   },
   phoneRow: {
-    flexDirection: "row",
+    flexDirection: "row-reverse",
     alignItems: "center",
+    justifyContent: "flex-end",
     flexWrap: "wrap",
     gap: 10,
     marginBottom: 8
@@ -284,10 +294,11 @@ const styles = StyleSheet.create({
   phone: {
     color: "#64748b",
     ...rtlText,
-    flexShrink: 1
+    flexShrink: 1,
+    textAlign: "right"
   },
   callBtn: {
-    flexDirection: "row",
+    flexDirection: "row-reverse",
     alignItems: "center",
     gap: 6,
     backgroundColor: "#15803d",
@@ -302,11 +313,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "800",
     fontSize: 13,
-    ...rtlText
+    ...rtlText,
+    textAlign: "right"
   },
   row: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
+    flexDirection: "row-reverse",
+    justifyContent: "flex-end",
     alignItems: "center",
     gap: 12,
     flexWrap: "wrap",
@@ -316,18 +328,21 @@ const styles = StyleSheet.create({
     color: "#2563eb",
     fontWeight: "800",
     fontSize: 16,
-    ...rtlText
+    ...rtlText,
+    textAlign: "right"
   },
   date: {
     color: "#64748b",
     fontSize: 12,
-    ...rtlText
+    ...rtlText,
+    textAlign: "right"
   },
   driver: {
     color: "#64748b",
     fontSize: 13,
     ...rtlText,
-    marginBottom: 10
+    marginBottom: 10,
+    textAlign: "right"
   },
   driverLast: {
     marginBottom: 0

@@ -3,6 +3,7 @@ import { Dimensions, Image, Modal, Pressable, StyleSheet, Text, View } from "rea
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getDriverLocationAccessState, isDriverLocationReady } from "../lib/location-access";
 import { shouldLoadExpoPushModule } from "../lib/push-environment";
 import { clearDriverSession, getDriverSession } from "../lib/session";
 import { useDriverStore } from "../store";
@@ -41,6 +42,18 @@ export function DriverAppHeader() {
     }
     await clearDriverSession();
     router.replace("/login");
+  };
+
+  const startWork = async () => {
+    const locationState = await getDriverLocationAccessState();
+    if (!isDriverLocationReady(locationState)) {
+      setOnline(false);
+      closeMenu();
+      router.replace("/location-access");
+      return;
+    }
+    setOnline(true);
+    closeMenu();
   };
 
   const closeMenu = () => {
@@ -130,8 +143,7 @@ export function DriverAppHeader() {
                   style={[styles.dropdownRow, isOnline && styles.dropdownRowDisabled]}
                   disabled={isOnline}
                   onPress={() => {
-                    setOnline(true);
-                    closeMenu();
+                    void startWork();
                   }}
                   accessibilityRole="button"
                   accessibilityLabel="بدء العمل — متصل"
@@ -184,9 +196,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
+    borderBottomColor: "#dbe4f0",
     minHeight: 68,
-    backgroundColor: "#ffffff"
+    backgroundColor: "#ffffff",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 6
   },
   logoCreamBox: {
     height: 44,
@@ -222,11 +239,16 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#f1f5f9",
+    backgroundColor: "#f8fbff",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#cbd5e1"
+    borderColor: "#d7e3f4",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2
   },
   menuModalRoot: {
     flex: 1
@@ -261,20 +283,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     color: "#f8fafc",
-    ...rtlText
+    ...rtlText,
+    textAlign: "right"
   },
   dropdownSubtitle: {
     marginTop: 4,
     fontSize: 13,
     color: "#94a3b8",
-    ...rtlText
+    ...rtlText,
+    textAlign: "right"
   },
   dropdownStatus: {
     marginTop: 8,
     fontSize: 12,
     fontWeight: "700",
     color: "#cbd5e1",
-    ...rtlText
+    ...rtlText,
+    textAlign: "right"
   },
   dropdownDivider: {
     height: 1,
@@ -282,9 +307,9 @@ const styles = StyleSheet.create({
     marginVertical: 12
   },
   dropdownRow: {
-    flexDirection: "row",
+    flexDirection: "row-reverse",
     alignItems: "center",
-    justifyContent: "flex-start",
+    justifyContent: "flex-end",
     gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 4
@@ -297,7 +322,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#f1f5f9",
     ...rtlText,
-    flex: 1
+    flex: 1,
+    textAlign: "right"
   },
   dropdownMutedText: {
     color: "#64748b"
@@ -307,6 +333,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#dc2626",
     ...rtlText,
-    flex: 1
+    flex: 1,
+    textAlign: "right"
   }
 });

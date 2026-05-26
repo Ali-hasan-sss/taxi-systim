@@ -42,6 +42,8 @@ export interface DriverOrderStats {
   stuckToday: number;
   /** مجموع العمولة المستحقة (غير المسددة) لطلبات أُكملت اليوم بتوقيت سوريا */
   commissionDueTodaySyria: number;
+  /** إجمالي العمولات غير المسددة للسائق */
+  unpaidCommissionAmount: number;
   summaryDaySyria?: string;
 }
 
@@ -134,6 +136,7 @@ export async function fetchDriverOrderStats(accessToken: string): Promise<Driver
     stuckToday: typeof data.stuckToday === "number" ? data.stuckToday : 0,
     commissionDueTodaySyria:
       typeof data.commissionDueTodaySyria === "number" ? data.commissionDueTodaySyria : 0,
+    unpaidCommissionAmount: typeof data.unpaidCommissionAmount === "number" ? data.unpaidCommissionAmount : 0,
     summaryDaySyria: typeof data.summaryDaySyria === "string" ? data.summaryDaySyria : undefined
   };
 }
@@ -187,6 +190,11 @@ export interface DriverOrderRow {
     vehicleNumber?: string | null;
     vehicleKind?: "PUBLIC" | "PRIVATE" | null;
   };
+  commission?: null | {
+    calculatedCommission: string;
+    paymentStatus: "UNPAID" | "PARTIAL" | "PAID";
+    remainingAmount: string;
+  };
 }
 
 export type DriverOrdersScope = "active" | "archive";
@@ -197,6 +205,20 @@ export type DriverArchiveSegment = "completed" | "cancelled" | "stuck";
 export interface DriverOrdersPage {
   orders: DriverOrderRow[];
   nextCursor: string | null;
+}
+
+export interface DriverOrdersReportSummary {
+  orderCount: number;
+  totalAmount: string;
+  totalCommission: string;
+  from: string;
+  to: string;
+}
+
+export interface DriverOrdersReportPage {
+  orders: DriverOrderRow[];
+  nextCursor: string | null;
+  summary: DriverOrdersReportSummary;
 }
 
 export interface DriverProfile {
@@ -317,6 +339,48 @@ export async function driverListOrders(
     throw new Error(body.message ?? "تعذر تحميل الطلبات");
   }
   return res.json() as Promise<DriverOrdersPage>;
+}
+
+export async function driverOrdersReport(
+  accessToken: string,
+  opts?: {
+    from?: string;
+    to?: string;
+    cursor?: string | null;
+    limit?: number;
+  }
+): Promise<DriverOrdersReportPage> {
+  const params = new URLSearchParams({ t: String(Date.now()) });
+  if (opts?.from) params.set("from", opts.from);
+  if (opts?.to) params.set("to", opts.to);
+  if (opts?.cursor) params.set("cursor", opts.cursor);
+  params.set("limit", String(opts?.limit ?? 20));
+
+  const res = await driverFetchWithRefresh(
+    `/orders/driver/reports?${params.toString()}`,
+    { cache: "no-store" },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر تحميل التقرير");
+  }
+  const data = (await res.json()) as {
+    orders?: DriverOrderRow[];
+    nextCursor?: string | null;
+    summary?: Partial<DriverOrdersReportSummary>;
+  };
+  return {
+    orders: Array.isArray(data.orders) ? data.orders : [],
+    nextCursor: data.nextCursor ?? null,
+    summary: {
+      orderCount: typeof data.summary?.orderCount === "number" ? data.summary.orderCount : 0,
+      totalAmount: typeof data.summary?.totalAmount === "string" ? data.summary.totalAmount : "0.00",
+      totalCommission: typeof data.summary?.totalCommission === "string" ? data.summary.totalCommission : "0.00",
+      from: typeof data.summary?.from === "string" ? data.summary.from : "",
+      to: typeof data.summary?.to === "string" ? data.summary.to : ""
+    }
+  };
 }
 
 export function getSocketOrigin(): string {

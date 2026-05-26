@@ -1,0 +1,165 @@
+.mapRoot {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.mapCanvas {
+  width: 100%;
+  height: 100%;
+  min-height: 540px;
+  border-radius: 24px;
+  overflow: hidden;
+  background: #e2e8f0;
+}
+
+.emptyOverlay {
+  position: absolute;
+  inset: auto 24px 24px;
+  z-index: 500;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.88);
+  color: #f8fafc;
+  font-size: 14px;
+  line-height: 1.7;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(8px);
+}
+
+.markerBubble {
+  min-width: 86px;
+  height: 40px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  font-family: "Cairo", "Tajawal", Segoe UI, Tahoma, Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  color: #0f172a;
+  border: 3px solid #ffffff;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.22);
+  white-space: nowrap;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.markerBubble:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.28);
+}
+
+.markerOnline {
+  background: linear-gradient(135deg, #fde68a 0%, #facc15 100%);
+}
+
+.markerBusy {
+  background: linear-gradient(135deg, #fdba74 0%, #fb7185 100%);
+  color: #fff7ed;
+}
+
+.markerSelected {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.32);
+}
+
+.popupCard {
+  min-width: 220px;
+  direction: rtl;
+  text-align: right;
+  font-family: "Cairo", "Tajawal", Segoe UI, Tahoma, Arial, sans-serif;
+}
+
+.popupTitle {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.popupMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.popupMetaRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.popupLabel {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.popupValue {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.popupStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+
+.popupStatusOnline {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.popupStatusBusy {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.popupActions {
+  display: flex;
+  gap: 10px;
+}
+
+.popupActionButton {
+  flex: 1;
+  border: none;
+  border-radius: 14px;
+  padding: 11px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.popupActionButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.popupActionButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.popupActionPrimary {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #eff6ff;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.24);
+}
+
+.popupActionSecondary {
+  background: #ecfdf5;
+  color: #15803d;
+}

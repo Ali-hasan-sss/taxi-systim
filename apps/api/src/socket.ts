@@ -1,5 +1,5 @@
 import type { Server } from "socket.io";
-import { OrderBroadcastTarget, OrderVehicleRequirement, VehicleKind, type Order } from "@prisma/client";
+import { OrderBroadcastTarget, OrderStatus, OrderVehicleRequirement, VehicleKind, type Order } from "@prisma/client";
 import { socketEvents } from "@taxi/config";
 import { prisma } from "./shared/prisma";
 import { redis, redisEnabled } from "./shared/redis";
@@ -8,15 +8,68 @@ import { driverMatchesOrderVehicle, driverWhereMatchesOrderVehicle } from "./mod
 
 const memOnline = new Map<string, boolean>();
 const memLocations = new Map<string, { lat: number; lng: number }>();
+const memBusyState = new Map<string, { value: boolean; fetchedAt: number }>();
+const memLastLocationAcceptedAt = new Map<string, number>();
 
 /** سائقون أرسلوا driver:online — طلبات «نوع السيارة: غير مهم» تُبث هنا ليصل الطلب للجميع */
-const ROOM_DRIVERS_ONLINE = "drivers-online";
+export const ROOM_DRIVERS_ONLINE = "drivers-online";
 /** طلبات تتطلب سيارة عامة فقط */
 const ROOM_ORDER_VEHICLE_PUBLIC = "orders:vehicle:public";
 /** طلبات تتطلب سيارة خاصة فقط */
 const ROOM_ORDER_VEHICLE_PRIVATE = "orders:vehicle:private";
 /** غرفة تطبيقات المنسقين — لاستلام NEW_ORDER دون إرساله لكل السوكيتات */
 const ROOM_COORDINATORS = "coordinators";
+const DRIVER_LOCATION_MIN_INTERVAL_MS = Math.max(1_000, Number(process.env.DRIVER_LOCATION_MIN_INTERVAL_MS ?? 120_000));
+const DRIVER_BUSY_CACHE_MS = Math.max(1_000, Number(process.env.DRIVER_BUSY_CACHE_MS ?? 15_000));
+const DRIVER_BUSY_STATUSES = new Set<OrderStatus>([
+  OrderStatus.ACCEPTED,
+  OrderStatus.ARRIVED,
+  OrderStatus.EN_ROUTE_TO_CUSTOMER,
+  OrderStatus.STARTED
+]);
+
+function isFiniteCoord(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function setDriverBusyState(driverId: string, isBusy: boolean) {
+  memBusyState.set(driverId, { value: isBusy, fetchedAt: Date.now() });
+}
+
+function syncBusyStateFromOrder(order: Order) {
+  if (!order.driverId) return;
+  setDriverBusyState(order.driverId, DRIVER_BUSY_STATUSES.has(order.status));
+}
+
+function shouldAcceptDriverLocationUpdate(driverId: string) {
+  const now = Date.now();
+  const last = memLastLocationAcceptedAt.get(driverId) ?? 0;
+  if (now - last < DRIVER_LOCATION_MIN_INTERVAL_MS) {
+    return false;
+  }
+  memLastLocationAcceptedAt.set(driverId, now);
+  return true;
+}
+
+async function getDriverBusyState(driverId: string): Promise<boolean> {
+  const cached = memBusyState.get(driverId);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < DRIVER_BUSY_CACHE_MS) {
+    return cached.value;
+  }
+  let isBusy = false;
+  try {
+    const row = await prisma.driver.findUnique({
+      where: { id: driverId },
+      select: { isBusy: true }
+    });
+    isBusy = row?.isBusy ?? false;
+  } catch {
+    /* تجاهل */
+  }
+  setDriverBusyState(driverId, isBusy);
+  return isBusy;
+}
 
 /** يعمل مع `Socket` المحلي ومع `RemoteSocket` الناتج عن `fetchSockets` */
 function syncOrderVehicleRooms(
@@ -144,6 +197,20 @@ export async function getDriverLocationsForNearest(): Promise<Array<{ driverId: 
   return out;
 }
 
+/** السائقون الموجودون فعليًا الآن في غرفة «متصل» على السوكيت */
+export async function getConnectedOnlineDriverIds(io: Server): Promise<string[]> {
+  const sockets = await io.in(ROOM_DRIVERS_ONLINE).fetchSockets();
+  const ids = new Set<string>();
+  for (const socket of sockets) {
+    for (const room of socket.rooms) {
+      if (room.startsWith("driver:")) {
+        ids.add(room.slice("driver:".length));
+      }
+    }
+  }
+  return [...ids];
+}
+
 /**
  * بعد تعديل نوع السيارة من الأدمن: إعادة إلحاق سوكيتات السائق بغرف `orders:vehicle:*`
  * دون الحاجة لإعادة تشغيل «متصل».
@@ -196,6 +263,7 @@ export async function getPushTargetDriverUserIdsForNewOrder(order: Order): Promi
 
 /** إسناد من المنسق: للسائق المختار + بث عام لتحديث واجهات المنسق */
 export function emitOrderAssigned(io: Server, order: Order) {
+  syncBusyStateFromOrder(order);
   const payload = orderToSocketPayload(order);
   if (order.driverId) {
     io.to(`driver:${order.driverId}`).emit(socketEvents.ORDER_ASSIGNED, payload);
@@ -205,6 +273,7 @@ export function emitOrderAssigned(io: Server, order: Order) {
 
 /** بعد قبول سائق لطلب معلق — نفس حمولة الإسناد ليزيل الطلب من قوائم البقية */
 export function emitDriverClaimedOrder(io: Server, order: Order) {
+  syncBusyStateFromOrder(order);
   const payload = orderToSocketPayload(order);
   io.emit(socketEvents.ORDER_ASSIGNED, payload);
 }
@@ -214,6 +283,7 @@ export function emitPendingOrderCancelled(io: Server, orderId: string) {
 }
 
 export function emitOrderStatusUpdated(io: Server, order: Order) {
+  syncBusyStateFromOrder(order);
   io.emit(socketEvents.ORDER_STATUS_UPDATED, orderToSocketPayload(order));
 }
 
@@ -234,15 +304,18 @@ export const initSocket = (io: Server) => {
       memOnline.set(driverId, true);
       void socket.join(ROOM_DRIVERS_ONLINE);
       let vehicleKind: VehicleKind | null = null;
+      let isBusy = false;
       try {
         const row = await prisma.driver.findUnique({
           where: { id: driverId },
-          select: { vehicleKind: true }
+          select: { vehicleKind: true, isBusy: true }
         });
         vehicleKind = row?.vehicleKind ?? null;
+        isBusy = row?.isBusy ?? false;
       } catch {
         /* تجاهل */
       }
+      setDriverBusyState(driverId, isBusy);
       syncOrderVehicleRooms(socket, vehicleKind);
       await socketWrite(() => redis.hset("drivers:online", driverId, "1"));
       try {
@@ -250,31 +323,36 @@ export const initSocket = (io: Server) => {
       } catch {
         /* تجاهل */
       }
-      io.emit(socketEvents.DRIVER_ONLINE, { driverId });
+      io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_ONLINE, { driverId });
     });
 
     socket.on("driver:location", async (payload: { driverId: string; lat: number; lng: number }) => {
-      if (payload?.driverId) {
-        memLocations.set(payload.driverId, { lat: payload.lat, lng: payload.lng });
+      if (
+        typeof payload?.driverId !== "string" ||
+        !payload.driverId ||
+        !isFiniteCoord(payload.lat) ||
+        !isFiniteCoord(payload.lng)
+      ) {
+        return;
       }
+      if (Math.abs(payload.lat) > 90 || Math.abs(payload.lng) > 180) {
+        return;
+      }
+      if (!shouldAcceptDriverLocationUpdate(payload.driverId)) {
+        return;
+      }
+      memLocations.set(payload.driverId, { lat: payload.lat, lng: payload.lng });
       await socketWrite(() => redis.hset("drivers:locations", payload.driverId, JSON.stringify(payload)));
-      let isBusy = false;
-      try {
-        const row = await prisma.driver.findUnique({
-          where: { id: payload.driverId },
-          select: { isBusy: true }
-        });
-        isBusy = row?.isBusy ?? false;
-      } catch {
-        /* تجاهل */
-      }
-      io.emit(socketEvents.DRIVER_LOCATION_UPDATED, { ...payload, isBusy });
+      const isBusy = await getDriverBusyState(payload.driverId);
+      io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_LOCATION_UPDATED, { ...payload, isBusy });
     });
 
     socket.on("driver:offline", async (driverId: string) => {
       if (typeof driverId === "string" && driverId) {
         memOnline.delete(driverId);
         memLocations.delete(driverId);
+        memBusyState.delete(driverId);
+        memLastLocationAcceptedAt.delete(driverId);
       }
       void socket.leave(ROOM_DRIVERS_ONLINE);
       void socket.leave(ROOM_ORDER_VEHICLE_PUBLIC);
@@ -287,7 +365,7 @@ export const initSocket = (io: Server) => {
       } catch {
         /* تجاهل */
       }
-      io.emit(socketEvents.DRIVER_OFFLINE, { driverId });
+      io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_OFFLINE, { driverId });
     });
   });
 };

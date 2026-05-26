@@ -1,10 +1,15 @@
+import type { Server } from "socket.io";
 import { Role } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
-import { getDriverLocationsForNearest } from "../../socket";
+import { getConnectedOnlineDriverIds, getDriverLocationsForNearest } from "../../socket";
 
 const ASSIGN_SEARCH_MIN_LEN = 2;
 const ASSIGN_SEARCH_LIMIT = 30;
+const LIVE_DRIVERS_PAGE_DEFAULT = 20;
+const LIVE_DRIVERS_PAGE_MAX = 100;
+
+export type LiveDriversStatusFilter = "all" | "available" | "busy";
 
 async function syncMissingDriverRows() {
   const orphans = await prisma.user.findMany({
@@ -65,29 +70,139 @@ export const driversService = {
   },
 
   /** سائقون متصلون (driver:online) ولديهم آخر موقع (driver:location) */
-  async listLiveWithNames() {
-    const locs = await getDriverLocationsForNearest();
-    if (locs.length === 0) return [];
+  async listLiveWithNames(
+    io: Server,
+    opts?: {
+      q?: string | null;
+      limit?: number;
+      offset?: number;
+      status?: LiveDriversStatusFilter;
+      includeInactive?: boolean;
+    }
+  ) {
+    await syncMissingDriverRows();
+    const q = typeof opts?.q === "string" ? opts.q.trim() : "";
+    const limit = Math.min(LIVE_DRIVERS_PAGE_MAX, Math.max(1, opts?.limit ?? LIVE_DRIVERS_PAGE_DEFAULT));
+    const offset = Math.max(0, opts?.offset ?? 0);
+    const status = opts?.status ?? "all";
+    const includeInactive = opts?.includeInactive === true;
+    const connectedIds = await getConnectedOnlineDriverIds(io);
+    const connectedSet = new Set(connectedIds);
 
-    const ids = locs.map((l) => l.driverId);
-    const drivers = await prisma.driver.findMany({
-      where: { id: { in: ids } },
-      include: {
-        user: { select: { fullName: true, phone: true } }
-      }
-    });
-    const byId = new Map(drivers.map((d) => [d.id, d]));
-
-    return locs.map((l) => {
-      const row = byId.get(l.driverId);
+    if (connectedIds.length === 0 && !includeInactive) {
       return {
-        driverId: l.driverId,
-        lat: l.lat,
-        lng: l.lng,
-        fullName: row?.user.fullName?.trim() || "سائق",
-        phone: row?.user.phone ?? null,
-        isBusy: row?.isBusy ?? false
+        drivers: [],
+        total: 0,
+        nextOffset: null,
+        summary: {
+          totalDrivers: 0,
+          activeDrivers: 0,
+          driversOnMap: 0
+        }
+      };
+    }
+
+    const where = {
+      ...(includeInactive || connectedIds.length > 0 ? {} : { id: { in: ["__no_connected_drivers__"] } }),
+      ...(status === "all" && !includeInactive ? { id: { in: connectedIds } } : {}),
+      ...(status !== "all" ? { id: { in: connectedIds } } : {}),
+      ...(status === "busy" ? { isBusy: true } : status === "available" ? { isBusy: false } : {}),
+      user: {
+        role: Role.DRIVER,
+        isActive: true,
+        ...(q
+          ? {
+              OR: [
+                { fullName: { contains: q, mode: "insensitive" as const } },
+                { phone: { contains: q, mode: "insensitive" as const } }
+              ]
+            }
+          : {})
+      }
+    };
+
+    const [total, totalDrivers, activeDrivers, drivers, locs] = await Promise.all([
+      prisma.driver.count({ where }),
+      prisma.driver.count({
+        where: {
+          user: {
+            role: Role.DRIVER,
+            isActive: true,
+            ...(q
+              ? {
+                  OR: [
+                    { fullName: { contains: q, mode: "insensitive" as const } },
+                    { phone: { contains: q, mode: "insensitive" as const } }
+                  ]
+                }
+              : {})
+          }
+        }
+      }),
+      prisma.driver.count({
+        where: {
+          id: { in: connectedIds.length > 0 ? connectedIds : ["__no_connected_drivers__"] },
+          user: {
+            role: Role.DRIVER,
+            isActive: true,
+            ...(q
+              ? {
+                  OR: [
+                    { fullName: { contains: q, mode: "insensitive" as const } },
+                    { phone: { contains: q, mode: "insensitive" as const } }
+                  ]
+                }
+              : {})
+          }
+        }
+      }),
+      prisma.driver.findMany({
+        where,
+        select: {
+          id: true,
+          isBusy: true,
+          vehicleBrand: true,
+          vehicleKind: true,
+          vehicleColor: true,
+          vehicleNumber: true,
+          user: { select: { fullName: true, phone: true } }
+        },
+        orderBy: [{ isBusy: "asc" }, { user: { fullName: "asc" } }, { id: "asc" }],
+        skip: offset,
+        take: limit
+      }),
+      getDriverLocationsForNearest()
+    ]);
+
+    const locById = new Map(locs.map((l) => [l.driverId, l] as const));
+    const items = drivers.map((d) => {
+      const loc = locById.get(d.id);
+      const isOnline = connectedSet.has(d.id);
+      return {
+        driverId: d.id,
+        lat: loc?.lat ?? null,
+        lng: loc?.lng ?? null,
+        fullName: d.user.fullName?.trim() || "سائق",
+        phone: d.user.phone ?? null,
+        isBusy: isOnline ? d.isBusy : false,
+        isOnline,
+        status: isOnline ? (d.isBusy ? "busy" : "online") : "offline",
+        vehicleBrand: d.vehicleBrand ?? null,
+        vehicleKind: d.vehicleKind ?? null,
+        vehicleColor: d.vehicleColor ?? null,
+        vehicleNumber: d.vehicleNumber ?? null
       };
     });
+
+    return {
+      drivers: items,
+      total,
+      nextOffset: offset + items.length < total ? offset + items.length : null,
+      summary: {
+        totalDrivers,
+        activeDrivers,
+        driversOnMap: locs.filter((loc) => connectedSet.has(loc.driverId)).length
+      }
+    };
   }
 };

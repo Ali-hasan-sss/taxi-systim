@@ -8,7 +8,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
-import { syriaCalendarDayIso } from "../../shared/syria-time";
+import { SYRIA_TIME_ZONE, syriaCalendarDayIso } from "../../shared/syria-time";
 import { getDriverLocationsForNearest } from "../../socket";
 import type { CreateOrderDto } from "./orders.dto";
 import { driverMatchesOrderVehicle } from "./order-vehicle-filter";
@@ -88,6 +88,12 @@ const toNum = (d: Prisma.Decimal | number) => Number(d);
 
 export const COORDINATOR_ORDERS_PAGE_DEFAULT = 10;
 export const COORDINATOR_ORDERS_PAGE_MAX = 50;
+export const COORDINATOR_REPORTS_PAGE_DEFAULT = 20;
+export const COORDINATOR_REPORTS_PAGE_MAX = 100;
+export const DRIVER_REPORTS_PAGE_DEFAULT = 20;
+export const DRIVER_REPORTS_PAGE_MAX = 100;
+
+const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function encodeOrderCursor(row: { createdAt: Date; id: string }): string {
   return Buffer.from(
@@ -107,6 +113,90 @@ function decodeOrderCursor(cursor: string): { createdAt: Date; id: string } | nu
   } catch {
     return null;
   }
+}
+
+function getTimeZoneOffsetMs(timeZone: string, date: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+
+  const byType = new Map(parts.map((p) => [p.type, p.value]));
+  const asUtc = Date.UTC(
+    Number(byType.get("year")),
+    Number(byType.get("month")) - 1,
+    Number(byType.get("day")),
+    Number(byType.get("hour")),
+    Number(byType.get("minute")),
+    Number(byType.get("second"))
+  );
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtc(
+  timeZone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0,
+  millisecond = 0
+): Date {
+  let utcTs = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
+  for (let i = 0; i < 2; i += 1) {
+    const offsetMs = getTimeZoneOffsetMs(timeZone, new Date(utcTs));
+    utcTs = Date.UTC(year, month - 1, day, hour, minute, second, millisecond) - offsetMs;
+  }
+  return new Date(utcTs);
+}
+
+function parseYmd(ymd: string): { year: number; month: number; day: number } | null {
+  const m = YMD_RE.exec(ymd.trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
+}
+
+function nextYmdDay(ymd: string): string {
+  const parsed = parseYmd(ymd);
+  if (!parsed) return ymd;
+  const next = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day + 1, 12, 0, 0));
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(next);
+}
+
+function syriaDayRangeUtc(fromYmd: string, toYmd: string): { from: Date; toExclusive: Date } {
+  const fromParts = parseYmd(fromYmd);
+  const toParts = parseYmd(toYmd);
+  if (!fromParts || !toParts) {
+    throw new AppError("صيغة التاريخ يجب أن تكون YYYY-MM-DD", 400);
+  }
+  if (fromYmd > toYmd) {
+    throw new AppError("تاريخ البداية يجب أن يكون قبل أو يساوي تاريخ النهاية", 400);
+  }
+  return {
+    from: zonedDateTimeToUtc(SYRIA_TIME_ZONE, fromParts.year, fromParts.month, fromParts.day, 0, 0, 0, 0),
+    toExclusive: (() => {
+      const next = parseYmd(nextYmdDay(toYmd));
+      if (!next) throw new AppError("تاريخ النهاية غير صالح", 400);
+      return zonedDateTimeToUtc(SYRIA_TIME_ZONE, next.year, next.month, next.day, 0, 0, 0, 0);
+    })()
+  };
 }
 
 /** السائق «مشغول» ولا يقبل طلبًا جديدًا */
@@ -171,6 +261,21 @@ async function sumCommissionDueTodaySyriaForDriver(driverId: string): Promise<nu
       )::date = (
         (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')
       )::date
+  `;
+  const t = rows[0]?.s ?? "0";
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** إجمالي العمولات غير المسددة للسائق عبر جميع الطلبات المكتملة. */
+async function sumUnpaidCommissionForDriver(driverId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ s: string | null }>>`
+    SELECT COALESCE(SUM(c."remainingAmount"), 0)::text AS s
+    FROM "Commission" c
+    INNER JOIN "Order" o ON o.id = c."orderId"
+    WHERE c."driverId" = ${driverId}
+      AND o."status"::text = 'COMPLETED'
+      AND c."remainingAmount" > 0
   `;
   const t = rows[0]?.s ?? "0";
   const n = Number(t);
@@ -426,6 +531,209 @@ export const ordersService = {
     return { orders: page, nextCursor };
   },
 
+  /** تقارير طلبات المنسق حسب تاريخ الإنشاء ضمن فترة، مع فلتر اختياري بالسائق وإجماليات كاملة. */
+  async reportForCoordinator(
+    coordinatorUserId: string,
+    opts?: {
+      from?: string | null;
+      to?: string | null;
+      driverId?: string | null;
+      cursor?: string | null;
+      limit?: number;
+    }
+  ) {
+    const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
+    if (!coordinator) {
+      return {
+        orders: [],
+        nextCursor: null,
+        summary: {
+          orderCount: 0,
+          totalAmount: "0.00",
+          from: opts?.from ?? syriaCalendarDayIso(),
+          to: opts?.to ?? opts?.from ?? syriaCalendarDayIso()
+        }
+      };
+    }
+
+    const from = opts?.from?.trim() || syriaCalendarDayIso();
+    const to = opts?.to?.trim() || from;
+    const { from: fromUtc, toExclusive } = syriaDayRangeUtc(from, to);
+    const rawLimit = opts?.limit ?? COORDINATOR_REPORTS_PAGE_DEFAULT;
+    const limit = Math.min(COORDINATOR_REPORTS_PAGE_MAX, Math.max(1, rawLimit));
+    const decoded = opts?.cursor ? decodeOrderCursor(opts.cursor) : null;
+
+    const baseWhere: Prisma.OrderWhereInput = {
+      coordinatorId: coordinator.id,
+      createdAt: { gte: fromUtc, lt: toExclusive },
+      ...(opts?.driverId ? { driverId: opts.driverId } : {})
+    };
+
+    const cursorWhere: Prisma.OrderWhereInput | undefined = decoded
+      ? {
+          OR: [
+            { createdAt: { lt: decoded.createdAt } },
+            { AND: [{ createdAt: decoded.createdAt }, { id: { lt: decoded.id } }] }
+          ]
+        }
+      : undefined;
+
+    const where: Prisma.OrderWhereInput = cursorWhere ? { AND: [baseWhere, cursorWhere] } : baseWhere;
+
+    const completedAmountWhere: Prisma.OrderWhereInput = {
+      ...baseWhere,
+      status: OrderStatus.COMPLETED
+    };
+
+    const [aggregate, completedAmountAggregate, rows] = await Promise.all([
+      prisma.order.aggregate({
+        where: baseWhere,
+        _count: { _all: true },
+        _sum: { amount: true }
+      }),
+      prisma.order.aggregate({
+        where: completedAmountWhere,
+        _sum: { amount: true }
+      }),
+      prisma.order.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        include: orderIncludeDriverUser
+      })
+    ]);
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasMore && page.length > 0 ? encodeOrderCursor(page[page.length - 1]!) : null;
+
+    return {
+      orders: page,
+      nextCursor,
+      summary: {
+        orderCount: aggregate._count._all,
+        totalAmount: (completedAmountAggregate._sum.amount ?? new Prisma.Decimal(0)).toString(),
+        from,
+        to
+      }
+    };
+  },
+
+  /** تقارير السائق حسب تاريخ إنشاء الطلب ضمن فترة، مع إجمالي المبالغ المكتملة والعمولة المحسوبة عليها. */
+  async reportForDriver(
+    driverUserId: string,
+    opts?: {
+      from?: string | null;
+      to?: string | null;
+      cursor?: string | null;
+      limit?: number;
+    }
+  ) {
+    const driver = await prisma.driver.findUnique({ where: { userId: driverUserId } });
+    if (!driver) {
+      return {
+        orders: [],
+        nextCursor: null,
+        summary: {
+          orderCount: 0,
+          totalAmount: "0.00",
+          totalCommission: "0.00",
+          from: opts?.from ?? syriaCalendarDayIso(),
+          to: opts?.to ?? opts?.from ?? syriaCalendarDayIso()
+        }
+      };
+    }
+
+    const from = opts?.from?.trim() || syriaCalendarDayIso();
+    const to = opts?.to?.trim() || from;
+    const { from: fromUtc, toExclusive } = syriaDayRangeUtc(from, to);
+    const rawLimit = opts?.limit ?? DRIVER_REPORTS_PAGE_DEFAULT;
+    const limit = Math.min(DRIVER_REPORTS_PAGE_MAX, Math.max(1, rawLimit));
+    const decoded = opts?.cursor ? decodeOrderCursor(opts.cursor) : null;
+
+    const baseWhere: Prisma.OrderWhereInput = {
+      driverId: driver.id,
+      createdAt: { gte: fromUtc, lt: toExclusive },
+      status: OrderStatus.COMPLETED
+    };
+
+    const cursorWhere: Prisma.OrderWhereInput | undefined = decoded
+      ? {
+          OR: [
+            { createdAt: { lt: decoded.createdAt } },
+            { AND: [{ createdAt: decoded.createdAt }, { id: { lt: decoded.id } }] }
+          ]
+        }
+      : undefined;
+
+    const where: Prisma.OrderWhereInput = cursorWhere ? { AND: [baseWhere, cursorWhere] } : baseWhere;
+
+    const [aggregate, completedAmountAggregate, dueCommissionAggregate, rows] = await Promise.all([
+      prisma.order.aggregate({
+        where: baseWhere,
+        _count: { _all: true }
+      }),
+      prisma.order.aggregate({
+        where: baseWhere,
+        _sum: { amount: true }
+      }),
+      prisma.commission.aggregate({
+        where: {
+          driverId: driver.id,
+          order: {
+            is: {
+              createdAt: { gte: fromUtc, lt: toExclusive },
+              status: OrderStatus.COMPLETED
+            }
+          }
+        },
+        _sum: { remainingAmount: true }
+      }),
+      prisma.order.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        include: {
+          ...orderIncludeDriverUser,
+          commission: {
+            select: {
+              calculatedCommission: true,
+              paymentStatus: true,
+              remainingAmount: true
+            }
+          }
+        }
+      })
+    ]);
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasMore && page.length > 0 ? encodeOrderCursor(page[page.length - 1]!) : null;
+
+    return {
+      orders: page.map((row) => ({
+        ...this.serializeDriverOrderRow(row),
+        commission: row.commission
+          ? {
+              calculatedCommission: row.commission.calculatedCommission.toString(),
+              paymentStatus: row.commission.paymentStatus,
+              remainingAmount: row.commission.remainingAmount.toString()
+            }
+          : null
+      })),
+      nextCursor,
+      summary: {
+        orderCount: aggregate._count._all,
+        totalAmount: (completedAmountAggregate._sum.amount ?? new Prisma.Decimal(0)).toString(),
+        totalCommission: (dueCommissionAggregate._sum.remainingAmount ?? new Prisma.Decimal(0)).toString(),
+        from,
+        to
+      }
+    };
+  },
+
   /** طلبات السائق المسندة إليه: نشط = غير مكتمل/ملغى، أرشيف = مكتمل أو ملغى أو متعثر (أو شريحة واحدة عبر archiveSegment). */
   async listForDriver(
     driverUserId: string,
@@ -497,6 +805,7 @@ export const ordersService = {
         cancelled: 0,
         stuckToday: 0,
         commissionDueTodaySyria: 0,
+        unpaidCommissionAmount: 0,
         summaryDaySyria: syriaCalendarDayIso()
       };
     }
@@ -519,7 +828,10 @@ export const ordersService = {
     const cancelled = count(OrderStatus.CANCELLED);
     const summaryDaySyria = syriaCalendarDayIso();
     const stuckToday = await countStuckTodaySyriaForDriver(driver.id);
-    const commissionDueTodaySyria = await sumCommissionDueTodaySyriaForDriver(driver.id);
+    const [commissionDueTodaySyria, unpaidCommissionAmount] = await Promise.all([
+      sumCommissionDueTodaySyriaForDriver(driver.id),
+      sumUnpaidCommissionForDriver(driver.id)
+    ]);
 
     return {
       active,
@@ -528,6 +840,7 @@ export const ordersService = {
       cancelled,
       stuckToday,
       commissionDueTodaySyria,
+      unpaidCommissionAmount,
       summaryDaySyria
     };
   },
