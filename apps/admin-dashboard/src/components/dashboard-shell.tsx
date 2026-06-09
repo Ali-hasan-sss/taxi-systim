@@ -6,6 +6,7 @@ import { DashboardNavbar } from "./dashboard-navbar";
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
   "/": { title: "لوحة التحكم", subtitle: "نظرة عامة على العمليات والأداء" },
+  "/chat": { title: "المحادثات", subtitle: "المحادثة العامة ومحادثات الطلبات" },
   "/employees": { title: "الموظفون", subtitle: "إدارة المستخدمين والأدوار" },
   "/drivers-distribution": { title: "توزع السائقين", subtitle: "خريطة مباشرة لمواقع السائقين وإجراءات سريعة" },
   "/finance": { title: "المالية", subtitle: "الطلبات والعمولات والتسديدات" },
@@ -16,7 +17,9 @@ export const DashboardShell = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname();
   const meta =
     titles[pathname] ??
-    (pathname.startsWith("/employees")
+    (pathname.startsWith("/chat")
+      ? titles["/chat"]
+      : pathname.startsWith("/employees")
       ? titles["/employees"]
       : pathname.startsWith("/drivers-distribution")
         ? titles["/drivers-distribution"]

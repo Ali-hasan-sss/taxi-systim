@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Pressable,
   RefreshControl,
-  StyleSheet,
   Text,
   View
 } from "react-native";
@@ -33,6 +33,7 @@ import { rtlText } from "../../src/lib/rtl-text";
 import { driverTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { playOrderResumedSound } from "../../src/lib/order-resumed-sound";
 import { playNewPendingOrderSound } from "../../src/lib/pending-order-sound";
+import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
 
 function authFailureMessage(msg: string): boolean {
   return /Unauthorized|غير مصرح|Forbidden|401|403|تجديد الجلسة|انتهت صلاحية الجلسة|Invalid refresh/i.test(msg);
@@ -45,6 +46,7 @@ function isEnRouteToCustomer(status: string): boolean {
 export default function DriverOrdersTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
   const isOnline = useDriverStore((s) => s.isOnline);
   const setOnline = useDriverStore((s) => s.setOnline);
   const setRoomPendingCount = useDriverStore((s) => s.setRoomPendingCount);
@@ -273,6 +275,267 @@ export default function DriverOrdersTab() {
 
   const listBottomPad = driverTabBarOuterHeight(insets.bottom) + 24;
 
+  const styles = useThemedStyles((t) => ({
+    safe: {
+      flex: 1,
+      backgroundColor: "transparent",
+      direction: "rtl" as const
+    },
+    header: {
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      paddingBottom: 8,
+      direction: "rtl" as const
+    },
+    headerLoading: {
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      paddingBottom: 4,
+      direction: "rtl" as const
+    },
+    topBar: {
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      marginBottom: 10,
+      gap: 12
+    },
+    topBarStatus: {
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      flex: 1,
+      gap: 8
+    },
+    statusDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5
+    },
+    statusDotOk: {
+      backgroundColor: t.colors.online
+    },
+    statusDotBad: {
+      backgroundColor: t.colors.offline
+    },
+    topBarStatusText: {
+      fontSize: 13,
+      color: t.colors.textSubtle,
+      ...rtlText,
+      flex: 1,
+      textAlign: "right" as const
+    },
+    refreshBtn: {
+      backgroundColor: t.colors.buttonSecondaryBg,
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+      borderRadius: 10
+    },
+    refreshBtnPressed: {
+      opacity: 0.85
+    },
+    refreshBtnText: {
+      fontSize: 14,
+      fontWeight: "700" as const,
+      color: t.colors.text,
+      ...rtlText
+    },
+    centered: {
+      flex: 1,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      paddingHorizontal: 24
+    },
+    loadingText: {
+      marginTop: 12,
+      color: t.colors.textMuted,
+      fontSize: 15,
+      ...rtlText,
+      width: "100%",
+      textAlign: "center" as const
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 8,
+      textAlign: "right" as const
+    },
+    subtitle: {
+      fontSize: 13,
+      color: t.colors.textMuted,
+      ...rtlText,
+      lineHeight: 20,
+      marginBottom: 8,
+      textAlign: "right" as const
+    },
+    offlineHint: {
+      fontSize: 13,
+      color: t.colors.warning,
+      ...rtlText,
+      lineHeight: 20,
+      marginBottom: 6,
+      textAlign: "right" as const
+    },
+    error: {
+      color: t.colors.danger,
+      ...rtlText,
+      marginTop: 8,
+      textAlign: "right" as const
+    },
+    list: {
+      paddingHorizontal: 20,
+      alignItems: "stretch" as const
+    },
+    emptyList: {
+      flexGrow: 1,
+      paddingHorizontal: 20,
+      alignItems: "stretch" as const
+    },
+    empty: {
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginTop: 40,
+      fontSize: 15,
+      lineHeight: 24,
+      textAlign: "right" as const
+    },
+    offlineCenterCard: {
+      marginTop: 48,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      backgroundColor: t.colors.surfaceCard,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      borderRadius: 20,
+      paddingHorizontal: 18,
+      paddingVertical: 24,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.08,
+      shadowRadius: 14,
+      elevation: 4
+    },
+    offlineCenterTitle: {
+      marginTop: 10,
+      color: t.colors.text,
+      fontSize: 18,
+      fontWeight: "800" as const,
+      ...rtlText,
+      textAlign: "center" as const
+    },
+    offlineCenterText: {
+      marginTop: 8,
+      color: t.colors.textMuted,
+      fontSize: 14,
+      lineHeight: 22,
+      ...rtlText,
+      textAlign: "center" as const
+    },
+    offlineCenterBtn: {
+      marginTop: 16,
+      backgroundColor: t.colors.success,
+      borderRadius: 14,
+      paddingVertical: 14,
+      paddingHorizontal: 24,
+      minWidth: 170,
+      alignItems: "center" as const
+    },
+    offlineCenterBtnText: {
+      color: t.colors.textInverse,
+      fontSize: 15,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    footerRow: {
+      flexDirection: "row-reverse" as const,
+      flexWrap: "wrap" as const,
+      gap: 10,
+      marginTop: 12,
+      justifyContent: "flex-end" as const
+    },
+    btnPrimary: {
+      flex: 1,
+      minWidth: 140,
+      backgroundColor: t.colors.success,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: "center" as const
+    },
+    btnPrimaryText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 16,
+      ...rtlText
+    },
+    btnWarning: {
+      flex: 1,
+      minWidth: 140,
+      backgroundColor: t.colors.busy,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: "center" as const
+    },
+    btnWarningText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 15,
+      ...rtlText
+    },
+    btnAccept: {
+      marginTop: 12,
+      backgroundColor: t.colors.primary,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: "center" as const
+    },
+    btnAcceptText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 16,
+      ...rtlText
+    },
+    btnDisabled: {
+      opacity: 0.6
+    },
+    btnChat: {
+      flex: 1,
+      minWidth: 100,
+      backgroundColor: t.colors.infoBg,
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 6,
+      borderWidth: 1,
+      borderColor: t.colors.info
+    },
+    btnChatText: {
+      color: t.colors.infoText,
+      fontWeight: "800" as const,
+      fontSize: 14,
+      ...rtlText
+    }
+  }));
+
+  const openOrderChat = async (orderId: string) => {
+    try {
+      const room = await getOrderChatRoom(orderId);
+      router.push(chatRoomHref(room) as `/chat/${string}`);
+    } catch (e) {
+      Alert.alert("خطأ", e instanceof Error ? e.message : "تعذر فتح المحادثة");
+    }
+  };
+
+  const chatBtn = (orderId: string) => (
+    <Pressable style={styles.btnChat} onPress={() => void openOrderChat(orderId)} accessibilityLabel="محادثة الطلب">
+      <Ionicons name="chatbubble-outline" size={16} color={theme.colors.infoText} />
+      <Text style={styles.btnChatText}>محادثة</Text>
+    </Pressable>
+  );
+
   const connectionStatusRow = (
     <View style={styles.topBar}>
       <View style={styles.topBarStatus}>
@@ -300,7 +563,7 @@ export default function DriverOrdersTab() {
             <Text style={styles.title}>غرفة الطلبات</Text>
           </View>
           <View style={styles.centered}>
-            <ActivityIndicator size="large" color="#2563eb" />
+            <ActivityIndicator size="large" color={theme.colors.primary} />
             <Text style={styles.loadingText}>جاري تحميل غرفة الطلبات…</Text>
           </View>
         </DriverScreenBackground>
@@ -319,7 +582,7 @@ export default function DriverOrdersTab() {
           <Text style={styles.subtitle}>
             {inProgress
               ? isEnRouteToCustomer(inProgress.status)
-                ? "أنت في الطريق إلى الزبون: أكد «تم ركوب الزبون» أو «لم أجد الزبون»."
+                ? "أنت في الطريق إلى الزبون: أكد «تم اقلال الزبون» أو «لم أجد الزبون»."
                 : "الزبون في السيارة: اضغط «تم توصيل الزبون» بعد إنهاء التوصيل."
               : "الطلبات المعلقة تظهر لحظيًا. بعد القبول تصبح «في الطريق إلى الزبون». الإلغاء من المنسق فقط."}
           </Text>
@@ -342,13 +605,14 @@ export default function DriverOrdersTab() {
                   item={item}
                   footer={
                     <View style={styles.footerRow}>
+                      {chatBtn(item.id)}
                       <Pressable
                         style={[styles.btnWarning, busy && styles.btnDisabled]}
                         disabled={!!busy}
                         onPress={() => void onNoShow(item.id)}
                       >
                         {busy ? (
-                          <ActivityIndicator color="#fff" />
+                          <ActivityIndicator color={theme.colors.textInverse} />
                         ) : (
                           <Text style={styles.btnWarningText}>لم أجد الزبون</Text>
                         )}
@@ -359,9 +623,9 @@ export default function DriverOrdersTab() {
                         onPress={() => void onBoard(item.id)}
                       >
                         {busy ? (
-                          <ActivityIndicator color="#fff" />
+                          <ActivityIndicator color={theme.colors.textInverse} />
                         ) : (
-                          <Text style={styles.btnPrimaryText}>تم ركوب الزبون</Text>
+                          <Text style={styles.btnPrimaryText}>تم اقلال الزبون</Text>
                         )}
                       </Pressable>
                     </View>
@@ -374,17 +638,20 @@ export default function DriverOrdersTab() {
                 <DriverOrderCard
                   item={item}
                   footer={
-                    <Pressable
-                      style={[styles.btnPrimary, busy && styles.btnDisabled]}
-                      disabled={!!busy}
-                      onPress={() => void onComplete(item.id)}
-                    >
+                    <View style={styles.footerRow}>
+                      {chatBtn(item.id)}
+                      <Pressable
+                        style={[styles.btnPrimary, busy && styles.btnDisabled]}
+                        disabled={!!busy}
+                        onPress={() => void onComplete(item.id)}
+                      >
                       {busy ? (
-                        <ActivityIndicator color="#fff" />
+                        <ActivityIndicator color={theme.colors.textInverse} />
                       ) : (
                         <Text style={styles.btnPrimaryText}>تم توصيل الزبون</Text>
                       )}
-                    </Pressable>
+                      </Pressable>
+                    </View>
                   }
                 />
               );
@@ -401,7 +668,7 @@ export default function DriverOrdersTab() {
                   onPress={() => void onAccept(item.id)}
                 >
                   {busy ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={theme.colors.textInverse} />
                   ) : (
                     <Text style={styles.btnAcceptText}>استلام الطلب</Text>
                   )}
@@ -415,13 +682,13 @@ export default function DriverOrdersTab() {
               ? [styles.emptyList, { paddingBottom: listBottomPad }]
               : [styles.list, { paddingBottom: listBottomPad }]
           }
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadRoom(true)} tintColor="#2563eb" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadRoom(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={
             isOnline ? (
               <Text style={styles.empty}>لا توجد طلبات معلقة حاليًا. انتظر إشعار طلب جديد.</Text>
             ) : (
               <View style={styles.offlineCenterCard}>
-                <Ionicons name="play-circle-outline" size={42} color="#15803d" />
+                <Ionicons name="play-circle-outline" size={42} color={theme.colors.success} />
                 <Text style={styles.offlineCenterTitle}>أنت متوقف عن العمل</Text>
                 <Text style={styles.offlineCenterText}>
                   اضغط الزر أدناه لبدء العمل مباشرة واستلام الطلبات الجديدة.
@@ -438,227 +705,3 @@ export default function DriverOrdersTab() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "transparent",
-    direction: "rtl"
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 8,
-    direction: "rtl"
-  },
-  headerLoading: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
-    direction: "rtl"
-  },
-  topBar: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-    gap: 12
-  },
-  topBarStatus: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    flex: 1,
-    gap: 8
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5
-  },
-  statusDotOk: {
-    backgroundColor: "#16a34a"
-  },
-  statusDotBad: {
-    backgroundColor: "#dc2626"
-  },
-  topBarStatusText: {
-    fontSize: 13,
-    color: "#475569",
-    ...rtlText,
-    flex: 1,
-    textAlign: "right"
-  },
-  refreshBtn: {
-    backgroundColor: "#e2e8f0",
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10
-  },
-  refreshBtnPressed: {
-    opacity: 0.85
-  },
-  refreshBtnText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#0f172a",
-    ...rtlText
-  },
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24
-  },
-  loadingText: {
-    marginTop: 12,
-    color: "#64748b",
-    fontSize: 15,
-    ...rtlText,
-    width: "100%",
-    textAlign: "center"
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#0f172a",
-    ...rtlText,
-    marginBottom: 8,
-    textAlign: "right"
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#64748b",
-    ...rtlText,
-    lineHeight: 20,
-    marginBottom: 8,
-    textAlign: "right"
-  },
-  offlineHint: {
-    fontSize: 13,
-    color: "#b45309",
-    ...rtlText,
-    lineHeight: 20,
-    marginBottom: 6,
-    textAlign: "right"
-  },
-  error: {
-    color: "#dc2626",
-    ...rtlText,
-    marginTop: 8,
-    textAlign: "right"
-  },
-  list: {
-    paddingHorizontal: 20,
-    alignItems: "stretch"
-  },
-  emptyList: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    alignItems: "stretch"
-  },
-  empty: {
-    color: "#64748b",
-    ...rtlText,
-    marginTop: 40,
-    fontSize: 15,
-    lineHeight: 24,
-    textAlign: "right"
-  },
-  offlineCenterCard: {
-    marginTop: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.94)",
-    borderWidth: 1,
-    borderColor: "#dbe4f0",
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingVertical: 24,
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    elevation: 4
-  },
-  offlineCenterTitle: {
-    marginTop: 10,
-    color: "#0f172a",
-    fontSize: 18,
-    fontWeight: "800",
-    ...rtlText,
-    textAlign: "center"
-  },
-  offlineCenterText: {
-    marginTop: 8,
-    color: "#64748b",
-    fontSize: 14,
-    lineHeight: 22,
-    ...rtlText,
-    textAlign: "center"
-  },
-  offlineCenterBtn: {
-    marginTop: 16,
-    backgroundColor: "#15803d",
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    minWidth: 170,
-    alignItems: "center"
-  },
-  offlineCenterBtnText: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "800",
-    ...rtlText
-  },
-  footerRow: {
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 12,
-    justifyContent: "flex-end"
-  },
-  btnPrimary: {
-    flex: 1,
-    minWidth: 140,
-    backgroundColor: "#15803d",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center"
-  },
-  btnPrimaryText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 16,
-    ...rtlText
-  },
-  btnWarning: {
-    flex: 1,
-    minWidth: 140,
-    backgroundColor: "#c2410c",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center"
-  },
-  btnWarningText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 15,
-    ...rtlText
-  },
-  btnAccept: {
-    marginTop: 12,
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center"
-  },
-  btnAcceptText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 16,
-    ...rtlText
-  },
-  btnDisabled: {
-    opacity: 0.6
-  }
-});

@@ -351,7 +351,7 @@ export const ordersController = {
   async updateCompletedAmount(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const body = updateCompletedOrderAmountDto.parse(req.body);
-      const row = await ordersService.updateCompletedOrderAmountByCoordinator(
+      const row = await ordersService.updateOrderAmountByCoordinator(
         req.auth!.userId,
         req.params.orderId,
         body.amount

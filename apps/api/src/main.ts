@@ -11,6 +11,8 @@ import { buildSwaggerSpec } from "./swagger";
 import { errorMiddleware } from "./shared/error-middleware";
 import { initSocket } from "./socket";
 import { generalApiRateLimit } from "./shared/rate-limit";
+import { startChatImageCleanupJob } from "./modules/chat/chat-cleanup";
+import { chatService } from "./modules/chat/chat.service";
 
 const app = express();
 /** يمنع ETag وبالتالي 304 بدون جسم — عملاء الجوال (OkHttp) يكسرون JSON على 304 */
@@ -42,4 +44,6 @@ const port = Number(process.env.API_PORT ?? 4000);
 server.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`API running on ${port}`);
+  void chatService.ensureGlobalRoom();
+  startChatImageCleanupJob();
 });

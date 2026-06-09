@@ -1,11 +1,14 @@
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Tabs, usePathname } from "expo-router";
-import { useEffect } from "react";
-import { AppState, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { AppState, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { shouldLoadExpoPushModule } from "../../src/lib/push-environment";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
-import { rtlText } from "../../src/lib/rtl-text";
+import { CoordinatorAppHeader } from "../../src/components/CoordinatorAppHeader";
+import { CoordinatorCreateOrderModal } from "../../src/components/CoordinatorCreateOrderModal";
+import { CoordinatorCreateOrderTabButton } from "../../src/components/CoordinatorCreateOrderTabButton";
 import { useCoordinatorStore } from "../../src/store";
 
 function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
@@ -14,6 +17,35 @@ function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
   const onOrdersTab = pathname.includes("orders");
   const showBadge = !onOrdersTab && stuckOrdersCount > 0;
   const s = size ?? 22;
+  const styles = useThemedStyles((t) => ({
+    iconWrap: {
+      position: "relative" as const,
+      width: 28,
+      height: 24,
+      alignItems: "center" as const,
+      justifyContent: "center" as const
+    },
+    badgeDot: {
+      position: "absolute" as const,
+      top: -4,
+      end: -10,
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 4,
+      borderRadius: 9,
+      backgroundColor: t.colors.badge,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      borderWidth: 2,
+      borderColor: t.colors.badgeBorder
+    },
+    badgeText: {
+      color: t.colors.badgeText,
+      fontSize: 10,
+      fontWeight: "800" as const,
+      textAlign: "center" as const
+    }
+  }));
 
   return (
     <View style={styles.iconWrap}>
@@ -29,6 +61,9 @@ function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const bumpOrderRefresh = useCoordinatorStore((s) => s.bumpOrderRefresh);
 
   useEffect(() => {
     if (!shouldLoadExpoPushModule()) return;
@@ -53,24 +88,28 @@ export default function TabsLayout() {
   }, []);
 
   return (
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+    <CoordinatorAppHeader />
     <Tabs
       screenOptions={{
         lazy: false,
         headerShown: false,
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
-          backgroundColor: "#0f172a",
-          borderTopColor: "#1e293b",
-          paddingTop: 4,
+          backgroundColor: theme.colors.tabBar,
+          borderTopColor: theme.colors.tabBarBorder,
+          paddingTop: 14,
           paddingBottom: Math.max(insets.bottom, 8),
-          height: coordinatorTabBarOuterHeight(insets.bottom)
+          height: coordinatorTabBarOuterHeight(insets.bottom),
+          overflow: "visible" as const
         },
-        tabBarActiveTintColor: "#38bdf8",
-        tabBarInactiveTintColor: "#64748b",
+        tabBarActiveTintColor: theme.colors.tabActive,
+        tabBarInactiveTintColor: theme.colors.tabInactive,
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "700",
-          ...rtlText
+          textAlign: "center",
+          writingDirection: "rtl"
         }
       }}
     >
@@ -91,6 +130,23 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="create-order"
+        listeners={{
+          tabPress: (e) => {
+            e.preventDefault();
+            setCreateOrderOpen(true);
+          }
+        }}
+        options={{
+          title: "",
+          tabBarLabel: () => null,
+          tabBarIcon: () => null,
+          tabBarButton: (props) => (
+            <CoordinatorCreateOrderTabButton {...props} onPress={() => setCreateOrderOpen(true)} />
+          )
+        }}
+      />
+      <Tabs.Screen
         name="orders"
         options={{
           title: "الطلبات",
@@ -98,6 +154,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <OrdersTabIcon color={color} size={size} />
         }}
       />
+      <Tabs.Screen name="chat" options={{ href: null }} />
       <Tabs.Screen
         name="archive"
         options={{
@@ -106,44 +163,15 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="archive-outline" size={size ?? 22} color={color} />
         }}
       />
-      <Tabs.Screen
-        name="reports"
-        options={{
-          title: "التقارير",
-          tabBarLabel: "التقارير",
-          tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline" size={size ?? 22} color={color} />
-        }}
-      />
+      <Tabs.Screen name="reports" options={{ href: null }} />
     </Tabs>
+    <CoordinatorCreateOrderModal
+      visible={createOrderOpen}
+      onClose={() => setCreateOrderOpen(false)}
+      onCreated={() => {
+        bumpOrderRefresh();
+      }}
+    />
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  iconWrap: {
-    position: "relative",
-    width: 28,
-    height: 24,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  badgeDot: {
-    position: "absolute",
-    top: -4,
-    end: -10,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    backgroundColor: "#dc2626",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#0f172a"
-  },
-  badgeText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontWeight: "800",
-    ...rtlText
-  }
-});

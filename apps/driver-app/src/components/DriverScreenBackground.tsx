@@ -1,3 +1,4 @@
+import { useThemedStyles } from "@taxi/expo-theme";
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
@@ -8,76 +9,64 @@ export function DriverScreenBackground({
   children: ReactNode;
   variant?: "default" | "auth";
 }) {
+  const styles = useThemedStyles((theme) => ({
+    root: {
+      flex: 1,
+      backgroundColor: variant === "auth" ? theme.colors.backgroundAuth : theme.colors.background
+    },
+    rootAuth: {},
+    decorLayer: {
+      ...StyleSheet.absoluteFillObject,
+      overflow: "hidden" as const
+    },
+    content: {
+      flex: 1,
+      direction: "rtl" as const
+    },
+    topWash: {
+      position: "absolute" as const,
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 220,
+      backgroundColor: theme.colors.glowWash
+    },
+    glowOrb: {
+      position: "absolute" as const,
+      borderRadius: 9999
+    },
+    glowOrbPrimary: {
+      width: 260,
+      height: 260,
+      top: variant === "auth" ? -70 : -84,
+      right: variant === "auth" ? -30 : -52,
+      backgroundColor: theme.colors.glowPrimary
+    },
+    glowOrbSecondary: {
+      width: 230,
+      height: 230,
+      top: 180,
+      left: -96,
+      backgroundColor: theme.colors.glowSecondary
+    },
+    glowOrbAccent: {
+      width: 210,
+      height: 210,
+      bottom: variant === "auth" ? 120 : 54,
+      right: variant === "auth" ? -88 : -76,
+      backgroundColor: theme.colors.glowAccent
+    }
+  }));
+
   return (
-    <View style={[styles.root, variant === "auth" && styles.rootAuth]}>
+    <View style={styles.root}>
       <View pointerEvents="none" style={styles.decorLayer}>
-        <View style={[styles.glowOrb, styles.glowOrbPrimary, variant === "auth" && styles.glowOrbPrimaryAuth]} />
+        <View style={[styles.glowOrb, styles.glowOrbPrimary]} />
         <View style={[styles.glowOrb, styles.glowOrbSecondary]} />
-        <View style={[styles.glowOrb, styles.glowOrbAccent, variant === "auth" && styles.glowOrbAccentAuth]} />
+        <View style={[styles.glowOrb, styles.glowOrbAccent]} />
         <View style={styles.topWash} />
       </View>
       <View style={styles.content}>{children}</View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: "#edf4ff"
-  },
-  rootAuth: {
-    backgroundColor: "#f3f7ff"
-  },
-  decorLayer: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: "hidden"
-  },
-  content: {
-    flex: 1,
-    direction: "rtl"
-  },
-  topWash: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 220,
-    backgroundColor: "rgba(255,255,255,0.35)"
-  },
-  glowOrb: {
-    position: "absolute",
-    borderRadius: 9999
-  },
-  glowOrbPrimary: {
-    width: 260,
-    height: 260,
-    top: -84,
-    right: -52,
-    backgroundColor: "rgba(37, 99, 235, 0.16)"
-  },
-  glowOrbPrimaryAuth: {
-    top: -70,
-    right: -30,
-    backgroundColor: "rgba(59, 130, 246, 0.14)"
-  },
-  glowOrbSecondary: {
-    width: 230,
-    height: 230,
-    top: 180,
-    left: -96,
-    backgroundColor: "rgba(124, 58, 237, 0.09)"
-  },
-  glowOrbAccent: {
-    width: 210,
-    height: 210,
-    bottom: 54,
-    right: -76,
-    backgroundColor: "rgba(22, 163, 74, 0.09)"
-  },
-  glowOrbAccentAuth: {
-    bottom: 120,
-    right: -88,
-    backgroundColor: "rgba(22, 163, 74, 0.08)"
-  }
-});

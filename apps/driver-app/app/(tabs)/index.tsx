@@ -1,11 +1,12 @@
-import { useCallback, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
 import { type DriverOrderStats, fetchDriverOrderStats } from "../../src/lib/api";
-import { clearDriverSession, getDriverFullName, getDriverSession } from "../../src/lib/session";
 import { rtlText } from "../../src/lib/rtl-text";
+import { clearDriverSession, getDriverFullName, getDriverSession } from "../../src/lib/session";
 import { driverTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 
 const emptyStats: DriverOrderStats = {
@@ -29,9 +30,47 @@ function StatCard({
   detail?: string;
   value: number;
   accent: string;
-  /** عرض مبلغ بدون أصفار زائدة بعد الفاصلة (مثلاً 10 لا 10٫00) */
   formatMoney?: boolean;
 }) {
+  const styles = useThemedStyles((t) => ({
+    statCard: {
+      width: "48%",
+      backgroundColor: t.colors.surfaceCard,
+      borderRadius: 18,
+      padding: 16,
+      borderWidth: 1,
+      marginBottom: 4,
+      alignItems: "flex-end" as const,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      elevation: 4
+    },
+    statValue: {
+      fontSize: 28,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    statLabel: {
+      fontSize: 14,
+      fontWeight: "700" as const,
+      color: t.colors.textSecondary,
+      ...rtlText,
+      marginTop: 6,
+      textAlign: "right" as const
+    },
+    statDetail: {
+      fontSize: 11,
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginTop: 4,
+      textAlign: "right" as const
+    }
+  }));
+
   const valueText = formatMoney
     ? value.toLocaleString("ar", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
     : String(value);
@@ -51,10 +90,81 @@ function authFailureMessage(msg: string): boolean {
 export default function DriverHomeTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
   const [stats, setStats] = useState<DriverOrderStats>(emptyStats);
   const [loadingStats, setLoadingStats] = useState(false);
   const [driverName, setDriverName] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const styles = useThemedStyles((t) => ({
+    safe: {
+      flex: 1,
+      backgroundColor: "transparent"
+    },
+    scrollView: {
+      flex: 1,
+      width: "100%",
+      direction: "rtl" as const
+    },
+    scroll: {
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      alignItems: "stretch" as const,
+      direction: "rtl" as const
+    },
+    hero: {
+      backgroundColor: t.colors.statHeroBg,
+      borderRadius: 22,
+      padding: 20,
+      marginBottom: 20,
+      borderWidth: 1,
+      borderColor: t.colors.statHeroBorder,
+      alignItems: "stretch" as const,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.18,
+      shadowRadius: 18,
+      elevation: 8
+    },
+    heroTitle: {
+      fontSize: 20,
+      fontWeight: "800" as const,
+      color: t.colors.statHeroText,
+      ...rtlText,
+      marginBottom: 8,
+      textAlign: "right" as const
+    },
+    greeting: {
+      fontSize: 16,
+      color: t.colors.statHeroSubtext,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    sectionTitle: {
+      fontSize: 17,
+      fontWeight: "700" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 10,
+      marginTop: 8,
+      textAlign: "right" as const
+    },
+    error: {
+      color: t.colors.danger,
+      ...rtlText,
+      marginBottom: 12,
+      textAlign: "right" as const
+    },
+    loader: {
+      marginVertical: 24
+    },
+    statsGrid: {
+      flexDirection: "row-reverse" as const,
+      flexWrap: "wrap" as const,
+      gap: 12,
+      justifyContent: "space-between" as const
+    }
+  }));
 
   const goToLogin = useCallback(async () => {
     await clearDriverSession();
@@ -93,7 +203,6 @@ export default function DriverHomeTab() {
 
   const scrollBottomPad = driverTabBarOuterHeight(insets.bottom) + 20;
 
-  /* بدون حافة سفلية: شريط التبويب يستعمل insets.bottom بالفعل — إضافتها هنا تكرّر المسافة على بعض الأجهزة */
   return (
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
       <DriverScreenBackground>
@@ -113,27 +222,27 @@ export default function DriverHomeTab() {
           <Text style={styles.sectionTitle}>إحصائيات طلباتي اليوم</Text>
 
           {loadingStats ? (
-            <ActivityIndicator style={styles.loader} color="#2563eb" size="large" />
+            <ActivityIndicator style={styles.loader} color={theme.colors.primary} size="large" />
           ) : (
             <View style={styles.statsGrid}>
-              <StatCard label="طلبات نشطة" detail="المسندة إليك" value={stats.active} accent="#2563eb" />
-              <StatCard label="طلبات معلقة" detail="قبل القبول إن وُجدت" value={stats.pending} accent="#b45309" />
+              <StatCard label="طلبات نشطة" detail="المسندة إليك" value={stats.active} accent={theme.colors.primary} />
+              <StatCard label="طلبات معلقة" detail="قبل القبول إن وُجدت" value={stats.pending} accent={theme.colors.warning} />
               <StatCard
                 label="عمولات غير مسددة"
                 detail="إجمالي العمولة المتبقية عليك"
                 value={stats.unpaidCommissionAmount}
-                accent="#c2410c"
+                accent={theme.colors.busy}
                 formatMoney
               />
               <StatCard
                 label="عمولة اليوم (مستحقة)"
                 detail="طلبات أُكملت اليوم — غير مسددة بعد"
                 value={stats.commissionDueTodaySyria}
-                accent="#7c3aed"
+                accent={theme.colors.accent}
                 formatMoney
               />
-              <StatCard label="طلبات مكتملة" value={stats.completed} accent="#15803d" />
-              <StatCard label="طلبات ملغاة" value={stats.cancelled} accent="#991b1b" />
+              <StatCard label="طلبات مكتملة" value={stats.completed} accent={theme.colors.success} />
+              <StatCard label="طلبات ملغاة" value={stats.cancelled} accent={theme.colors.danger} />
             </View>
           )}
         </ScrollView>
@@ -141,116 +250,3 @@ export default function DriverHomeTab() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "transparent"
-  },
-  scrollView: {
-    flex: 1,
-    width: "100%",
-    direction: "rtl"
-  },
-  scroll: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    alignItems: "stretch",
-    direction: "rtl"
-  },
-  hero: {
-    backgroundColor: "#1e293b",
-    borderRadius: 22,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "#334155",
-    alignItems: "stretch",
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    elevation: 8
-  },
-  heroTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#f8fafc",
-    ...rtlText,
-    marginBottom: 8,
-    textAlign: "right"
-  },
-  greeting: {
-    fontSize: 16,
-    color: "#94a3b8",
-    ...rtlText,
-    textAlign: "right"
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#0f172a",
-    ...rtlText,
-    marginBottom: 10,
-    marginTop: 8,
-    textAlign: "right"
-  },
-  hint: {
-    fontSize: 12,
-    color: "#64748b",
-    ...rtlText,
-    lineHeight: 18,
-    marginBottom: 16
-  },
-  error: {
-    color: "#dc2626",
-    ...rtlText,
-    marginBottom: 12,
-    textAlign: "right"
-  },
-  loader: {
-    marginVertical: 24
-  },
-  statsGrid: {
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    gap: 12,
-    justifyContent: "space-between"
-  },
-  statCard: {
-    width: "48%",
-    backgroundColor: "rgba(255,255,255,0.94)",
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    marginBottom: 4,
-    alignItems: "flex-end",
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#0f172a",
-    ...rtlText,
-    textAlign: "right"
-  },
-  statLabel: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#334155",
-    ...rtlText,
-    marginTop: 6,
-    textAlign: "right"
-  },
-  statDetail: {
-    fontSize: 11,
-    color: "#64748b",
-    ...rtlText,
-    marginTop: 4,
-    textAlign: "right"
-  }
-});

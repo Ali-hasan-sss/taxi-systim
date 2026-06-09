@@ -58,6 +58,11 @@ enum FinancialTransactionType {
   MANUAL_ADJUSTMENT
 }
 
+enum ChatRoomType {
+  GLOBAL
+  ORDER
+}
+
 model User {
   id             String         @id @default(cuid())
   email          String?        @unique
@@ -72,6 +77,8 @@ model User {
   notifications  Notification[]
   coordinator    Coordinator?
   driver         Driver?
+  chatMessages   ChatMessage[]
+  chatReceipts   ChatMessageReceipt[]
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 }
@@ -130,8 +137,52 @@ model Order {
   driver           Driver?      @relation(fields: [driverId], references: [id], onDelete: SetNull)
   coordinator      Coordinator  @relation("CreatedByCoordinator", fields: [coordinatorId], references: [id], onDelete: Restrict)
   commission       Commission?
+  chatRoom         ChatRoom?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
+}
+
+model ChatRoom {
+  id               String        @id @default(cuid())
+  type             ChatRoomType
+  orderId          String?       @unique
+  title            String?
+  archivedAt       DateTime?
+  archivedByUserId String?
+  order            Order?        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  messages         ChatMessage[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([type])
+  @@index([type, archivedAt])
+}
+
+model ChatMessage {
+  id             String    @id @default(cuid())
+  roomId         String
+  senderUserId   String
+  body           String?
+  imagePath      String?
+  imageExpiresAt DateTime?
+  room           ChatRoom  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender         User      @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+  receipts       ChatMessageReceipt[]
+  createdAt      DateTime  @default(now())
+
+  @@index([roomId, createdAt])
+}
+
+model ChatMessageReceipt {
+  messageId   String
+  userId      String
+  deliveredAt DateTime?
+  readAt      DateTime?
+  message     ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId])
 }
 
 model Notification {

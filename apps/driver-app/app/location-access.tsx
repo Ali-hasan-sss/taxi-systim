@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { AppState, ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { AppState, ActivityIndicator, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { DriverScreenBackground } from "../src/components/DriverScreenBackground";
 import {
@@ -22,10 +23,134 @@ const initialState: DriverLocationAccessState = {
 
 export default function DriverLocationAccessScreen() {
   const router = useRouter();
+  const { theme } = useTheme();
   const setOnline = useDriverStore((s) => s.setOnline);
   const [loading, setLoading] = useState(true);
   const [state, setState] = useState<DriverLocationAccessState>(initialState);
   const [error, setError] = useState<string | null>(null);
+
+  const styles = useThemedStyles((t) => ({
+    safe: {
+      flex: 1,
+      backgroundColor: "transparent",
+      direction: "rtl" as const
+    },
+    wrap: {
+      flex: 1,
+      paddingHorizontal: 20,
+      justifyContent: "center" as const
+    },
+    card: {
+      backgroundColor: t.colors.surfaceGlass,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      padding: 22,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: 0.08,
+      shadowRadius: 20,
+      elevation: 6
+    },
+    iconWrap: {
+      width: 62,
+      height: 62,
+      borderRadius: 31,
+      backgroundColor: t.colors.infoBg,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      alignSelf: "center" as const,
+      marginBottom: 14
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    subtitle: {
+      marginTop: 8,
+      fontSize: 14,
+      lineHeight: 24,
+      color: t.colors.textMuted,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    statusBox: {
+      marginTop: 18,
+      backgroundColor: t.colors.surfaceInset,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      borderRadius: 16,
+      padding: 14,
+      gap: 12
+    },
+    statusRow: {
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      gap: 10
+    },
+    statusText: {
+      flex: 1,
+      color: t.colors.textSecondary,
+      fontSize: 14,
+      fontWeight: "700" as const,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    hint: {
+      marginTop: 14,
+      color: t.colors.textSubtle,
+      fontSize: 13,
+      lineHeight: 22,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    error: {
+      marginTop: 12,
+      color: t.colors.danger,
+      fontSize: 13,
+      lineHeight: 22,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    primaryBtn: {
+      marginTop: 18,
+      backgroundColor: t.colors.primary,
+      borderRadius: 14,
+      paddingVertical: 15,
+      alignItems: "center" as const
+    },
+    primaryBtnPressed: {
+      opacity: 0.92
+    },
+    primaryBtnText: {
+      color: t.colors.textInverse,
+      fontSize: 15,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    secondaryBtn: {
+      marginTop: 10,
+      backgroundColor: t.colors.buttonSecondaryBg,
+      borderRadius: 14,
+      paddingVertical: 14,
+      alignItems: "center" as const
+    },
+    secondaryBtnPressed: {
+      opacity: 0.9
+    },
+    secondaryBtnText: {
+      color: t.colors.buttonSecondaryText,
+      fontSize: 14,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    btnDisabled: {
+      opacity: 0.7
+    }
+  }));
 
   const resolveAccess = useCallback(
     async (mode: "check" | "request") => {
@@ -81,7 +206,7 @@ export default function DriverLocationAccessScreen() {
         <View style={styles.wrap}>
           <View style={styles.card}>
             <View style={styles.iconWrap}>
-              <Ionicons name="location-outline" size={34} color="#2563eb" />
+              <Ionicons name="location-outline" size={34} color={theme.colors.primary} />
             </View>
             <Text style={styles.title}>تفعيل الموقع مطلوب</Text>
             <Text style={styles.subtitle}>
@@ -93,7 +218,7 @@ export default function DriverLocationAccessScreen() {
                 <Ionicons
                   name={state.permissionGranted ? "checkmark-circle" : "close-circle"}
                   size={18}
-                  color={state.permissionGranted ? "#15803d" : "#dc2626"}
+                  color={state.permissionGranted ? theme.colors.success : theme.colors.danger}
                 />
                 <Text style={styles.statusText}>
                   صلاحية التطبيق: {state.permissionGranted ? "مفعلة" : "غير مفعلة"}
@@ -103,7 +228,7 @@ export default function DriverLocationAccessScreen() {
                 <Ionicons
                   name={state.servicesEnabled ? "checkmark-circle" : "close-circle"}
                   size={18}
-                  color={state.servicesEnabled ? "#15803d" : "#dc2626"}
+                  color={state.servicesEnabled ? theme.colors.success : theme.colors.danger}
                 />
                 <Text style={styles.statusText}>
                   خدمة الموقع في الجهاز: {state.servicesEnabled ? "مفعلة" : "غير مفعلة"}
@@ -125,7 +250,7 @@ export default function DriverLocationAccessScreen() {
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#ffffff" />
+                <ActivityIndicator color={theme.colors.textInverse} />
               ) : (
                 <Text style={styles.primaryBtnText}>
                   {permissionMissing ? "منح صلاحية الموقع" : servicesMissing ? "تفعيل الموقع والمتابعة" : "متابعة"}
@@ -155,126 +280,3 @@ export default function DriverLocationAccessScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "transparent",
-    direction: "rtl"
-  },
-  wrap: {
-    flex: 1,
-    paddingHorizontal: 20,
-    justifyContent: "center"
-  },
-  card: {
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "#dbe4f0",
-    padding: 22,
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 6
-  },
-  iconWrap: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: "#eff6ff",
-    alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "center",
-    marginBottom: 14
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#0f172a",
-    ...rtlText,
-    textAlign: "right"
-  },
-  subtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 24,
-    color: "#64748b",
-    ...rtlText,
-    textAlign: "right"
-  },
-  statusBox: {
-    marginTop: 18,
-    backgroundColor: "#f8fbff",
-    borderWidth: 1,
-    borderColor: "#dbe4f0",
-    borderRadius: 16,
-    padding: 14,
-    gap: 12
-  },
-  statusRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    gap: 10
-  },
-  statusText: {
-    flex: 1,
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "700",
-    ...rtlText,
-    textAlign: "right"
-  },
-  hint: {
-    marginTop: 14,
-    color: "#475569",
-    fontSize: 13,
-    lineHeight: 22,
-    ...rtlText,
-    textAlign: "right"
-  },
-  error: {
-    marginTop: 12,
-    color: "#dc2626",
-    fontSize: 13,
-    lineHeight: 22,
-    ...rtlText,
-    textAlign: "right"
-  },
-  primaryBtn: {
-    marginTop: 18,
-    backgroundColor: "#2563eb",
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center"
-  },
-  primaryBtnPressed: {
-    opacity: 0.92
-  },
-  primaryBtnText: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "800",
-    ...rtlText
-  },
-  secondaryBtn: {
-    marginTop: 10,
-    backgroundColor: "#e2e8f0",
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center"
-  },
-  secondaryBtnPressed: {
-    opacity: 0.9
-  },
-  secondaryBtnText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "800",
-    ...rtlText
-  },
-  btnDisabled: {
-    opacity: 0.7
-  }
-});

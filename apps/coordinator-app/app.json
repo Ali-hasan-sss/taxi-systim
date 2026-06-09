@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/images/logo-removebg-preview.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0f172a"
+      "backgroundColor": "#1c1917"
     },
     "plugins": [
       "expo-router",
@@ -23,11 +23,11 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0f172a",
+          "backgroundColor": "#1c1917",
           "image": "./assets/images/logo-removebg-preview.png",
           "resizeMode": "contain",
           "dark": {
-            "backgroundColor": "#0f172a"
+            "backgroundColor": "#1c1917"
           }
         }
       ],
@@ -35,15 +35,31 @@
         "expo-notifications",
         {
           "icon": "./assets/images/logo-icon.png",
-          "color": "#38bdf8",
+          "color": "#ea580c",
           "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "نحتاج الكاميرا لإرسال صور في المحادثات.",
+          "photosPermission": false
+        }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "backgroundColor": "#1c1917",
+          "style": "light",
+          "borderColor": "#1c1917",
+          "position": "relative"
         }
       ]
     ],
     "ios": {
       "bundleIdentifier": "com.taxioffice.coordinator",
       "splash": {
-        "backgroundColor": "#0f172a"
+        "backgroundColor": "#1c1917"
       }
     },
     "android": {
@@ -52,13 +68,18 @@
       "usesCleartextTraffic": true,
       "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",
+      "navigationBar": {
+        "backgroundColor": "#1c1917",
+        "barStyle": "light-content"
+      },
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo-icon.png",
-        "backgroundColor": "#0f172a"
+        "backgroundColor": "#1c1917"
       },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA"
       ]
     },
     "extra": {

@@ -1,3 +1,5 @@
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -14,7 +16,6 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CoordinatorCreateOrderModal } from "../../src/components/CoordinatorCreateOrderModal";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { io, type Socket } from "socket.io-client";
 import { CoordinatorOrderCard } from "../../src/components/CoordinatorOrderCard";
@@ -36,18 +37,292 @@ import { playOrderStuckSound } from "../../src/lib/order-stuck-sound";
 import { clearSession, getSession } from "../../src/lib/session";
 import { useCoordinatorStore } from "../../src/store";
 import { rtlText } from "../../src/lib/rtl-text";
+import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
 
 export default function OrdersTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
+  const styles = useThemedStyles((t) => ({
+    rtlScreen: {
+      direction: "rtl" as const,
+      alignItems: "stretch" as const
+    },
+    root: {
+      flex: 1,
+      backgroundColor: t.colors.background,
+      direction: "rtl" as const
+    },
+    centered: {
+      flex: 1,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      backgroundColor: t.colors.background,
+      paddingHorizontal: 24
+    },
+    loadingText: {
+      marginTop: 12,
+      color: t.colors.textMuted,
+      fontSize: 15,
+      ...rtlText,
+      width: "100%"
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 8,
+      paddingHorizontal: 20
+    },
+    subtitle: {
+      fontSize: 13,
+      color: t.colors.textMuted,
+      ...rtlText,
+      lineHeight: 20,
+      marginBottom: 10,
+      paddingHorizontal: 20
+    },
+    filterScrollView: {
+      flexGrow: 0,
+      marginBottom: 12
+    },
+    filterScroll: {
+      flexDirection: "row" as const,
+      gap: 8,
+      paddingHorizontal: 20,
+      paddingVertical: 4,
+      alignItems: "center" as const
+    },
+    filterChip: {
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 22,
+      backgroundColor: t.colors.filterBg,
+      borderWidth: 1,
+      borderColor: t.colors.filterBorder,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      minHeight: 44
+    },
+    filterChipActive: {
+      backgroundColor: t.colors.filterActiveBg,
+      borderColor: t.colors.filterActiveBorder
+    },
+    filterChipPressed: {
+      opacity: 0.9
+    },
+    filterChipText: {
+      color: t.colors.filterText,
+      fontWeight: "700" as const,
+      fontSize: 13,
+      lineHeight: 22,
+      ...rtlText,
+      ...Platform.select({ android: { includeFontPadding: false }, default: {} })
+    },
+    filterChipTextActive: {
+      color: t.colors.filterActiveText
+    },
+    error: {
+      color: t.colors.danger,
+      ...rtlText,
+      paddingHorizontal: 20,
+      marginBottom: 8
+    },
+    list: {
+      paddingHorizontal: 20,
+      alignItems: "stretch" as const
+    },
+    emptyList: {
+      flexGrow: 1,
+      paddingHorizontal: 20,
+      alignItems: "stretch" as const
+    },
+    listFooterLoader: {
+      paddingVertical: 20,
+      alignItems: "center" as const
+    },
+    actions: {
+      flexDirection: "row-reverse" as const,
+      gap: 10,
+      justifyContent: "flex-start" as const,
+      flexWrap: "wrap" as const,
+      marginTop: 4
+    },
+    btnDanger: {
+      backgroundColor: t.colors.dangerBg,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      minWidth: 120,
+      alignItems: "center" as const
+    },
+    btnDangerText: {
+      color: t.colors.dangerText,
+      fontWeight: "800" as const,
+      fontSize: 14,
+      ...rtlText
+    },
+    btnChat: {
+      backgroundColor: t.colors.infoBg,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      minWidth: 100,
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 6,
+      borderWidth: 1,
+      borderColor: t.colors.info
+    },
+    btnChatText: {
+      color: t.colors.infoText,
+      fontWeight: "800" as const,
+      fontSize: 14,
+      ...rtlText
+    },
+    btnPrimary: {
+      backgroundColor: t.colors.primary,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      minWidth: 120,
+      alignItems: "center" as const
+    },
+    btnPrimaryText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 14,
+      ...rtlText
+    },
+    btnResumeStuck: {
+      backgroundColor: t.colors.infoBg,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      minWidth: 120,
+      alignItems: "center" as const
+    },
+    btnResumeStuckText: {
+      color: t.colors.infoText,
+      fontWeight: "800" as const,
+      fontSize: 14,
+      ...rtlText
+    },
+    btnDisabled: {
+      opacity: 0.55
+    },
+    empty: {
+      color: t.colors.textSubtle,
+      ...rtlText,
+      marginTop: 40,
+      fontSize: 15,
+      lineHeight: 24
+    },
+    modalRoot: {
+      flex: 1,
+      justifyContent: "flex-end" as const
+    },
+    modalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: t.colors.overlay
+    },
+    modalSheet: {
+      backgroundColor: t.colors.modalBg,
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
+      padding: 20,
+      maxHeight: "85%",
+      minHeight: 280,
+      borderWidth: 1,
+      borderColor: t.colors.modalBorder
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 6
+    },
+    modalHint: {
+      fontSize: 12,
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginBottom: 12
+    },
+    searchInput: {
+      backgroundColor: t.colors.inputBg,
+      borderWidth: 1,
+      borderColor: t.colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      color: t.colors.text,
+      marginBottom: 12,
+      ...rtlText
+    },
+    assignScrollContent: {
+      alignItems: "stretch" as const,
+      paddingBottom: 8
+    },
+    modalLoading: {
+      marginVertical: 32,
+      minHeight: 120
+    },
+    assignDriversWrap: {
+      marginTop: 4
+    },
+    driverRow: {
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      backgroundColor: t.colors.surfaceInset,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      alignItems: "stretch" as const
+    },
+    driverRowDisabled: {
+      opacity: 0.45
+    },
+    driverName: {
+      color: t.colors.text,
+      fontWeight: "800" as const,
+      fontSize: 16,
+      ...rtlText
+    },
+    driverMeta: {
+      color: t.colors.textMuted,
+      fontSize: 12,
+      ...rtlText,
+      marginTop: 4
+    },
+    noDrivers: {
+      color: t.colors.textSubtle,
+      ...rtlText,
+      paddingVertical: 16
+    },
+    modalClose: {
+      marginTop: 12,
+      alignItems: "center" as const,
+      paddingVertical: 12
+    },
+    modalCloseText: {
+      color: t.colors.link,
+      fontWeight: "800" as const,
+      fontSize: 16,
+      ...rtlText
+    }
+  }));
   const setStuckOrdersCount = useCoordinatorStore((s) => s.setStuckOrdersCount);
+  const orderRefreshTick = useCoordinatorStore((s) => s.orderRefreshTick);
   const [orders, setOrders] = useState<CoordinatorOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myCoordinatorId, setMyCoordinatorId] = useState<string | null>(null);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
-  const [createOrderOpen, setCreateOrderOpen] = useState(false);
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignOrderId, setAssignOrderId] = useState<string | null>(null);
@@ -143,6 +418,13 @@ export default function OrdersTab() {
       void load(false);
     }, [load])
   );
+
+  const orderRefreshTickRef = useRef(orderRefreshTick);
+  useEffect(() => {
+    if (orderRefreshTickRef.current === orderRefreshTick) return;
+    orderRefreshTickRef.current = orderRefreshTick;
+    void load(true);
+  }, [orderRefreshTick, load]);
 
   const myCoordinatorIdRef = useRef<string | null>(null);
   myCoordinatorIdRef.current = myCoordinatorId;
@@ -328,22 +610,42 @@ export default function OrdersTab() {
     }
   };
 
+  const openOrderChat = async (orderId: string) => {
+    try {
+      const room = await getOrderChatRoom(orderId);
+      router.push(chatRoomHref(room) as `/chat/${string}`);
+    } catch (e) {
+      feedback.error(e instanceof Error ? e.message : "تعذر فتح المحادثة");
+    }
+  };
+
+  const chatBtn = (orderId: string) => (
+    <Pressable style={styles.btnChat} onPress={() => void openOrderChat(orderId)} accessibilityLabel="محادثة الطلب">
+      <Ionicons name="chatbubble-outline" size={16} color={theme.colors.infoText} />
+      <Text style={styles.btnChatText}>محادثة</Text>
+    </Pressable>
+  );
+
   const renderItem = ({ item }: { item: CoordinatorOrderRow }) => {
     const pending = item.status === "PENDING";
     const stuck = item.status === "STUCK";
+    const cancelled = item.status === "CANCELLED";
     const busy = actionOrderId === item.id;
 
     let footer: ReactNode;
-    if (pending) {
+    if (cancelled) {
+      footer = undefined;
+    } else if (pending) {
       footer = (
         <View style={styles.actions}>
+          {chatBtn(item.id)}
           <Pressable
             style={[styles.btnDanger, busy && styles.btnDisabled]}
             disabled={!!busy}
             onPress={() => confirmCancel(item.id)}
           >
             {busy ? (
-              <ActivityIndicator color="#fecaca" size="small" />
+              <ActivityIndicator color={theme.colors.dangerText} size="small" />
             ) : (
               <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
             )}
@@ -360,13 +662,14 @@ export default function OrdersTab() {
     } else if (stuck) {
       footer = (
         <View style={styles.actions}>
+          {chatBtn(item.id)}
           <Pressable
             style={[styles.btnDanger, busy && styles.btnDisabled]}
             disabled={!!busy}
             onPress={() => confirmCancel(item.id)}
           >
             {busy ? (
-              <ActivityIndicator color="#fecaca" size="small" />
+              <ActivityIndicator color={theme.colors.dangerText} size="small" />
             ) : (
               <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
             )}
@@ -377,7 +680,7 @@ export default function OrdersTab() {
             onPress={() => void runResumeStuck(item.id)}
           >
             {busy ? (
-              <ActivityIndicator color="#e0f2fe" size="small" />
+              <ActivityIndicator color={theme.colors.infoText} size="small" />
             ) : (
               <Text style={styles.btnResumeStuckText}>إعادة للسائق</Text>
             )}
@@ -385,7 +688,7 @@ export default function OrdersTab() {
         </View>
       );
     } else {
-      footer = undefined;
+      footer = <View style={styles.actions}>{chatBtn(item.id)}</View>;
     }
 
     return <CoordinatorOrderCard item={item} footer={footer} />;
@@ -393,8 +696,8 @@ export default function OrdersTab() {
 
   if (loading && orders.length === 0) {
     return (
-      <View style={[styles.centered, { paddingTop: insets.top + 12 }]}>
-        <ActivityIndicator size="large" color="#38bdf8" />
+      <View style={[styles.centered, { paddingTop: 12 }]}>
+        <ActivityIndicator size="large" color={theme.colors.accent} />
         <Text style={styles.loadingText}>جاري تحميل طلباتك…</Text>
       </View>
     );
@@ -403,7 +706,7 @@ export default function OrdersTab() {
   const listBottomPad = coordinatorTabBarOuterHeight(insets.bottom) + 24;
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
+    <View style={[styles.root, { paddingTop: 8 }]}>
       <Text style={styles.title}>طلباتي</Text>
       <Text style={styles.subtitle}>
         صفِّ حسب الحالة. المكتملة والملغاة في الأرشيف. مرّر للأسفل لتحميل المزيد (10 لكل دفعة).
@@ -451,20 +754,20 @@ export default function OrdersTab() {
             ? [styles.emptyList, { paddingBottom: listBottomPad }]
             : [styles.list, { paddingBottom: listBottomPad }]
         }
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor="#38bdf8" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={theme.colors.accent} />}
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.35}
         ListFooterComponent={
           loadingMore ? (
             <View style={styles.listFooterLoader}>
-              <ActivityIndicator color="#38bdf8" />
+              <ActivityIndicator color={theme.colors.accent} />
             </View>
           ) : null
         }
         ListEmptyComponent={
           <Text style={styles.empty}>
             {listSegment === null
-              ? "لا توجد طلبات نشطة. أنشئ طلبًا من الشاشة الرئيسية."
+              ? "لا توجد طلبات نشطة. أنشئ طلبًا من زر + في الشريط السفلي."
               : listSegment === "pending"
                 ? "لا توجد طلبات معلقة ضمن هذا التصفية."
                 : listSegment === "in_progress"
@@ -473,16 +776,6 @@ export default function OrdersTab() {
           </Text>
         }
       />
-      <Pressable
-        style={[styles.fab, { bottom: coordinatorTabBarOuterHeight(insets.bottom) + 12 }]}
-        onPress={() => setCreateOrderOpen(true)}
-        accessibilityRole="button"
-        accessibilityLabel="إضافة طلب جديد"
-      >
-        <Text style={styles.fabPlus}>+</Text>
-        <Text style={styles.fabText}>طلب جديد</Text>
-      </Pressable>
-
       <Modal visible={assignModalOpen} animationType="slide" transparent onRequestClose={() => !assignSubmitting && setAssignModalOpen(false)}>
         <View style={[styles.modalRoot, styles.rtlScreen]}>
           <Pressable style={styles.modalBackdrop} onPress={() => !assignSubmitting && setAssignModalOpen(false)} />
@@ -499,7 +792,7 @@ export default function OrdersTab() {
                 value={assignQuery}
                 onChangeText={setAssignQuery}
                 placeholder="اسم السائق أو جزء من الهاتف…"
-                placeholderTextColor="#64748b"
+                placeholderTextColor={theme.colors.placeholder}
                 style={styles.searchInput}
                 editable={!assignSubmitting}
                 autoCorrect={false}
@@ -507,7 +800,7 @@ export default function OrdersTab() {
                 returnKeyType="search"
               />
               {assignLoading ? (
-                <ActivityIndicator style={styles.modalLoading} color="#38bdf8" size="large" />
+                <ActivityIndicator style={styles.modalLoading} color={theme.colors.accent} size="large" />
               ) : assignDrivers.length > 0 ? (
                 <View style={styles.assignDriversWrap}>
                   {assignDrivers.map((d) => (
@@ -539,307 +832,12 @@ export default function OrdersTab() {
               >
                 <Text style={styles.modalCloseText}>إغلاق</Text>
               </Pressable>
-              {assignSubmitting ? <ActivityIndicator color="#38bdf8" style={{ marginTop: 8 }} /> : null}
+              {assignSubmitting ? <ActivityIndicator color={theme.colors.accent} style={{ marginTop: 8 }} /> : null}
             </ScrollView>
           </View>
         </View>
       </Modal>
-      <CoordinatorCreateOrderModal
-        visible={createOrderOpen}
-        onClose={() => setCreateOrderOpen(false)}
-        onCreated={async () => {
-          await load(true);
-        }}
-      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  rtlScreen: {
-    direction: "rtl",
-    alignItems: "stretch"
-  },
-  root: {
-    flex: 1,
-    backgroundColor: "#0f172a",
-    direction: "rtl"
-  },
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#0f172a",
-    paddingHorizontal: 24
-  },
-  loadingText: {
-    marginTop: 12,
-    color: "#94a3b8",
-    fontSize: 15,
-    ...rtlText,
-    width: "100%"
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#f8fafc",
-    ...rtlText,
-    marginBottom: 8,
-    paddingHorizontal: 20
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#94a3b8",
-    ...rtlText,
-    lineHeight: 20,
-    marginBottom: 10,
-    paddingHorizontal: 20
-  },
-  filterScrollView: {
-    flexGrow: 0,
-    marginBottom: 12
-  },
-  filterScroll: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 4,
-    alignItems: "center"
-  },
-  filterChip: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 22,
-    backgroundColor: "#1e293b",
-    borderWidth: 1,
-    borderColor: "#334155",
-    justifyContent: "center",
-    alignItems: "center",
-    minHeight: 44
-  },
-  filterChipActive: {
-    backgroundColor: "#1d4ed8",
-    borderColor: "#3b82f6"
-  },
-  filterChipPressed: {
-    opacity: 0.9
-  },
-  filterChipText: {
-    color: "#94a3b8",
-    fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
-    ...rtlText,
-    ...Platform.select({ android: { includeFontPadding: false }, default: {} })
-  },
-  filterChipTextActive: {
-    color: "#eff6ff"
-  },
-  error: {
-    color: "#f87171",
-    ...rtlText,
-    paddingHorizontal: 20,
-    marginBottom: 8
-  },
-  list: {
-    paddingHorizontal: 20,
-    alignItems: "stretch"
-  },
-  emptyList: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    alignItems: "stretch"
-  },
-  listFooterLoader: {
-    paddingVertical: 20,
-    alignItems: "center"
-  },
-  fab: {
-    position: "absolute",
-    end: 20,
-    minWidth: 132,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#2563eb",
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 18,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.22,
-    shadowRadius: 14,
-    elevation: 10
-  },
-  fabPlus: {
-    color: "#ffffff",
-    fontSize: 24,
-    fontWeight: "800",
-    lineHeight: 24
-  },
-  fabText: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "800",
-    ...rtlText
-  },
-  actions: {
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "flex-start",
-    flexWrap: "wrap",
-    marginTop: 4
-  },
-  btnDanger: {
-    backgroundColor: "#7f1d1d",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    minWidth: 120,
-    alignItems: "center"
-  },
-  btnDangerText: {
-    color: "#fecaca",
-    fontWeight: "800",
-    fontSize: 14,
-    ...rtlText
-  },
-  btnPrimary: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    minWidth: 120,
-    alignItems: "center"
-  },
-  btnPrimaryText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-    ...rtlText
-  },
-  btnResumeStuck: {
-    backgroundColor: "#0369a1",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    minWidth: 120,
-    alignItems: "center"
-  },
-  btnResumeStuckText: {
-    color: "#e0f2fe",
-    fontWeight: "800",
-    fontSize: 14,
-    ...rtlText
-  },
-  btnDisabled: {
-    opacity: 0.55
-  },
-  empty: {
-    color: "#64748b",
-    ...rtlText,
-    marginTop: 40,
-    fontSize: 15,
-    lineHeight: 24
-  },
-  modalRoot: {
-    flex: 1,
-    justifyContent: "flex-end"
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.55)"
-  },
-  modalSheet: {
-    backgroundColor: "#1e293b",
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    padding: 20,
-    maxHeight: "85%",
-    minHeight: 280,
-    borderWidth: 1,
-    borderColor: "#334155"
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#f8fafc",
-    ...rtlText,
-    marginBottom: 6
-  },
-  modalHint: {
-    fontSize: 12,
-    color: "#94a3b8",
-    ...rtlText,
-    marginBottom: 12
-  },
-  searchInput: {
-    backgroundColor: "#0f172a",
-    borderWidth: 1,
-    borderColor: "#334155",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#f8fafc",
-    marginBottom: 12,
-    ...rtlText
-  },
-  assignScrollContent: {
-    alignItems: "stretch",
-    paddingBottom: 8
-  },
-  modalLoading: {
-    marginVertical: 32,
-    minHeight: 120
-  },
-  assignDriversWrap: {
-    marginTop: 4
-  },
-  driverFlatList: {
-    flexGrow: 0,
-    maxHeight: 380,
-    marginTop: 4
-  },
-  driverRow: {
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: "#0f172a",
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#334155",
-    alignItems: "stretch"
-  },
-  driverRowDisabled: {
-    opacity: 0.45
-  },
-  driverName: {
-    color: "#f8fafc",
-    fontWeight: "800",
-    fontSize: 16,
-    ...rtlText
-  },
-  driverMeta: {
-    color: "#94a3b8",
-    fontSize: 12,
-    ...rtlText,
-    marginTop: 4
-  },
-  noDrivers: {
-    color: "#64748b",
-    ...rtlText,
-    paddingVertical: 16
-  },
-  modalClose: {
-    marginTop: 12,
-    alignItems: "center",
-    paddingVertical: 12
-  },
-  modalCloseText: {
-    color: "#38bdf8",
-    fontWeight: "800",
-    fontSize: 16,
-    ...rtlText
-  }
-});

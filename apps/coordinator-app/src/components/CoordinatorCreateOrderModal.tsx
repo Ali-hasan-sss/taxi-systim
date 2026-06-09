@@ -1,3 +1,4 @@
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   ActivityIndicator,
@@ -54,6 +55,134 @@ export function CoordinatorCreateOrderModal({
   onCreated?: () => Promise<void> | void;
 }) {
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
+  const styles = useThemedStyles((t) => ({
+    rtlScreen: {
+      direction: "rtl" as const,
+      alignItems: "stretch" as const
+    },
+    modalRoot: {
+      flex: 1,
+      justifyContent: "flex-end" as const
+    },
+    modalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: t.colors.overlay
+    },
+    modalSheet: {
+      backgroundColor: t.colors.modalBg,
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
+      paddingTop: 20,
+      paddingHorizontal: 20,
+      borderWidth: 1,
+      borderColor: t.colors.modalBorder
+    },
+    modalScrollContent: {
+      alignItems: "stretch" as const
+    },
+    modalHeader: {
+      flexDirection: "row-reverse" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      marginBottom: 8
+    },
+    modalTitle: {
+      color: t.colors.text,
+      fontSize: 20,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    modalClose: {
+      paddingVertical: 6,
+      paddingHorizontal: 4
+    },
+    modalCloseText: {
+      color: t.colors.link,
+      fontWeight: "800" as const,
+      fontSize: 15,
+      ...rtlText
+    },
+    modalSubtitle: {
+      color: t.colors.textMuted,
+      ...rtlText,
+      lineHeight: 22,
+      marginBottom: 8
+    },
+    label: {
+      color: t.colors.textMuted,
+      fontSize: 13,
+      fontWeight: "700" as const,
+      ...rtlText,
+      marginBottom: 6
+    },
+    /** منطقة لمس للسكرول بين الحقول — لا تضع مدخلات هنا */
+    scrollGap: {
+      height: 22
+    },
+    input: {
+      backgroundColor: t.colors.inputBg,
+      borderWidth: 1,
+      borderColor: t.colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      color: t.colors.text,
+      fontSize: 16,
+      ...rtlText
+    },
+    inputMultiline: {
+      minHeight: 88,
+      paddingTop: 12
+    },
+    row: {
+      flexDirection: "row-reverse" as const,
+      gap: 10,
+      marginTop: 8,
+      flexWrap: "wrap" as const,
+      justifyContent: "flex-end" as const
+    },
+    chip: {
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 12,
+      backgroundColor: t.colors.chipBg,
+      borderWidth: 1,
+      borderColor: t.colors.border
+    },
+    chipOn: {
+      borderColor: t.colors.chipActiveBorder,
+      backgroundColor: t.colors.accentSoft
+    },
+    chipText: {
+      color: t.colors.chipText,
+      fontWeight: "700" as const,
+      fontSize: 14,
+      ...rtlText
+    },
+    chipTextOn: {
+      color: t.mode === "light" ? t.colors.primaryDark : t.colors.chipActiveText,
+      fontWeight: "800" as const
+    },
+    submit: {
+      marginTop: 20,
+      marginBottom: 24,
+      backgroundColor: t.colors.primary,
+      paddingVertical: 16,
+      borderRadius: 12,
+      alignItems: "center" as const
+    },
+    submitText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 16,
+      ...rtlText
+    },
+    disabled: {
+      opacity: 0.6
+    }
+  }));
+
   const [fromAddr, setFromAddr] = useState("");
   const [toAddr, setToAddr] = useState("");
   const [phone, setPhone] = useState("");
@@ -148,9 +277,11 @@ export function CoordinatorCreateOrderModal({
             ]}
           >
             <ScrollView
+              style={{ flex: 1 }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-              showsVerticalScrollIndicator
+              automaticallyAdjustKeyboardInsets
+              showsVerticalScrollIndicator={false}
               contentContainerStyle={[
                 styles.modalScrollContent,
                 { paddingBottom: Math.max(insets.bottom, 16) + 120 }
@@ -165,6 +296,7 @@ export function CoordinatorCreateOrderModal({
             <Text style={styles.modalSubtitle}>
               يُبث الطلب فور الحفظ إلى جميع السائقين المؤهلين حسب نوع السيارة أدناه.
             </Text>
+            <View style={styles.scrollGap} />
 
             <Text style={styles.label}>نوع السيارة المطلوب</Text>
             <View style={styles.row}>
@@ -187,6 +319,7 @@ export function CoordinatorCreateOrderModal({
                 <Text style={[styles.chipText, vehicleRequirement === "PRIVATE" && styles.chipTextOn]}>خاصة</Text>
               </Pressable>
             </View>
+            <View style={styles.scrollGap} />
 
             <Text style={styles.label}>من (الانطلاق)</Text>
             <TextInput
@@ -194,12 +327,13 @@ export function CoordinatorCreateOrderModal({
               value={fromAddr}
               onChangeText={setFromAddr}
               placeholder="عنوان أو وصف نقطة الانطلاق"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.placeholder}
               style={styles.input}
               returnKeyType="next"
               blurOnSubmit={false}
               onSubmitEditing={() => focusNext(orderToRef)}
             />
+            <View style={styles.scrollGap} />
 
             <Text style={styles.label}>إلى (الوجهة)</Text>
             <TextInput
@@ -207,12 +341,13 @@ export function CoordinatorCreateOrderModal({
               value={toAddr}
               onChangeText={setToAddr}
               placeholder="عنوان أو وصف الوجهة"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.placeholder}
               style={styles.input}
               returnKeyType="next"
               blurOnSubmit={false}
               onSubmitEditing={() => focusNext(orderPhoneRef)}
             />
+            <View style={styles.scrollGap} />
 
             <Text style={styles.label}>رقم الزبون</Text>
             <TextInput
@@ -220,13 +355,14 @@ export function CoordinatorCreateOrderModal({
               value={phone}
               onChangeText={setPhone}
               placeholder="07xxxxxxxx"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.placeholder}
               style={styles.input}
               keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "phone-pad"}
               returnKeyType="next"
               blurOnSubmit={false}
               onSubmitEditing={() => focusNext(orderAmountRef)}
             />
+            <View style={styles.scrollGap} />
 
             <Text style={styles.label}>تكلفة الطلب</Text>
             <TextInput
@@ -234,25 +370,30 @@ export function CoordinatorCreateOrderModal({
               value={amountText}
               onChangeText={setAmountText}
               placeholder="مثال: 25 أو 25.5"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.placeholder}
               style={styles.input}
               keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "decimal-pad"}
               returnKeyType="next"
               blurOnSubmit={false}
               onSubmitEditing={() => focusNext(orderNotesRef)}
             />
+            <View style={styles.scrollGap} />
 
             <Text style={styles.label}>ملاحظات إضافية (اختياري)</Text>
-            <TextInput
-              ref={orderNotesRef}
-              value={orderNotes}
-              onChangeText={setOrderNotes}
-              placeholder="تعليمات للسائق، لون مميز، نقطة لقاء..."
-              placeholderTextColor="#64748b"
-              style={[styles.input, styles.inputMultiline]}
-              multiline
-              textAlignVertical="top"
-            />
+            <View collapsable={false}>
+              <TextInput
+                ref={orderNotesRef}
+                value={orderNotes}
+                onChangeText={setOrderNotes}
+                placeholder="تعليمات للسائق، لون مميز، نقطة لقاء..."
+                placeholderTextColor={theme.colors.placeholder}
+                style={[styles.input, styles.inputMultiline]}
+                multiline
+                scrollEnabled={false}
+                textAlignVertical="top"
+              />
+            </View>
+            <View style={styles.scrollGap} />
 
             <Pressable
               onPress={() => void submitOrder()}
@@ -260,7 +401,7 @@ export function CoordinatorCreateOrderModal({
               style={[styles.submit, submitting && styles.disabled]}
             >
               {submitting ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={theme.colors.textInverse} />
               ) : (
                 <Text style={styles.submitText}>إنشاء الطلب وبثّه</Text>
               )}
@@ -272,126 +413,3 @@ export function CoordinatorCreateOrderModal({
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  rtlScreen: {
-    direction: "rtl",
-    alignItems: "stretch"
-  },
-  modalRoot: {
-    flex: 1,
-    justifyContent: "flex-end"
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.55)"
-  },
-  modalSheet: {
-    backgroundColor: "#1e293b",
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-    borderColor: "#334155"
-  },
-  modalScrollContent: {
-    alignItems: "stretch"
-  },
-  modalHeader: {
-    flexDirection: "row-reverse",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8
-  },
-  modalTitle: {
-    color: "#f8fafc",
-    fontSize: 20,
-    fontWeight: "800",
-    ...rtlText
-  },
-  modalClose: {
-    paddingVertical: 6,
-    paddingHorizontal: 4
-  },
-  modalCloseText: {
-    color: "#38bdf8",
-    fontWeight: "800",
-    fontSize: 15,
-    ...rtlText
-  },
-  modalSubtitle: {
-    color: "#94a3b8",
-    ...rtlText,
-    lineHeight: 22,
-    marginBottom: 8
-  },
-  label: {
-    color: "#94a3b8",
-    fontSize: 13,
-    fontWeight: "700",
-    ...rtlText,
-    marginBottom: 6,
-    marginTop: 10
-  },
-  input: {
-    backgroundColor: "#0f172a",
-    borderWidth: 1,
-    borderColor: "#334155",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#f8fafc",
-    fontSize: 16,
-    ...rtlText
-  },
-  inputMultiline: {
-    minHeight: 88,
-    paddingTop: 12
-  },
-  row: {
-    flexDirection: "row-reverse",
-    gap: 10,
-    marginTop: 8,
-    flexWrap: "wrap",
-    justifyContent: "flex-end"
-  },
-  chip: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: "#0f172a",
-    borderWidth: 1,
-    borderColor: "#334155"
-  },
-  chipOn: {
-    borderColor: "#38bdf8",
-    backgroundColor: "#0c4a6e33"
-  },
-  chipText: {
-    color: "#94a3b8",
-    fontWeight: "700",
-    fontSize: 14,
-    ...rtlText
-  },
-  chipTextOn: {
-    color: "#38bdf8"
-  },
-  submit: {
-    marginTop: 20,
-    marginBottom: 24,
-    backgroundColor: "#2563eb",
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center"
-  },
-  submitText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 16,
-    ...rtlText
-  },
-  disabled: {
-    opacity: 0.6
-  }
-});

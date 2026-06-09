@@ -1,0 +1,20 @@
+import { Router } from "express";
+import { requireAuth } from "../../shared/auth";
+import { chatController } from "./chat.controller";
+import { chatImageUpload } from "./chat-upload";
+
+export const chatRouter = Router();
+
+chatRouter.get("/rooms", requireAuth, chatController.listRooms);
+chatRouter.get("/rooms/:roomId/messages", requireAuth, chatController.listMessages);
+chatRouter.post("/rooms/:roomId/messages", requireAuth, chatController.sendMessage);
+chatRouter.post(
+  "/rooms/:roomId/images",
+  requireAuth,
+  chatImageUpload.single("image"),
+  chatController.uploadImage
+);
+chatRouter.post("/rooms/:roomId/read", requireAuth, chatController.markRoomRead);
+chatRouter.post("/rooms/:roomId/archive", requireAuth, chatController.archiveRoom);
+chatRouter.get("/orders/:orderId/room", requireAuth, chatController.getOrderRoom);
+chatRouter.get("/images/:filename", requireAuth, chatController.serveImage);

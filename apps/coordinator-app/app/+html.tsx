@@ -1,7 +1,7 @@
 import { ScrollViewStyleReset } from "expo-router/html";
 import type { PropsWithChildren } from "react";
 
-/** ويب فقط: يضبط اتجاه المستند حتى تنعكس المحاذاة والفليكس مثل الأصلي. */
+/** ويب فقط: اتجاه المستند عربي؛ شريط التنقل يُثبَّت LTR في التخطيط. */
 export default function RootHtml({ children }: PropsWithChildren) {
   return (
     <html lang="ar" dir="rtl">

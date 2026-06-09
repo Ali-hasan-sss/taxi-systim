@@ -1,20 +1,40 @@
+import { ThemeProvider, useTheme, SystemChrome } from "@taxi/expo-theme";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ChatSocketProvider } from "../src/chat-socket-context";
+import { FeedbackHost } from "../src/lib/feedback";
 
-export default function RootLayout() {
+function RootLayoutInner() {
+  const { theme } = useTheme();
+
   return (
-    <SafeAreaProvider>
-      <View style={{ flex: 1, direction: "rtl", backgroundColor: "#edf4ff" }}>
-        <StatusBar style="dark" />
+    <View style={{ flex: 1, direction: "rtl", backgroundColor: theme.colors.background }}>
+      <StatusBar style={theme.statusBar} />
+      <SystemChrome />
+      <ChatSocketProvider>
         <Stack
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: "#edf4ff", direction: "rtl" }
+            contentStyle: { backgroundColor: theme.colors.background, direction: "rtl" }
           }}
         />
-      </View>
-    </SafeAreaProvider>
+        <FeedbackHost />
+      </ChatSocketProvider>
+    </View>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider accent="driver">
+          <RootLayoutInner />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

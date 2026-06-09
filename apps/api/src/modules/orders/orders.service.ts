@@ -1046,7 +1046,7 @@ export const ordersService = {
       }
 
       if (order.status !== OrderStatus.STARTED) {
-        throw new AppError("أكمل «تم ركوب الزبون» أولًا ثم «تم توصيل الزبون».", 400);
+        throw new AppError("أكمل «تم اقلال الزبون» أولًا ثم «تم توصيل الزبون».", 400);
       }
 
       const setting = await tx.systemSettings.findFirst({ where: { key: "commission" } });
@@ -1108,6 +1108,35 @@ export const ordersService = {
         where: { id: orderId },
         include: orderIncludeDriverUser
       });
+    });
+  },
+
+  /** تعديل أجرة الطلب: للطلبات النشطة تحديث مباشر، وللمكتملة إعادة حساب العمولة. */
+  async updateOrderAmountByCoordinator(coordinatorUserId: string, orderId: string, newAmount: number) {
+    const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
+    if (!coordinator) throw new AppError("ملف المنسق غير موجود", 404);
+
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, coordinatorId: coordinator.id }
+    });
+    if (!order) throw new AppError("الطلب غير موجود أو لا يخصّك", 404);
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new AppError("لا يمكن تعديل أجرة طلب ملغى", 400);
+    }
+
+    if (order.status === OrderStatus.COMPLETED) {
+      return this.updateCompletedOrderAmountByCoordinator(coordinatorUserId, orderId, newAmount);
+    }
+
+    if (!Number.isFinite(newAmount) || newAmount <= 0) {
+      throw new AppError("المبلغ يجب أن يكون رقمًا أكبر من صفر", 400);
+    }
+
+    return prisma.order.update({
+      where: { id: orderId },
+      data: { amount: new Prisma.Decimal(newAmount.toFixed(2)) },
+      include: orderIncludeDriverUser
     });
   },
 

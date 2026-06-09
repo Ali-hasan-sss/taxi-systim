@@ -1,7 +1,8 @@
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Tabs, usePathname, useRouter } from "expo-router";
 import { useEffect } from "react";
-import { AppState, StyleSheet, Text, View } from "react-native";
+import { AppState, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverAppHeader } from "../../src/components/DriverAppHeader";
 import { DriverSocketProvider } from "../../src/driver-socket-context";
@@ -9,7 +10,6 @@ import { getDriverLocationAccessState, isDriverLocationReady } from "../../src/l
 import { shouldLoadExpoPushModule } from "../../src/lib/push-environment";
 import { getDriverSession } from "../../src/lib/session";
 import { driverTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
-import { rtlText } from "../../src/lib/rtl-text";
 import { useDriverStore } from "../../src/store";
 
 function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
@@ -18,6 +18,35 @@ function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
   const onOrdersTab = pathname.includes("orders");
   const showBadge = !onOrdersTab && roomPendingCount > 0;
   const s = size ?? 22;
+  const styles = useThemedStyles((t) => ({
+    iconWrap: {
+      position: "relative" as const,
+      width: 28,
+      height: 24,
+      alignItems: "center" as const,
+      justifyContent: "center" as const
+    },
+    badgeDot: {
+      position: "absolute" as const,
+      top: -4,
+      end: -10,
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 4,
+      borderRadius: 9,
+      backgroundColor: t.colors.badge,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      borderWidth: 2,
+      borderColor: t.colors.badgeBorder
+    },
+    badgeText: {
+      color: t.colors.badgeText,
+      fontSize: 10,
+      fontWeight: "800" as const,
+      textAlign: "center" as const
+    }
+  }));
 
   return (
     <View style={styles.iconWrap}>
@@ -34,6 +63,7 @@ function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { theme } = useTheme();
 
   useEffect(() => {
     if (!shouldLoadExpoPushModule()) return;
@@ -86,99 +116,64 @@ export default function TabsLayout() {
 
   return (
     <DriverSocketProvider>
-    <View style={{ flex: 1, backgroundColor: "#edf4ff" }}>
-      <DriverAppHeader />
-      <Tabs
-      screenOptions={{
-        lazy: false,
-        headerShown: false,
-        tabBarHideOnKeyboard: true,
-        tabBarStyle: {
-          backgroundColor: "#ffffff",
-          borderTopColor: "#dbe4f0",
-          borderTopWidth: 1,
-          paddingTop: 4,
-          paddingBottom: Math.max(insets.bottom, 8),
-          height: driverTabBarOuterHeight(insets.bottom),
-          shadowColor: "#0f172a",
-          shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.08,
-          shadowRadius: 10,
-          elevation: 12
-        },
-        tabBarActiveTintColor: "#2563eb",
-        tabBarInactiveTintColor: "#64748b",
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "700",
-          ...rtlText
-        }
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "الرئيسية",
-          tabBarLabel: "الرئيسية",
-          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size ?? 22} color={color} />
-        }}
-      />
-      <Tabs.Screen
-        name="orders"
-        options={{
-          title: "غرفة الطلبات",
-          tabBarLabel: "غرفة الطلبات",
-          tabBarIcon: ({ color, size }) => <OrdersTabIcon color={color} size={size} />
-        }}
-      />
-      <Tabs.Screen
-        name="archive"
-        options={{
-          title: "الأرشيف",
-          tabBarLabel: "الأرشيف",
-          tabBarIcon: ({ color, size }) => <Ionicons name="archive-outline" size={size ?? 22} color={color} />
-        }}
-      />
-      <Tabs.Screen
-        name="reports"
-        options={{
-          title: "التقارير",
-          tabBarLabel: "التقارير",
-          tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline" size={size ?? 22} color={color} />
-        }}
-      />
-    </Tabs>
-    </View>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        <DriverAppHeader />
+        <Tabs
+          screenOptions={{
+            lazy: false,
+            headerShown: false,
+            tabBarHideOnKeyboard: true,
+            tabBarStyle: {
+              backgroundColor: theme.colors.tabBar,
+              borderTopColor: theme.colors.tabBarBorder,
+              borderTopWidth: 1,
+              paddingTop: 4,
+              paddingBottom: Math.max(insets.bottom, 8),
+              height: driverTabBarOuterHeight(insets.bottom),
+              shadowColor: theme.colors.shadow,
+              shadowOffset: { width: 0, height: -4 },
+              shadowOpacity: 0.08,
+              shadowRadius: 10,
+              elevation: 12
+            },
+            tabBarActiveTintColor: theme.colors.tabActive,
+            tabBarInactiveTintColor: theme.colors.tabInactive,
+            tabBarLabelStyle: {
+              fontSize: 11,
+              fontWeight: "700",
+              textAlign: "center",
+              writingDirection: "rtl"
+            }
+          }}
+        >
+          <Tabs.Screen
+            name="index"
+            options={{
+              title: "الرئيسية",
+              tabBarLabel: "الرئيسية",
+              tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size ?? 22} color={color} />
+            }}
+          />
+          <Tabs.Screen
+            name="orders"
+            options={{
+              title: "غرفة الطلبات",
+              tabBarLabel: "غرفة الطلبات",
+              tabBarIcon: ({ color, size }) => <OrdersTabIcon color={color} size={size} />
+            }}
+          />
+          <Tabs.Screen name="chat" options={{ href: null }} />
+          <Tabs.Screen
+            name="archive"
+            options={{
+              title: "الأرشيف",
+              tabBarLabel: "الأرشيف",
+              tabBarIcon: ({ color, size }) => <Ionicons name="archive-outline" size={size ?? 22} color={color} />
+            }}
+          />
+          <Tabs.Screen name="reports" options={{ href: null }} />
+        </Tabs>
+      </View>
     </DriverSocketProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  iconWrap: {
-    position: "relative",
-    width: 28,
-    height: 24,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  badgeDot: {
-    position: "absolute",
-    top: -4,
-    end: -10,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    backgroundColor: "#dc2626",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#ffffff"
-  },
-  badgeText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontWeight: "800",
-    ...rtlText
-  }
-});

@@ -3,12 +3,13 @@
 const { createRequire } = require("module");
 const { getDefaultConfig } = require("expo/metro-config");
 const path = require("path");
+const { applyMonorepoMetroConfig } = require("../../scripts/metro-monorepo.cjs");
 
 const projectRoot = __dirname;
 const appRequire = createRequire(require.resolve("expo/package.json", { paths: [projectRoot] }));
 const { resolve: metroDefaultResolve } = appRequire("metro-resolver");
 
-const config = getDefaultConfig(projectRoot);
+const config = applyMonorepoMetroConfig(getDefaultConfig(projectRoot), projectRoot);
 
 const expoAssetPkgJson = require.resolve("expo-asset/package.json", { paths: [projectRoot] });
 const expoAssetRoot = path.dirname(expoAssetPkgJson);

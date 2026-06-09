@@ -1,3 +1,4 @@
+import { coordinatorOrderStatusPill, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import * as Linking from "expo-linking";
@@ -5,7 +6,6 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View
@@ -19,7 +19,7 @@ import {
   formatSyrianPhoneForDisplay,
   normalizeSyriaPhoneForWaMe
 } from "../lib/whatsapp";
-import { rtlText } from "../lib/rtl-text";
+import { rtlRow, rtlText } from "../lib/rtl-text";
 
 const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
 
@@ -90,25 +90,10 @@ const VEHICLE_REQ_AR: Record<string, string> = {
   PRIVATE: "سيارة خاصة"
 };
 
-function statusPillColors(status: string): { backgroundColor: string; color: string } {
-  switch (status) {
-    case "PENDING":
-      return { backgroundColor: "#b45309", color: "#fffbeb" };
-    case "ACCEPTED":
-    case "ARRIVED":
-    case "EN_ROUTE_TO_CUSTOMER":
-      return { backgroundColor: "#1d4ed8", color: "#eff6ff" };
-    case "STARTED":
-      return { backgroundColor: "#15803d", color: "#f0fdf4" };
-    case "STUCK":
-      return { backgroundColor: "#c2410c", color: "#fff7ed" };
-    case "COMPLETED":
-      return { backgroundColor: "#475569", color: "#f8fafc" };
-    case "CANCELLED":
-      return { backgroundColor: "#991b1b", color: "#fee2e2" };
-    default:
-      return { backgroundColor: "#475569", color: "#f1f5f9" };
-  }
+function normalizeStatusForPill(status: string): string {
+  const s = status.trim().toUpperCase();
+  if (s === "EN_ROUTE_TO_CUSTOMER" || s === "ARRIVED" || s === "STARTED") return "EN_ROUTE";
+  return s;
 }
 
 function formatWhen(iso: string): string {
@@ -171,6 +156,213 @@ export function CoordinatorOrderCard({
   coordinatorFullName = "—",
   onOrderUpdated
 }: CoordinatorOrderCardProps) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles((t) => ({
+    card: {
+      backgroundColor: t.colors.surface,
+      borderRadius: 14,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      direction: "rtl" as const,
+      alignItems: "stretch" as const
+    },
+    cardTop: {
+      flexDirection: "row-reverse" as const,
+      justifyContent: "flex-start" as const,
+      gap: 8,
+      flexWrap: "wrap" as const,
+      marginBottom: 10
+    },
+    statusPill: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 8,
+      overflow: "hidden" as const,
+      fontWeight: "800" as const,
+      fontSize: 12,
+      ...rtlText
+    },
+    badge: {
+      backgroundColor: t.colors.chipBg,
+      color: t.colors.chipText,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 8,
+      overflow: "hidden" as const,
+      fontSize: 11,
+      fontWeight: "700" as const,
+      ...rtlText
+    },
+    customer: {
+      fontSize: 17,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 4
+    },
+    phoneRow: {
+      ...rtlRow,
+      flexWrap: "wrap" as const,
+      gap: 10,
+      marginBottom: 8,
+      justifyContent: "flex-start" as const
+    },
+    phone: {
+      color: t.colors.textMuted,
+      flexShrink: 1,
+      ...rtlText
+    },
+    waBtn: {
+      backgroundColor: t.colors.whatsapp,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 10
+    },
+    waInvoiceBtn: {
+      backgroundColor: t.colors.navigate,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 10
+    },
+    waBtnPressed: {
+      opacity: 0.88
+    },
+    waBtnText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 12,
+      ...rtlText
+    },
+    waInvoiceBtnText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 12,
+      ...rtlText
+    },
+    route: {
+      color: t.colors.textSecondary,
+      ...rtlText,
+      lineHeight: 22,
+      marginBottom: 10,
+      fontSize: 14
+    },
+    notes: {
+      color: t.colors.warningText,
+      ...rtlText,
+      fontSize: 13,
+      lineHeight: 20,
+      marginBottom: 10
+    },
+    row: {
+      flexDirection: "row-reverse" as const,
+      justifyContent: "flex-start" as const,
+      alignItems: "center" as const,
+      gap: 12,
+      flexWrap: "wrap" as const,
+      marginBottom: 8
+    },
+    amount: {
+      color: t.colors.accent,
+      fontWeight: "800" as const,
+      fontSize: 16,
+      ...rtlText
+    },
+    editAmountBtn: {
+      backgroundColor: t.colors.buttonSecondaryBg,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: t.colors.borderStrong
+    },
+    editAmountBtnText: {
+      color: t.colors.buttonSecondaryText,
+      fontWeight: "800" as const,
+      fontSize: 12,
+      ...rtlText
+    },
+    date: {
+      color: t.colors.textSubtle,
+      fontSize: 12,
+      ...rtlText
+    },
+    driver: {
+      color: t.colors.textMuted,
+      fontSize: 13,
+      ...rtlText,
+      marginBottom: 10
+    },
+    driverLast: {
+      marginBottom: 0
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: t.colors.overlayLight,
+      justifyContent: "center" as const,
+      paddingHorizontal: 24
+    },
+    modalCard: {
+      backgroundColor: t.colors.modalBg,
+      borderRadius: 16,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: t.colors.modalBorder
+    },
+    modalTitle: {
+      fontSize: 17,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      marginBottom: 14,
+      ...rtlText
+    },
+    modalInput: {
+      borderWidth: 1,
+      borderColor: t.colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      color: t.colors.text,
+      backgroundColor: t.colors.inputBg,
+      fontSize: 16,
+      marginBottom: 18,
+      ...rtlText
+    },
+    modalActions: {
+      flexDirection: "row-reverse" as const,
+      flexWrap: "wrap" as const,
+      gap: 10,
+      justifyContent: "flex-start" as const
+    },
+    modalBtnSecondary: {
+      paddingVertical: 12,
+      paddingHorizontal: 18,
+      borderRadius: 12,
+      backgroundColor: t.colors.buttonSecondaryBg
+    },
+    modalBtnSecondaryText: {
+      color: t.colors.buttonSecondaryText,
+      fontWeight: "800" as const,
+      fontSize: 15,
+      ...rtlText
+    },
+    modalBtnPrimary: {
+      paddingVertical: 12,
+      paddingHorizontal: 22,
+      borderRadius: 12,
+      backgroundColor: t.colors.primary,
+      minWidth: 100,
+      alignItems: "center" as const
+    },
+    modalBtnPrimaryText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 15,
+      ...rtlText
+    }
+  }));
+
   const [amountModalOpen, setAmountModalOpen] = useState(false);
   const [amountDraft, setAmountDraft] = useState("");
   const [savingAmount, setSavingAmount] = useState(false);
@@ -185,6 +377,7 @@ export function CoordinatorOrderCard({
   const hasAssignedDriver = Boolean(item.driverId || item.driver?.id);
   const statusKey = typeof item.status === "string" ? item.status.trim().toUpperCase() : "";
   const isCompletedArchive = archiveMode && statusKey === "COMPLETED";
+  const statusPillStyle = coordinatorOrderStatusPill(normalizeStatusForPill(item.status), theme);
 
   const canWhatsAppCustomer =
     WHATSAPP_TO_CUSTOMER_STATUSES.has(statusKey) && hasAssignedDriver && Boolean(contactPhone) && Boolean(waE164);
@@ -244,7 +437,7 @@ export function CoordinatorOrderCard({
   return (
     <View style={styles.card}>
       <View style={styles.cardTop}>
-        <Text style={[styles.statusPill, statusPillColors(item.status)]}>
+        <Text style={[styles.statusPill, statusPillStyle]}>
           {STATUS_AR[item.status] ?? item.status}
         </Text>
         <Text style={styles.badge}>{BROADCAST_AR[item.broadcastTarget] ?? item.broadcastTarget}</Text>
@@ -334,7 +527,7 @@ export function CoordinatorOrderCard({
               onChangeText={setAmountDraft}
               keyboardType="decimal-pad"
               placeholder="المبلغ"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.placeholder}
               style={styles.modalInput}
               editable={!savingAmount}
             />
@@ -354,7 +547,7 @@ export function CoordinatorOrderCard({
                 ]}
               >
                 {savingAmount ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={theme.colors.textInverse} size="small" />
                 ) : (
                   <Text style={styles.modalBtnPrimaryText}>حفظ</Text>
                 )}
@@ -366,209 +559,3 @@ export function CoordinatorOrderCard({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: "#1e293b",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#334155",
-    direction: "rtl",
-    alignItems: "stretch"
-  },
-  cardTop: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
-    gap: 8,
-    flexWrap: "wrap",
-    marginBottom: 10
-  },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    overflow: "hidden",
-    fontWeight: "800",
-    fontSize: 12,
-    ...rtlText
-  },
-  badge: {
-    backgroundColor: "#334155",
-    color: "#cbd5e1",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    overflow: "hidden",
-    fontSize: 11,
-    fontWeight: "700",
-    ...rtlText
-  },
-  customer: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#f8fafc",
-    ...rtlText,
-    marginBottom: 4
-  },
-  phoneRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-    ...rtlText
-  },
-  phone: {
-    color: "#94a3b8",
-    flexShrink: 1,
-    ...rtlText
-  },
-  waBtn: {
-    backgroundColor: "#15803d",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10
-  },
-  waInvoiceBtn: {
-    backgroundColor: "#0d9488",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10
-  },
-  waBtnPressed: {
-    opacity: 0.88
-  },
-  waBtnText: {
-    color: "#f0fdf4",
-    fontWeight: "800",
-    fontSize: 12,
-    ...rtlText
-  },
-  waInvoiceBtnText: {
-    color: "#ccfbf1",
-    fontWeight: "800",
-    fontSize: 12,
-    ...rtlText
-  },
-  route: {
-    color: "#cbd5e1",
-    ...rtlText,
-    lineHeight: 22,
-    marginBottom: 10,
-    fontSize: 14
-  },
-  notes: {
-    color: "#fde68a",
-    ...rtlText,
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 10
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
-    alignItems: "center",
-    gap: 12,
-    flexWrap: "wrap",
-    marginBottom: 8
-  },
-  amount: {
-    color: "#38bdf8",
-    fontWeight: "800",
-    fontSize: 16,
-    ...rtlText
-  },
-  editAmountBtn: {
-    backgroundColor: "#334155",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#475569"
-  },
-  editAmountBtnText: {
-    color: "#e2e8f0",
-    fontWeight: "800",
-    fontSize: 12,
-    ...rtlText
-  },
-  date: {
-    color: "#64748b",
-    fontSize: 12,
-    ...rtlText
-  },
-  driver: {
-    color: "#94a3b8",
-    fontSize: 13,
-    ...rtlText,
-    marginBottom: 10
-  },
-  driverLast: {
-    marginBottom: 0
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.82)",
-    justifyContent: "center",
-    paddingHorizontal: 24
-  },
-  modalCard: {
-    backgroundColor: "#1e293b",
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "#334155"
-  },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#f8fafc",
-    marginBottom: 14,
-    ...rtlText
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: "#475569",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#f8fafc",
-    fontSize: 16,
-    marginBottom: 18,
-    ...rtlText
-  },
-  modalActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "flex-end"
-  },
-  modalBtnSecondary: {
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 12,
-    backgroundColor: "#334155"
-  },
-  modalBtnSecondaryText: {
-    color: "#e2e8f0",
-    fontWeight: "800",
-    fontSize: 15,
-    ...rtlText
-  },
-  modalBtnPrimary: {
-    paddingVertical: 12,
-    paddingHorizontal: 22,
-    borderRadius: 12,
-    backgroundColor: "#2563eb",
-    minWidth: 100,
-    alignItems: "center"
-  },
-  modalBtnPrimaryText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 15,
-    ...rtlText
-  }
-});

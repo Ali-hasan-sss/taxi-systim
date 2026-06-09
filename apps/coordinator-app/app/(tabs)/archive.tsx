@@ -1,3 +1,4 @@
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -6,7 +7,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   Text,
   View
 } from "react-native";
@@ -26,6 +26,111 @@ import { rtlText } from "../../src/lib/rtl-text";
 export default function ArchiveTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
+  const styles = useThemedStyles((t) => ({
+    root: {
+      flex: 1,
+      backgroundColor: t.colors.background,
+      paddingTop: 56,
+      direction: "rtl" as const
+    },
+    centered: {
+      flex: 1,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      backgroundColor: t.colors.background,
+      paddingHorizontal: 24
+    },
+    loadingText: {
+      marginTop: 12,
+      color: t.colors.textMuted,
+      fontSize: 15,
+      ...rtlText,
+      width: "100%"
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 8,
+      paddingHorizontal: 20
+    },
+    subtitle: {
+      fontSize: 13,
+      color: t.colors.textMuted,
+      ...rtlText,
+      lineHeight: 20,
+      marginBottom: 10,
+      paddingHorizontal: 20
+    },
+    filterScrollView: {
+      flexGrow: 0,
+      marginBottom: 12
+    },
+    filterScroll: {
+      flexDirection: "row" as const,
+      gap: 8,
+      paddingHorizontal: 20,
+      paddingVertical: 4,
+      alignItems: "center" as const
+    },
+    filterChip: {
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 22,
+      backgroundColor: t.colors.filterBg,
+      borderWidth: 1,
+      borderColor: t.colors.filterBorder,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      minHeight: 44
+    },
+    filterChipActive: {
+      backgroundColor: t.colors.filterActiveBg,
+      borderColor: t.colors.filterActiveBorder
+    },
+    filterChipPressed: {
+      opacity: 0.9
+    },
+    filterChipText: {
+      color: t.colors.filterText,
+      fontWeight: "700" as const,
+      fontSize: 13,
+      lineHeight: 22,
+      ...rtlText,
+      ...Platform.select({ android: { includeFontPadding: false }, default: {} })
+    },
+    filterChipTextActive: {
+      color: t.colors.filterActiveText
+    },
+    error: {
+      color: t.colors.danger,
+      ...rtlText,
+      paddingHorizontal: 20,
+      marginBottom: 8
+    },
+    list: {
+      paddingHorizontal: 20,
+      alignItems: "stretch" as const
+    },
+    emptyList: {
+      flexGrow: 1,
+      paddingHorizontal: 20,
+      alignItems: "stretch" as const
+    },
+    listFooterLoader: {
+      paddingVertical: 20,
+      alignItems: "center" as const
+    },
+    empty: {
+      color: t.colors.textSubtle,
+      ...rtlText,
+      marginTop: 40,
+      fontSize: 15,
+      lineHeight: 24
+    }
+  }));
   const [orders, setOrders] = useState<CoordinatorOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,8 +223,8 @@ export default function ArchiveTab() {
 
   if (loading && orders.length === 0) {
     return (
-      <View style={[styles.centered, { paddingTop: insets.top + 12 }]}>
-        <ActivityIndicator size="large" color="#38bdf8" />
+      <View style={[styles.centered, { paddingTop: 12 }]}>
+        <ActivityIndicator size="large" color={theme.colors.accent} />
         <Text style={styles.loadingText}>جاري تحميل الأرشيف…</Text>
       </View>
     );
@@ -128,12 +233,9 @@ export default function ArchiveTab() {
   const listBottomPad = coordinatorTabBarOuterHeight(insets.bottom) + 24;
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
+    <View style={[styles.root, { paddingTop: 8 }]}>
       <Text style={styles.title}>الأرشيف</Text>
-      <Text style={styles.subtitle}>
-        صفِّ بين المكتملة والملغاة. مرّر للأسفل لتحميل المزيد (10 لكل دفعة).
-      </Text>
-
+      
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -184,13 +286,13 @@ export default function ArchiveTab() {
             ? [styles.emptyList, { paddingBottom: listBottomPad }]
             : [styles.list, { paddingBottom: listBottomPad }]
         }
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor="#38bdf8" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={theme.colors.accent} />}
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.35}
         ListFooterComponent={
           loadingMore ? (
             <View style={styles.listFooterLoader}>
-              <ActivityIndicator color="#38bdf8" />
+              <ActivityIndicator color={theme.colors.accent} />
             </View>
           ) : null
         }
@@ -208,107 +310,3 @@ export default function ArchiveTab() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: "#0f172a",
-    paddingTop: 56,
-    direction: "rtl"
-  },
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#0f172a",
-    paddingHorizontal: 24
-  },
-  loadingText: {
-    marginTop: 12,
-    color: "#94a3b8",
-    fontSize: 15,
-    ...rtlText,
-    width: "100%"
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#f8fafc",
-    ...rtlText,
-    marginBottom: 8,
-    paddingHorizontal: 20
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#94a3b8",
-    ...rtlText,
-    lineHeight: 20,
-    marginBottom: 10,
-    paddingHorizontal: 20
-  },
-  filterScrollView: {
-    flexGrow: 0,
-    marginBottom: 12
-  },
-  filterScroll: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 4,
-    alignItems: "center"
-  },
-  filterChip: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 22,
-    backgroundColor: "#1e293b",
-    borderWidth: 1,
-    borderColor: "#334155",
-    justifyContent: "center",
-    alignItems: "center",
-    minHeight: 44
-  },
-  filterChipActive: {
-    backgroundColor: "#1d4ed8",
-    borderColor: "#3b82f6"
-  },
-  filterChipPressed: {
-    opacity: 0.9
-  },
-  filterChipText: {
-    color: "#94a3b8",
-    fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
-    ...rtlText,
-    ...Platform.select({ android: { includeFontPadding: false }, default: {} })
-  },
-  filterChipTextActive: {
-    color: "#eff6ff"
-  },
-  error: {
-    color: "#f87171",
-    ...rtlText,
-    paddingHorizontal: 20,
-    marginBottom: 8
-  },
-  list: {
-    paddingHorizontal: 20,
-    alignItems: "stretch"
-  },
-  emptyList: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    alignItems: "stretch"
-  },
-  listFooterLoader: {
-    paddingVertical: 20,
-    alignItems: "center"
-  },
-  empty: {
-    color: "#64748b",
-    ...rtlText,
-    marginTop: 40,
-    fontSize: 15,
-    lineHeight: 24
-  }
-});

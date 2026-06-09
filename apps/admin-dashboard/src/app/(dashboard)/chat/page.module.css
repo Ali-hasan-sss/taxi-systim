@@ -1,0 +1,161 @@
+.page {
+  min-height: calc(100vh - 120px);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+  min-height: 70vh;
+}
+
+.rooms {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.roomsTitle {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tabBtn {
+  flex: 1;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.tabBtnActive {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.emptyRooms {
+  margin: 0 0 12px;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.archivedHint {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.roomBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  text-align: right;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.roomBtnActive {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.roomGlobal {
+  border-width: 2px;
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.threadHeader {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+
+.messages {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 360px;
+  max-height: 60vh;
+}
+
+.bubbleMine,
+.bubbleOther {
+  max-width: 75%;
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.bubbleMine {
+  align-self: flex-start;
+  background: #2563eb;
+  color: #fff;
+}
+
+.bubbleOther {
+  align-self: flex-end;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+
+.sender {
+  font-size: 0.75rem;
+  opacity: 0.75;
+  margin-bottom: 4px;
+}
+
+.image {
+  max-width: 240px;
+  border-radius: 10px;
+  margin: 4px 0;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+
+.input {
+  flex: 1;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.hiddenFile {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}

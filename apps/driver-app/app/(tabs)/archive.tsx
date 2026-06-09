@@ -1,10 +1,10 @@
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
-  StyleSheet,
   Text,
   View
 } from "react-native";
@@ -32,6 +32,7 @@ const ARCHIVE_TABS: { key: DriverArchiveSegment; label: string; hint: string }[]
 export default function DriverArchiveTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
   const [segment, setSegment] = useState<DriverArchiveSegment>("completed");
   const [orders, setOrders] = useState<DriverOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,12 +148,126 @@ export default function DriverArchiveTab() {
   const tabHint = ARCHIVE_TABS.find((t) => t.key === segment)?.hint ?? "";
   const listBottomPad = driverTabBarOuterHeight(insets.bottom) + 24;
 
+  const styles = useThemedStyles((t) => ({
+    safe: {
+      flex: 1,
+      backgroundColor: "transparent",
+      direction: "rtl" as const
+    },
+    header: {
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      paddingBottom: 8,
+      direction: "rtl" as const
+    },
+    centered: {
+      flex: 1,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      paddingHorizontal: 24
+    },
+    loadingText: {
+      marginTop: 12,
+      color: t.colors.textMuted,
+      fontSize: 15,
+      ...rtlText,
+      width: "100%",
+      textAlign: "center" as const
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 8,
+      textAlign: "right" as const
+    },
+    subtitle: {
+      fontSize: 13,
+      color: t.colors.textMuted,
+      ...rtlText,
+      lineHeight: 20,
+      marginBottom: 10,
+      textAlign: "right" as const
+    },
+    tabsRow: {
+      flexDirection: "row-reverse" as const,
+      flexWrap: "wrap" as const,
+      gap: 8,
+      marginBottom: 8
+    },
+    tab: {
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      backgroundColor: t.colors.filterBg,
+      borderWidth: 1,
+      borderColor: t.colors.filterBorder
+    },
+    tabActive: {
+      backgroundColor: t.colors.filterActiveBg,
+      borderColor: t.colors.filterActiveBorder
+    },
+    tabLabel: {
+      fontSize: 14,
+      fontWeight: "700" as const,
+      color: t.colors.filterText,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    tabLabelActive: {
+      color: t.colors.filterActiveText
+    },
+    tabHint: {
+      fontSize: 12,
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginBottom: 4,
+      textAlign: "right" as const
+    },
+    error: {
+      color: t.colors.danger,
+      ...rtlText,
+      marginTop: 8,
+      textAlign: "right" as const
+    },
+    list: {
+      paddingHorizontal: 20,
+      alignItems: "stretch" as const
+    },
+    emptyList: {
+      flexGrow: 1,
+      paddingHorizontal: 20,
+      alignItems: "stretch" as const
+    },
+    listFooterLoader: {
+      paddingVertical: 20,
+      alignItems: "center" as const
+    },
+    listEndHint: {
+      paddingVertical: 16,
+      paddingHorizontal: 8,
+      textAlign: "center" as const,
+      color: t.colors.textMuted,
+      fontSize: 13,
+      ...rtlText
+    },
+    empty: {
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginTop: 40,
+      fontSize: 15,
+      lineHeight: 24,
+      textAlign: "right" as const
+    }
+  }));
+
   if (loading && orders.length === 0) {
     return (
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
         <DriverScreenBackground>
           <View style={styles.centered}>
-            <ActivityIndicator size="large" color="#2563eb" />
+            <ActivityIndicator size="large" color={theme.colors.primary} />
             <Text style={styles.loadingText}>جاري تحميل الأرشيف…</Text>
           </View>
         </DriverScreenBackground>
@@ -206,7 +321,7 @@ export default function DriverArchiveTab() {
               ? [styles.emptyList, { paddingBottom: listBottomPad }]
               : [styles.list, { paddingBottom: listBottomPad }]
           }
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor="#2563eb" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={theme.colors.primary} />}
           onScrollBeginDrag={() => {
             userHasScrolledRef.current = true;
           }}
@@ -219,7 +334,7 @@ export default function DriverArchiveTab() {
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.listFooterLoader}>
-                <ActivityIndicator color="#2563eb" />
+                <ActivityIndicator color={theme.colors.primary} />
               </View>
             ) : nextCursor == null && orders.length > 0 ? (
               <Text style={styles.listEndHint}>انتهى الأرشيف — لا طلبات أخرى</Text>
@@ -240,116 +355,3 @@ export default function DriverArchiveTab() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "transparent",
-    direction: "rtl"
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 8,
-    direction: "rtl"
-  },
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24
-  },
-  loadingText: {
-    marginTop: 12,
-    color: "#64748b",
-    fontSize: 15,
-    ...rtlText,
-    width: "100%",
-    textAlign: "center"
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#0f172a",
-    ...rtlText,
-    marginBottom: 8,
-    textAlign: "right"
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#64748b",
-    ...rtlText,
-    lineHeight: 20,
-    marginBottom: 10,
-    textAlign: "right"
-  },
-  tabsRow: {
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 8
-  },
-  tab: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: "#e2e8f0",
-    borderWidth: 1,
-    borderColor: "#cbd5e1"
-  },
-  tabActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#1d4ed8"
-  },
-  tabLabel: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
-    ...rtlText,
-    textAlign: "right"
-  },
-  tabLabelActive: {
-    color: "#ffffff"
-  },
-  tabHint: {
-    fontSize: 12,
-    color: "#94a3b8",
-    ...rtlText,
-    marginBottom: 4,
-    textAlign: "right"
-  },
-  error: {
-    color: "#dc2626",
-    ...rtlText,
-    marginTop: 8,
-    textAlign: "right"
-  },
-  list: {
-    paddingHorizontal: 20,
-    alignItems: "stretch"
-  },
-  emptyList: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    alignItems: "stretch"
-  },
-  listFooterLoader: {
-    paddingVertical: 20,
-    alignItems: "center"
-  },
-  listEndHint: {
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    textAlign: "center",
-    color: "#94a3b8",
-    fontSize: 13,
-    ...rtlText
-  },
-  empty: {
-    color: "#64748b",
-    ...rtlText,
-    marginTop: 40,
-    fontSize: 15,
-    lineHeight: 24,
-    textAlign: "right"
-  }
-});

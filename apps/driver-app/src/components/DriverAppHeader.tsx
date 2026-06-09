@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Dimensions, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { ThemeToggleRow, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Dimensions, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getDriverLocationAccessState, isDriverLocationReady } from "../lib/location-access";
 import { shouldLoadExpoPushModule } from "../lib/push-environment";
+import { rtlText } from "../lib/rtl-text";
 import { clearDriverSession, getDriverSession } from "../lib/session";
 import { useDriverStore } from "../store";
-import { rtlText } from "../lib/rtl-text";
+import { ChatNavButton } from "./ChatNavButton";
 
 export function DriverAppHeader() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
   const { isOnline, setOnline } = useDriverStore();
   const avatarAnchorRef = useRef<View>(null);
   const [userMenuAnchor, setUserMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(
@@ -20,6 +23,161 @@ export function DriverAppHeader() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [name, setName] = useState("");
   const [phoneDisplay, setPhoneDisplay] = useState("");
+
+  const styles = useThemedStyles((t) => ({
+    rtlScreen: {
+      direction: "rtl" as const,
+      alignItems: "stretch" as const
+    },
+    topBar: {
+      direction: "ltr" as const,
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingHorizontal: 20,
+      paddingBottom: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: t.colors.border,
+      minHeight: 68,
+      backgroundColor: t.colors.surfaceHeader,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.05,
+      shadowRadius: 10,
+      elevation: 6
+    },
+    logoCreamBox: {
+      height: 44,
+      maxWidth: "30%",
+      flexShrink: 1,
+      backgroundColor: t.colors.logoBoxBg,
+      borderWidth: 1,
+      borderColor: t.colors.logoBoxBorder,
+      borderRadius: 12,
+      paddingHorizontal: 0,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2
+    },
+    brandLogo: {
+      height: 28,
+      width: 128,
+      maxWidth: "100%"
+    },
+    topBarActions: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 10
+    },
+    avatarAnchor: {
+      justifyContent: "center" as const,
+      alignItems: "center" as const
+    },
+    avatarBtn: {
+      justifyContent: "center" as const,
+      alignItems: "center" as const
+    },
+    avatarCircle: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: t.colors.surfaceInset,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 6,
+      elevation: 2
+    },
+    menuModalRoot: {
+      flex: 1
+    },
+    menuBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: t.colors.overlayLight
+    },
+    menuPositionLayer: {
+      ...StyleSheet.absoluteFillObject,
+      direction: "ltr" as const,
+      pointerEvents: "box-none" as const
+    },
+    dropdownPanel: {
+      position: "absolute" as const,
+      minWidth: 220,
+      direction: "rtl" as const,
+      backgroundColor: t.colors.menuBg,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: t.colors.menuBorder,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.35,
+      shadowRadius: 16,
+      elevation: 12,
+      zIndex: 10
+    },
+    dropdownTitle: {
+      fontSize: 16,
+      fontWeight: "800" as const,
+      color: t.colors.menuText,
+      ...rtlText
+    },
+    dropdownSubtitle: {
+      marginTop: 4,
+      fontSize: 13,
+      color: t.colors.menuTextSecondary,
+      ...rtlText
+    },
+    dropdownStatus: {
+      marginTop: 8,
+      fontSize: 12,
+      fontWeight: "700" as const,
+      color: t.colors.menuTextMuted,
+      ...rtlText
+    },
+    dropdownDivider: {
+      height: 1,
+      backgroundColor: t.colors.menuDivider,
+      marginVertical: 12
+    },
+    dropdownRow: {
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      justifyContent: "flex-end" as const,
+      gap: 10,
+      paddingVertical: 10,
+      paddingHorizontal: 4
+    },
+    dropdownRowDisabled: {
+      opacity: 0.55
+    },
+    dropdownActionText: {
+      fontSize: 16,
+      fontWeight: "800" as const,
+      color: t.colors.menuText,
+      ...rtlText,
+      flex: 1
+    },
+    dropdownMutedText: {
+      color: t.colors.menuTextMuted
+    },
+    dropdownLogoutText: {
+      fontSize: 16,
+      fontWeight: "800" as const,
+      color: t.colors.danger,
+      ...rtlText,
+      flex: 1
+    }
+  }));
 
   const refreshIdentity = useCallback(async () => {
     const s = await getDriverSession();
@@ -99,18 +257,21 @@ export function DriverAppHeader() {
             accessibilityLabel="تطبيق السائق"
           />
         </View>
-        <View ref={avatarAnchorRef} collapsable={false} style={styles.avatarAnchor}>
-          <Pressable
-            onPress={openUserMenu}
-            style={styles.avatarBtn}
-            accessibilityRole="button"
-            accessibilityLabel="قائمة الحساب"
-            hitSlop={8}
-          >
-            <View style={styles.avatarCircle}>
-              <Ionicons name="person" size={20} color="#0f172a" />
-            </View>
-          </Pressable>
+        <View style={styles.topBarActions}>
+          <ChatNavButton />
+          <View ref={avatarAnchorRef} collapsable={false} style={styles.avatarAnchor}>
+            <Pressable
+              onPress={openUserMenu}
+              style={styles.avatarBtn}
+              accessibilityRole="button"
+              accessibilityLabel="قائمة الحساب"
+              hitSlop={8}
+            >
+              <View style={styles.avatarCircle}>
+                <Ionicons name="person" size={20} color={theme.colors.text} />
+              </View>
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -149,7 +310,11 @@ export function DriverAppHeader() {
                   accessibilityLabel="بدء العمل — متصل"
                 >
                   <Text style={[styles.dropdownActionText, isOnline && styles.dropdownMutedText]}>بدء العمل</Text>
-                  <Ionicons name="play-circle-outline" size={22} color={isOnline ? "#94a3b8" : "#15803d"} />
+                  <Ionicons
+                    name="play-circle-outline"
+                    size={22}
+                    color={isOnline ? theme.colors.menuTextMuted : theme.colors.success}
+                  />
                 </Pressable>
                 <Pressable
                   style={[styles.dropdownRow, !isOnline && styles.dropdownRowDisabled]}
@@ -162,8 +327,27 @@ export function DriverAppHeader() {
                   accessibilityLabel="إيقاف العمل — غير متصل"
                 >
                   <Text style={[styles.dropdownActionText, !isOnline && styles.dropdownMutedText]}>إيقاف العمل</Text>
-                  <Ionicons name="stop-circle-outline" size={22} color={!isOnline ? "#94a3b8" : "#dc2626"} />
+                  <Ionicons
+                    name="stop-circle-outline"
+                    size={22}
+                    color={!isOnline ? theme.colors.menuTextMuted : theme.colors.danger}
+                  />
                 </Pressable>
+                <View style={styles.dropdownDivider} />
+                <Pressable
+                  style={styles.dropdownRow}
+                  onPress={() => {
+                    closeMenu();
+                    router.push("/(tabs)/reports");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="التقارير"
+                >
+                  <Text style={styles.dropdownActionText}>التقارير</Text>
+                  <Ionicons name="bar-chart-outline" size={22} color={theme.colors.text} />
+                </Pressable>
+                <View style={styles.dropdownDivider} />
+                <ThemeToggleRow inMenu />
                 <View style={styles.dropdownDivider} />
                 <Pressable
                   style={styles.dropdownRow}
@@ -172,7 +356,7 @@ export function DriverAppHeader() {
                   accessibilityLabel="تسجيل الخروج"
                 >
                   <Text style={styles.dropdownLogoutText}>تسجيل الخروج</Text>
-                  <Ionicons name="log-out-outline" size={22} color="#dc2626" />
+                  <Ionicons name="log-out-outline" size={22} color={theme.colors.danger} />
                 </Pressable>
               </View>
             ) : null}
@@ -182,158 +366,3 @@ export function DriverAppHeader() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  rtlScreen: {
-    direction: "rtl",
-    alignItems: "stretch"
-  },
-  topBar: {
-    direction: "ltr",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#dbe4f0",
-    minHeight: 68,
-    backgroundColor: "#ffffff",
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 6
-  },
-  logoCreamBox: {
-    height: 44,
-    maxWidth: "30%",
-    flexShrink: 1,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
-    paddingHorizontal: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2
-  },
-  brandLogo: {
-    height: 28,
-    width: 128,
-    maxWidth: "100%"
-  },
-  avatarAnchor: {
-    justifyContent: "center",
-    alignItems: "center"
-  },
-  avatarBtn: {
-    justifyContent: "center",
-    alignItems: "center"
-  },
-  avatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#f8fbff",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#d7e3f4",
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2
-  },
-  menuModalRoot: {
-    flex: 1
-  },
-  menuBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15, 23, 42, 0.28)"
-  },
-  menuPositionLayer: {
-    ...StyleSheet.absoluteFillObject,
-    direction: "ltr",
-    pointerEvents: "box-none"
-  },
-  dropdownPanel: {
-    position: "absolute",
-    minWidth: 220,
-    direction: "rtl",
-    backgroundColor: "#1e293b",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#334155",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 12,
-    zIndex: 10
-  },
-  dropdownTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#f8fafc",
-    ...rtlText,
-    textAlign: "right"
-  },
-  dropdownSubtitle: {
-    marginTop: 4,
-    fontSize: 13,
-    color: "#94a3b8",
-    ...rtlText,
-    textAlign: "right"
-  },
-  dropdownStatus: {
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#cbd5e1",
-    ...rtlText,
-    textAlign: "right"
-  },
-  dropdownDivider: {
-    height: 1,
-    backgroundColor: "#334155",
-    marginVertical: 12
-  },
-  dropdownRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 4
-  },
-  dropdownRowDisabled: {
-    opacity: 0.55
-  },
-  dropdownActionText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#f1f5f9",
-    ...rtlText,
-    flex: 1,
-    textAlign: "right"
-  },
-  dropdownMutedText: {
-    color: "#64748b"
-  },
-  dropdownLogoutText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#dc2626",
-    ...rtlText,
-    flex: 1,
-    textAlign: "right"
-  }
-});

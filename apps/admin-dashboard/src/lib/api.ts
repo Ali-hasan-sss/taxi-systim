@@ -140,10 +140,13 @@ interface StoredSession {
   user: AdminLoginResponse["user"];
 }
 
-const authHeaders = (accessToken: string) => ({
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${accessToken}`
-});
+const authHeaders = (accessToken: string, init?: RequestInit) => {
+  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+  if (!(init?.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+  return headers;
+};
 
 const getSession = (): StoredSession | null => {
   if (typeof window === "undefined") return null;
@@ -221,7 +224,7 @@ const authorizedFetch = async (path: string, init: RequestInit, providedAccessTo
 
   let res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { ...authHeaders(token), ...(init.headers ?? {}) }
+    headers: { ...authHeaders(token, init), ...(init.headers ?? {}) }
   });
 
   if (res.status !== 401) return res;
@@ -235,7 +238,7 @@ const authorizedFetch = async (path: string, init: RequestInit, providedAccessTo
   token = refreshed;
   res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { ...authHeaders(token), ...(init.headers ?? {}) }
+    headers: { ...authHeaders(token, init), ...(init.headers ?? {}) }
   });
   return res;
 };
@@ -540,5 +543,74 @@ export const api = {
 
   clearSession() {
     clearSession();
+  },
+
+  async listChatRooms(accessToken: string, scope: "active" | "archived" = "active") {
+    const qs = scope === "archived" ? "?scope=archived" : "";
+    const res = await authorizedFetch(`/chat/rooms${qs}`, {}, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل المحادثات"));
+    const body = (await res.json()) as { rooms: ChatRoomRow[] };
+    return body.rooms;
+  },
+
+  async listChatMessages(accessToken: string, roomId: string, cursor?: string) {
+    const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+    const res = await authorizedFetch(`/chat/rooms/${roomId}/messages${qs}`, {}, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل الرسائل"));
+    return res.json() as Promise<{ messages: ChatMessageRow[]; nextCursor: string | null }>;
+  },
+
+  async sendChatMessage(accessToken: string, roomId: string, body: string) {
+    const res = await authorizedFetch(
+      `/chat/rooms/${roomId}/messages`,
+      { method: "POST", body: JSON.stringify({ body }) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر إرسال الرسالة"));
+    return res.json() as Promise<ChatMessageRow>;
+  },
+
+  async uploadChatImage(accessToken: string, roomId: string, file: File, caption?: string) {
+    const form = new FormData();
+    form.append("image", file);
+    if (caption?.trim()) form.append("caption", caption.trim());
+    const res = await authorizedFetch(`/chat/rooms/${roomId}/images`, { method: "POST", body: form }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر رفع الصورة"));
+    return res.json() as Promise<ChatMessageRow>;
+  },
+
+  async fetchChatImageObjectUrl(accessToken: string, imageUrl: string): Promise<string | null> {
+    const rawName = imageUrl.split("?")[0].split("/").pop();
+    if (!rawName) return null;
+    const filename = decodeURIComponent(rawName);
+    const res = await authorizedFetch(`/chat/images/${encodeURIComponent(filename)}`, {}, accessToken);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
   }
+};
+
+export type ChatMessageRow = {
+  id: string;
+  roomId: string;
+  body: string | null;
+  imageUrl: string | null;
+  imageExpired: boolean;
+  sender: { id: string; fullName: string; role: string };
+  createdAt: string;
+};
+
+export type ChatRoomRow = {
+  id: string;
+  type: "GLOBAL" | "ORDER";
+  title: string;
+  orderId: string | null;
+  peerName: string | null;
+  peerUserId: string | null;
+  peerDriverId: string | null;
+  peerOnline: boolean | null;
+  orderLabel: string | null;
+  archivedAt: string | null;
+  lastMessage: ChatMessageRow | null;
+  updatedAt: string;
 };

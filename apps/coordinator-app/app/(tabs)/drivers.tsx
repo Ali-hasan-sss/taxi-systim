@@ -1,3 +1,4 @@
+import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -27,7 +28,8 @@ import {
 } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
 import { clearSession, getSession } from "../../src/lib/session";
-import { rtlText } from "../../src/lib/rtl-text";
+import { chatRoomHref, getGlobalChatRoom } from "../../src/lib/chat";
+import { rtlRow, rtlText } from "../../src/lib/rtl-text";
 import { buildWhatsAppChatUrl } from "../../src/lib/whatsapp";
 
 const LIVE_PAGE_SIZE = 20;
@@ -60,10 +62,157 @@ function normalizeDriver(driver: LiveDriverDto): LiveDriverDto {
 function DriverListItem(props: {
   driver: LiveDriverDto;
   onAssign: () => void;
+  onChat: () => void;
   onWhatsApp: () => void;
   onOpenMaps: () => void;
 }) {
-  const { driver, onAssign, onWhatsApp, onOpenMaps } = props;
+  const { driver, onAssign, onChat, onWhatsApp, onOpenMaps } = props;
+  const { theme } = useTheme();
+  const styles = useThemedStyles((t) => ({
+    driverCard: {
+      backgroundColor: t.colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      borderRadius: 18,
+      padding: 16,
+      gap: 12,
+      direction: "rtl" as const,
+      alignItems: "stretch" as const
+    },
+    driverCardHeader: {
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      gap: 12
+    },
+    driverAvatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      borderWidth: 2
+    },
+    driverAvatarFree: {
+      backgroundColor: t.colors.successBg,
+      borderColor: t.colors.online
+    },
+    driverAvatarBusy: {
+      backgroundColor: t.colors.warningBg,
+      borderColor: t.colors.busy
+    },
+    driverAvatarText: {
+      color: t.colors.text,
+      fontSize: 22,
+      fontWeight: "800" as const
+    },
+    driverMainInfo: {
+      flex: 1,
+      minWidth: 0
+    },
+    driverName: {
+      color: t.colors.text,
+      fontSize: 17,
+      fontWeight: "800" as const,
+      marginBottom: 8,
+      ...rtlText
+    },
+    statusPill: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      alignSelf: "flex-start" as const,
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999
+    },
+    statusPillFree: {
+      backgroundColor: t.colors.successBg
+    },
+    statusPillBusy: {
+      backgroundColor: t.colors.warningBg
+    },
+    statusDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4
+    },
+    statusDotFree: {
+      backgroundColor: t.colors.online
+    },
+    statusDotBusy: {
+      backgroundColor: t.colors.busy
+    },
+    statusPillText: {
+      color: t.colors.textSecondary,
+      fontSize: 12,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    phoneRow: {
+      ...rtlRow,
+      gap: 8,
+      flexWrap: "wrap" as const,
+      justifyContent: "flex-start" as const
+    },
+    driverMetaLabel: {
+      color: t.colors.textSubtle,
+      fontSize: 12,
+      fontWeight: "700" as const,
+      ...rtlText
+    },
+    driverMetaValue: {
+      color: t.colors.text,
+      fontSize: 14,
+      fontWeight: "600" as const,
+      ...rtlText
+    },
+    whatsAppIconBtn: {
+      padding: 4
+    },
+    driverActions: {
+      flexDirection: "row-reverse" as const,
+      flexWrap: "wrap" as const,
+      gap: 8,
+      justifyContent: "flex-start" as const
+    },
+    actionBtn: {
+      flex: 1,
+      minWidth: 92,
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 6,
+      paddingVertical: 11,
+      borderRadius: 12
+    },
+    mapBtn: {
+      backgroundColor: t.colors.navigate
+    },
+    chatBtn: {
+      backgroundColor: t.colors.infoBg,
+      borderWidth: 1,
+      borderColor: t.colors.info
+    },
+    chatBtnText: {
+      color: t.colors.infoText,
+      fontSize: 13,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    assignBtn: {
+      backgroundColor: t.colors.primary
+    },
+    actionBtnText: {
+      color: t.colors.textInverse,
+      fontSize: 13,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    actionBtnDisabled: {
+      opacity: 0.45
+    }
+  }));
+
   const busy = driver.isBusy === true;
   const hasLocation = hasDriverLocation(driver);
   const hasPhone = !!buildWhatsAppChatUrl(driver.phone);
@@ -86,14 +235,20 @@ function DriverListItem(props: {
         </View>
       </View>
 
-      <View style={styles.driverMetaBlock}>
+      <View style={styles.phoneRow}>
         <Text style={styles.driverMetaLabel}>الهاتف</Text>
-        <Text style={styles.driverMetaValue}>{driver.phone || "لا يوجد رقم مسجّل"}</Text>
-      </View>
-
-      <View style={styles.driverMetaBlock}>
-        <Text style={styles.driverMetaLabel}>الموقع</Text>
-        <Text style={styles.driverMetaValue}>{hasLocation ? "متوفر لفتحه في خرائط جوجل" : "لم يصل موقع بعد"}</Text>
+        <Text style={styles.driverMetaValue}>{driver.phone?.trim() || "لا يوجد رقم"}</Text>
+        {hasPhone ? (
+          <Pressable
+            style={styles.whatsAppIconBtn}
+            onPress={onWhatsApp}
+            accessibilityRole="button"
+            accessibilityLabel="فتح واتساب مع السائق"
+            hitSlop={8}
+          >
+            <Ionicons name="logo-whatsapp" size={22} color={theme.colors.whatsapp} />
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.driverActions}>
@@ -102,23 +257,19 @@ function DriverListItem(props: {
           disabled={!hasLocation}
           onPress={onOpenMaps}
         >
-          <Ionicons name="navigate-outline" size={18} color="#fff" />
+          <Ionicons name="navigate-outline" size={18} color={theme.colors.textInverse} />
           <Text style={styles.actionBtnText}>الموقع</Text>
         </Pressable>
-        <Pressable
-          style={[styles.actionBtn, styles.whatsAppBtn, !hasPhone && styles.actionBtnDisabled]}
-          disabled={!hasPhone}
-          onPress={onWhatsApp}
-        >
-          <Ionicons name="logo-whatsapp" size={18} color="#fff" />
-          <Text style={styles.actionBtnText}>واتساب</Text>
+        <Pressable style={[styles.actionBtn, styles.chatBtn]} onPress={onChat}>
+          <Ionicons name="chatbubble-outline" size={18} color={theme.colors.infoText} />
+          <Text style={styles.chatBtnText}>محادثة</Text>
         </Pressable>
         <Pressable
           style={[styles.actionBtn, styles.assignBtn, busy && styles.actionBtnDisabled]}
           disabled={busy}
           onPress={onAssign}
         >
-          <Ionicons name="clipboard-outline" size={18} color="#fff" />
+          <Ionicons name="clipboard-outline" size={18} color={theme.colors.textInverse} />
           <Text style={styles.actionBtnText}>إسناد طلب</Text>
         </Pressable>
       </View>
@@ -129,6 +280,285 @@ function DriverListItem(props: {
 export default function DriversTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
+  const styles = useThemedStyles((t) => ({
+    root: {
+      flex: 1,
+      backgroundColor: t.colors.background,
+      direction: "rtl" as const
+    },
+    socketBar: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingBottom: 8,
+      backgroundColor: t.colors.surfaceHeader,
+      borderBottomWidth: 1,
+      borderBottomColor: t.colors.border
+    },
+    socketDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5
+    },
+    socketBarText: {
+      color: t.colors.textSecondary,
+      fontSize: 13,
+      fontWeight: "700" as const,
+      ...rtlText
+    },
+    header: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: t.colors.border,
+      gap: 12
+    },
+    headerTopRow: {
+      flexDirection: "row" as const,
+      alignItems: "flex-start" as const,
+      justifyContent: "space-between" as const,
+      gap: 12
+    },
+    headerText: {
+      flex: 1
+    },
+    title: {
+      color: t.colors.text,
+      fontSize: 22,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    headerHint: {
+      marginTop: 4,
+      color: t.colors.textMuted,
+      fontSize: 12,
+      lineHeight: 18,
+      ...rtlText
+    },
+    error: {
+      marginTop: 8,
+      color: t.colors.danger,
+      fontSize: 12,
+      ...rtlText
+    },
+    refreshBtn: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 12,
+      backgroundColor: t.colors.buttonSecondaryBg
+    },
+    refreshBtnText: {
+      color: t.colors.buttonSecondaryText,
+      fontSize: 12,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    searchWrap: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 8,
+      backgroundColor: t.colors.surfaceInset,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 4
+    },
+    filterRow: {
+      flexDirection: "row" as const,
+      flexWrap: "wrap" as const,
+      gap: 8
+    },
+    filterChip: {
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: 999,
+      backgroundColor: t.colors.filterBg,
+      borderWidth: 1,
+      borderColor: t.colors.filterBorder
+    },
+    filterChipActive: {
+      backgroundColor: t.colors.filterActiveBg,
+      borderColor: t.colors.filterActiveBorder
+    },
+    filterChipText: {
+      color: t.colors.filterText,
+      fontSize: 12,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    filterChipTextActive: {
+      color: t.colors.filterActiveText
+    },
+    searchInput: {
+      flex: 1,
+      color: t.colors.text,
+      fontSize: 15,
+      minHeight: 42,
+      ...rtlText
+    },
+    loadingState: {
+      flex: 1,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 12
+    },
+    loadingText: {
+      color: t.colors.textSecondary,
+      fontSize: 14,
+      ...rtlText
+    },
+    listContent: {
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      gap: 12
+    },
+    listContentEmpty: {
+      flexGrow: 1,
+      justifyContent: "center" as const
+    },
+    emptyState: {
+      alignItems: "center" as const,
+      gap: 10,
+      paddingHorizontal: 24
+    },
+    emptyTitle: {
+      color: t.colors.textSecondary,
+      fontSize: 18,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    emptyHint: {
+      color: t.colors.textMuted,
+      fontSize: 13,
+      textAlign: "center" as const,
+      lineHeight: 20,
+      ...rtlText
+    },
+    footerWrap: {
+      paddingTop: 12,
+      paddingBottom: 8,
+      alignItems: "center" as const
+    },
+    loadMoreBtn: {
+      backgroundColor: t.colors.primaryDark,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12
+    },
+    loadMoreBtnText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 14,
+      ...rtlText
+    },
+    footerHint: {
+      color: t.colors.textSubtle,
+      fontSize: 12,
+      ...rtlText
+    },
+    quickModalRoot: {
+      flex: 1,
+      justifyContent: "flex-end" as const
+    },
+    quickBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: t.colors.overlay
+    },
+    quickSheet: {
+      backgroundColor: t.colors.modalBg,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: 20,
+      paddingTop: 18,
+      borderWidth: 1,
+      borderColor: t.colors.modalBorder,
+      maxHeight: "88%"
+    },
+    quickTitle: {
+      fontSize: 20,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 6
+    },
+    quickSubtitle: {
+      fontSize: 14,
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginBottom: 12
+    },
+    quickScroll: {
+      paddingBottom: 12
+    },
+    quickLabel: {
+      fontSize: 13,
+      fontWeight: "700" as const,
+      color: t.colors.textSecondary,
+      ...rtlText,
+      marginBottom: 6,
+      marginTop: 10
+    },
+    quickInput: {
+      backgroundColor: t.colors.inputBg,
+      borderWidth: 1,
+      borderColor: t.colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      color: t.colors.text,
+      fontSize: 15,
+      ...rtlText
+    },
+    quickHint: {
+      marginTop: 12,
+      fontSize: 12,
+      color: t.colors.textSubtle,
+      ...rtlText,
+      lineHeight: 18
+    },
+    quickFooterBtns: {
+      flexDirection: "row" as const,
+      gap: 12,
+      marginTop: 8
+    },
+    quickCancelBtn: {
+      flex: 1,
+      paddingVertical: 14,
+      borderRadius: 12,
+      backgroundColor: t.colors.buttonSecondaryBg,
+      alignItems: "center" as const
+    },
+    quickCancelBtnText: {
+      color: t.colors.buttonSecondaryText,
+      fontWeight: "800" as const,
+      fontSize: 15,
+      ...rtlText
+    },
+    quickSaveBtn: {
+      flex: 1,
+      paddingVertical: 14,
+      borderRadius: 12,
+      backgroundColor: t.colors.primary,
+      alignItems: "center" as const
+    },
+    quickSaveBtnText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 15,
+      ...rtlText
+    },
+    actionBtnDisabled: {
+      opacity: 0.45
+    }
+  }));
   const requestSeq = useRef(0);
   const loadedCountRef = useRef(0);
   const filtersMountedRef = useRef(false);
@@ -354,6 +784,15 @@ export default function DriversTab() {
     }
   };
 
+  const openDriverChat = async () => {
+    try {
+      const room = await getGlobalChatRoom();
+      router.push(chatRoomHref(room) as `/chat/${string}`);
+    } catch (e) {
+      feedback.error(e instanceof Error ? e.message : "تعذر فتح المحادثة");
+    }
+  };
+
   const openWhatsApp = async (driver: LiveDriverDto) => {
     const url = buildWhatsAppChatUrl(driver.phone);
     if (!url) {
@@ -381,7 +820,11 @@ export default function DriversTab() {
   };
 
   const socketDotColor =
-    socketStatus === "connected" ? "#22c55e" : socketStatus === "connecting" ? "#f97316" : "#ef4444";
+    socketStatus === "connected"
+      ? theme.colors.online
+      : socketStatus === "connecting"
+        ? theme.colors.warning
+        : theme.colors.offline;
   const socketLabel =
     socketStatus === "connected"
       ? "متصل — قائمة السائقين تتحدث تلقائيًا"
@@ -391,7 +834,7 @@ export default function DriversTab() {
 
   return (
     <View style={styles.root}>
-      <View style={[styles.socketBar, { paddingTop: insets.top + 8 }]}>
+      <View style={[styles.socketBar, { paddingTop: 8 }]}>
         <View style={[styles.socketDot, { backgroundColor: socketDotColor }]} />
         <Text style={styles.socketBarText}>{socketLabel}</Text>
       </View>
@@ -400,28 +843,27 @@ export default function DriversTab() {
         <View style={styles.headerTopRow}>
           <View style={styles.headerText}>
             <Text style={styles.title}>السائقون المتصلون</Text>
-            <Text style={styles.headerHint}>قائمة فقط بدون خريطة. افتح موقع السائق عبر خرائط جوجل عند الحاجة.</Text>
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
           <Pressable onPress={() => refreshList("refresh")} style={styles.refreshBtn}>
-            <Ionicons name="refresh" size={18} color="#e2e8f0" />
+            <Ionicons name="refresh" size={18} color={theme.colors.buttonSecondaryText} />
             <Text style={styles.refreshBtnText}>تحديث</Text>
           </Pressable>
         </View>
 
         <View style={styles.searchWrap}>
-          <Ionicons name="search" size={18} color="#64748b" />
+          <Ionicons name="search" size={18} color={theme.colors.textSubtle} />
           <TextInput
             value={search}
             onChangeText={setSearch}
             placeholder="ابحث عن سائق بالاسم أو الهاتف"
-            placeholderTextColor="#64748b"
+            placeholderTextColor={theme.colors.placeholder}
             style={styles.searchInput}
             returnKeyType="search"
           />
           {search ? (
             <Pressable onPress={() => setSearch("")} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color="#94a3b8" />
+              <Ionicons name="close-circle" size={18} color={theme.colors.textMuted} />
             </Pressable>
           ) : null}
         </View>
@@ -444,7 +886,7 @@ export default function DriversTab() {
 
       {loading && drivers.length === 0 ? (
         <View style={styles.loadingState}>
-          <ActivityIndicator size="large" color="#38bdf8" />
+          <ActivityIndicator size="large" color={theme.colors.accent} />
           <Text style={styles.loadingText}>جاري تحميل السائقين المتصلين…</Text>
         </View>
       ) : (
@@ -463,13 +905,14 @@ export default function DriversTab() {
             <DriverListItem
               driver={item}
               onAssign={() => openQuickOrderSheet(item)}
+              onChat={() => void openDriverChat()}
               onWhatsApp={() => void openWhatsApp(item)}
               onOpenMaps={() => void openGoogleMaps(item)}
             />
           )}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Ionicons name="people-outline" size={42} color="#475569" />
+              <Ionicons name="people-outline" size={42} color={theme.colors.textSubtle} />
               <Text style={styles.emptyTitle}>{debouncedSearch ? "لا توجد نتائج" : "لا يوجد سائقون متصلون"}</Text>
               <Text style={styles.emptyHint}>
                 {debouncedSearch ? "جرّب اسمًا مختلفًا أو امسح البحث." : "سيظهر هنا فقط السائقون المتصلون حاليًا."}
@@ -479,7 +922,7 @@ export default function DriversTab() {
           ListFooterComponent={
             <View style={styles.footerWrap}>
               {loadingMore ? (
-                <ActivityIndicator color="#38bdf8" />
+                <ActivityIndicator color={theme.colors.accent} />
               ) : nextOffset != null ? (
                 <Pressable onPress={loadMore} style={styles.loadMoreBtn}>
                   <Text style={styles.loadMoreBtnText}>تحميل 20 أخرى</Text>
@@ -514,7 +957,7 @@ export default function DriversTab() {
                 value={quickFrom}
                 onChangeText={setQuickFrom}
                 placeholder="عنوان الانطلاق"
-                placeholderTextColor="#64748b"
+                placeholderTextColor={theme.colors.placeholder}
                 style={styles.quickInput}
                 editable={!quickSubmitting}
               />
@@ -523,7 +966,7 @@ export default function DriversTab() {
                 value={quickTo}
                 onChangeText={setQuickTo}
                 placeholder="عنوان الوجهة"
-                placeholderTextColor="#64748b"
+                placeholderTextColor={theme.colors.placeholder}
                 style={styles.quickInput}
                 editable={!quickSubmitting}
               />
@@ -532,7 +975,7 @@ export default function DriversTab() {
                 value={quickPhone}
                 onChangeText={setQuickPhone}
                 placeholder="07xxxxxxxx"
-                placeholderTextColor="#64748b"
+                placeholderTextColor={theme.colors.placeholder}
                 style={styles.quickInput}
                 keyboardType="phone-pad"
                 editable={!quickSubmitting}
@@ -542,7 +985,7 @@ export default function DriversTab() {
                 value={quickAmount}
                 onChangeText={setQuickAmount}
                 placeholder="مثال: 25"
-                placeholderTextColor="#64748b"
+                placeholderTextColor={theme.colors.placeholder}
                 style={styles.quickInput}
                 keyboardType="decimal-pad"
                 editable={!quickSubmitting}
@@ -562,7 +1005,11 @@ export default function DriversTab() {
                 disabled={quickSubmitting || !!quickDriver?.isBusy}
                 onPress={() => void submitQuickOrder()}
               >
-                {quickSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.quickSaveBtnText}>إنشاء وإسناد</Text>}
+                {quickSubmitting ? (
+                  <ActivityIndicator color={theme.colors.textInverse} />
+                ) : (
+                  <Text style={styles.quickSaveBtnText}>إنشاء وإسناد</Text>
+                )}
               </Pressable>
             </View>
           </View>
@@ -572,402 +1019,3 @@ export default function DriversTab() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: "#0f172a",
-    direction: "rtl"
-  },
-  socketBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    backgroundColor: "#020617",
-    borderBottomWidth: 1,
-    borderBottomColor: "#1e293b"
-  },
-  socketDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5
-  },
-  socketBarText: {
-    color: "#e2e8f0",
-    fontSize: 13,
-    fontWeight: "700",
-    ...rtlText
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1e293b",
-    gap: 12
-  },
-  headerTopRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12
-  },
-  headerText: {
-    flex: 1
-  },
-  title: {
-    color: "#f8fafc",
-    fontSize: 22,
-    fontWeight: "800",
-    ...rtlText
-  },
-  headerHint: {
-    marginTop: 4,
-    color: "#94a3b8",
-    fontSize: 12,
-    lineHeight: 18,
-    ...rtlText
-  },
-  error: {
-    marginTop: 8,
-    color: "#f87171",
-    fontSize: 12,
-    ...rtlText
-  },
-  refreshBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: "#334155"
-  },
-  refreshBtnText: {
-    color: "#e2e8f0",
-    fontSize: 12,
-    fontWeight: "800",
-    ...rtlText
-  },
-  searchWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#111827",
-    borderWidth: 1,
-    borderColor: "#1e293b",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 4
-  },
-  filterRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8
-  },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
-    backgroundColor: "#1e293b",
-    borderWidth: 1,
-    borderColor: "#334155"
-  },
-  filterChipActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb"
-  },
-  filterChipText: {
-    color: "#cbd5e1",
-    fontSize: 12,
-    fontWeight: "800",
-    ...rtlText
-  },
-  filterChipTextActive: {
-    color: "#fff"
-  },
-  searchInput: {
-    flex: 1,
-    color: "#f8fafc",
-    fontSize: 15,
-    minHeight: 42,
-    ...rtlText
-  },
-  loadingState: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12
-  },
-  loadingText: {
-    color: "#cbd5e1",
-    fontSize: 14,
-    ...rtlText
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    gap: 12
-  },
-  listContentEmpty: {
-    flexGrow: 1,
-    justifyContent: "center"
-  },
-  driverCard: {
-    backgroundColor: "#111827",
-    borderWidth: 1,
-    borderColor: "#1f2937",
-    borderRadius: 18,
-    padding: 16,
-    gap: 12
-  },
-  driverCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12
-  },
-  driverAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2
-  },
-  driverAvatarFree: {
-    backgroundColor: "rgba(34, 197, 94, 0.12)",
-    borderColor: "#22c55e"
-  },
-  driverAvatarBusy: {
-    backgroundColor: "rgba(234, 88, 12, 0.12)",
-    borderColor: "#ea580c"
-  },
-  driverAvatarText: {
-    color: "#f8fafc",
-    fontSize: 22,
-    fontWeight: "800"
-  },
-  driverMainInfo: {
-    flex: 1,
-    minWidth: 0
-  },
-  driverName: {
-    color: "#f8fafc",
-    fontSize: 17,
-    fontWeight: "800",
-    marginBottom: 8,
-    ...rtlText
-  },
-  statusPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999
-  },
-  statusPillFree: {
-    backgroundColor: "rgba(34, 197, 94, 0.14)"
-  },
-  statusPillBusy: {
-    backgroundColor: "rgba(234, 88, 12, 0.14)"
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4
-  },
-  statusDotFree: {
-    backgroundColor: "#22c55e"
-  },
-  statusDotBusy: {
-    backgroundColor: "#ea580c"
-  },
-  statusPillText: {
-    color: "#e2e8f0",
-    fontSize: 12,
-    fontWeight: "800",
-    ...rtlText
-  },
-  driverMetaBlock: {
-    gap: 4
-  },
-  driverMetaLabel: {
-    color: "#64748b",
-    fontSize: 11,
-    fontWeight: "700",
-    ...rtlText
-  },
-  driverMetaValue: {
-    color: "#cbd5e1",
-    fontSize: 14,
-    ...rtlText
-  },
-  driverActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8
-  },
-  actionBtn: {
-    flex: 1,
-    minWidth: 92,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 11,
-    borderRadius: 12
-  },
-  mapBtn: {
-    backgroundColor: "#0f766e"
-  },
-  whatsAppBtn: {
-    backgroundColor: "#15803d"
-  },
-  assignBtn: {
-    backgroundColor: "#2563eb"
-  },
-  actionBtnText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "800",
-    ...rtlText
-  },
-  actionBtnDisabled: {
-    opacity: 0.45
-  },
-  emptyState: {
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 24
-  },
-  emptyTitle: {
-    color: "#e2e8f0",
-    fontSize: 18,
-    fontWeight: "800",
-    ...rtlText
-  },
-  emptyHint: {
-    color: "#94a3b8",
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 20,
-    ...rtlText
-  },
-  footerWrap: {
-    paddingTop: 12,
-    paddingBottom: 8,
-    alignItems: "center"
-  },
-  loadMoreBtn: {
-    backgroundColor: "#1d4ed8",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12
-  },
-  loadMoreBtnText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-    ...rtlText
-  },
-  footerHint: {
-    color: "#64748b",
-    fontSize: 12,
-    ...rtlText
-  },
-  quickModalRoot: {
-    flex: 1,
-    justifyContent: "flex-end"
-  },
-  quickBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)"
-  },
-  quickSheet: {
-    backgroundColor: "#0f172a",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    borderWidth: 1,
-    borderColor: "#1e293b",
-    maxHeight: "88%"
-  },
-  quickTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#f8fafc",
-    ...rtlText,
-    marginBottom: 6
-  },
-  quickSubtitle: {
-    fontSize: 14,
-    color: "#94a3b8",
-    ...rtlText,
-    marginBottom: 12
-  },
-  quickScroll: {
-    paddingBottom: 12
-  },
-  quickLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#cbd5e1",
-    ...rtlText,
-    marginBottom: 6,
-    marginTop: 10
-  },
-  quickInput: {
-    backgroundColor: "#1e293b",
-    borderWidth: 1,
-    borderColor: "#334155",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#f8fafc",
-    fontSize: 15,
-    ...rtlText
-  },
-  quickHint: {
-    marginTop: 12,
-    fontSize: 12,
-    color: "#64748b",
-    ...rtlText,
-    lineHeight: 18
-  },
-  quickFooterBtns: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 8
-  },
-  quickCancelBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#334155",
-    alignItems: "center"
-  },
-  quickCancelBtnText: {
-    color: "#e2e8f0",
-    fontWeight: "800",
-    fontSize: 15,
-    ...rtlText
-  },
-  quickSaveBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#2563eb",
-    alignItems: "center"
-  },
-  quickSaveBtnText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 15,
-    ...rtlText
-  }
-});

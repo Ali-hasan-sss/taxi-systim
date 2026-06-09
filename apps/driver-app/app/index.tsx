@@ -5,7 +5,7 @@ import { getDriverLocationAccessState, isDriverLocationReady } from "../src/lib/
 import { getDriverSession } from "../src/lib/session";
 import { useDriverStore } from "../src/store";
 
-void SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function Index() {
   const [ready, setReady] = useState(false);
@@ -40,7 +40,7 @@ export default function Index() {
         }
       } finally {
         if (alive) {
-          await SplashScreen.hideAsync();
+          await SplashScreen.hideAsync().catch(() => {});
           setReady(true);
         }
       }

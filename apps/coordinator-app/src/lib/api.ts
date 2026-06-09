@@ -324,7 +324,7 @@ export async function coordinatorAssignOrder(
   return res.json() as Promise<CoordinatorOrderRow>;
 }
 
-/** تعديل أجرة طلب مكتمل (الأرشيف). يعيد صف الطلب كما في القائمة. */
+/** تعديل أجرة الطلب (نشط أو مكتمل). يعيد صف الطلب كما في القائمة. */
 export async function coordinatorUpdateCompletedOrderAmount(
   accessToken: string,
   orderId: string,

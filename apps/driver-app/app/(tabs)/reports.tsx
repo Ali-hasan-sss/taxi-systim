@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme, useThemedStyles, type AppTheme } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -9,7 +10,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   Text,
   View
 } from "react-native";
@@ -87,10 +87,10 @@ function reportCommissionStatusLabel(order: DriverOrderRow): "مدفوع" | "غ�
   return order.commission?.paymentStatus === "PAID" ? "مدفوع" : "غير مدفوع";
 }
 
-function reportCommissionStatusColors(order: DriverOrderRow): { bg: string; fg: string } {
+function reportCommissionStatusColors(order: DriverOrderRow, theme: AppTheme): { bg: string; fg: string } {
   return order.commission?.paymentStatus === "PAID"
-    ? { bg: "#dcfce7", fg: "#166534" }
-    : { bg: "#fee2e2", fg: "#991b1b" };
+    ? { bg: theme.colors.successBg, fg: theme.colors.successText }
+    : { bg: theme.colors.dangerBg, fg: theme.colors.dangerText };
 }
 
 function authFailureMessage(msg: string): boolean {
@@ -100,6 +100,7 @@ function authFailureMessage(msg: string): boolean {
 export default function DriverReportsTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
   const loadMoreLock = useRef(false);
   const filtersMountedRef = useRef(false);
   const today = useRef(syriaTodayYmd()).current;
@@ -293,12 +294,344 @@ export default function DriverReportsTab() {
 
   const listBottomPad = driverTabBarOuterHeight(insets.bottom) + 24;
 
+  const styles = useThemedStyles((t) => ({
+    safe: {
+      flex: 1,
+      backgroundColor: "transparent",
+      direction: "rtl" as const
+    },
+    centered: {
+      flex: 1,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      paddingHorizontal: 24
+    },
+    loadingText: {
+      marginTop: 12,
+      color: t.colors.textMuted,
+      fontSize: 15,
+      ...rtlText
+    },
+    header: {
+      paddingTop: 8,
+      paddingBottom: 12,
+      alignItems: "stretch" as const,
+      direction: "rtl" as const
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      marginBottom: 14,
+      textAlign: "right" as const,
+      alignSelf: "stretch" as const
+    },
+    filterCard: {
+      backgroundColor: t.colors.surface,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      borderRadius: 18,
+      padding: 16,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      elevation: 1,
+      alignSelf: "stretch" as const
+    },
+    filterHeader: {
+      alignItems: "flex-end" as const,
+      marginBottom: 12
+    },
+    filterTitle: {
+      color: t.colors.text,
+      fontSize: 16,
+      fontWeight: "800" as const,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    filterHint: {
+      marginTop: 4,
+      color: t.colors.textMuted,
+      fontSize: 12,
+      lineHeight: 20,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    presetScrollView: {
+      flexGrow: 0,
+      marginBottom: 12
+    },
+    presetRow: {
+      flexDirection: "row-reverse" as const,
+      gap: 8,
+      alignItems: "center" as const
+    },
+    presetChip: {
+      backgroundColor: t.colors.surface,
+      borderWidth: 1,
+      borderColor: t.colors.filterBorder,
+      borderRadius: 20,
+      paddingHorizontal: 14,
+      paddingVertical: 10
+    },
+    presetChipActive: {
+      backgroundColor: t.colors.filterActiveBg,
+      borderColor: t.colors.filterActiveBorder
+    },
+    presetChipText: {
+      color: t.colors.textSecondary,
+      fontSize: 12,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    presetChipTextActive: {
+      color: t.colors.filterActiveText
+    },
+    dateRow: {
+      flexDirection: "row-reverse" as const,
+      gap: 10
+    },
+    datePickerField: {
+      flex: 1,
+      backgroundColor: t.colors.inputBg,
+      borderWidth: 1,
+      borderColor: t.colors.inputBorder,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      alignItems: "flex-end" as const
+    },
+    datePickerTopRow: {
+      width: "100%",
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      marginBottom: 8
+    },
+    datePickerLabel: {
+      color: t.colors.textSubtle,
+      fontSize: 13,
+      fontWeight: "800" as const,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    datePickerValue: {
+      width: "100%",
+      color: t.colors.text,
+      fontSize: 15,
+      fontWeight: "700" as const,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    datePickerHint: {
+      width: "100%",
+      marginTop: 4,
+      color: t.colors.textMuted,
+      fontSize: 11,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    applyBtn: {
+      marginTop: 12,
+      backgroundColor: t.colors.primary,
+      borderRadius: 12,
+      paddingVertical: 14,
+      alignItems: "center" as const
+    },
+    applyBtnText: {
+      color: t.colors.textInverse,
+      fontSize: 14,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    error: {
+      marginTop: 10,
+      color: t.colors.danger,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    statsStack: {
+      marginTop: 14,
+      alignSelf: "stretch" as const
+    },
+    statsRow: {
+      flexDirection: "row-reverse" as const,
+      gap: 12,
+      marginBottom: 12
+    },
+    statCard: {
+      backgroundColor: t.colors.surface,
+      borderRadius: 14,
+      padding: 16,
+      borderWidth: 1,
+      marginBottom: 4,
+      shadowColor: t.colors.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 1,
+      alignItems: "flex-end" as const
+    },
+    statCardHalf: {
+      flex: 1
+    },
+    statCardBlue: {
+      borderColor: t.colors.info
+    },
+    statCardGreen: {
+      borderColor: t.colors.success
+    },
+    statCardPurple: {
+      borderColor: t.colors.accent
+    },
+    statValue: {
+      fontSize: 26,
+      fontWeight: "800" as const,
+      color: t.colors.text,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    statLabel: {
+      fontSize: 13,
+      fontWeight: "700" as const,
+      color: t.colors.textSecondary,
+      ...rtlText,
+      marginTop: 6,
+      textAlign: "right" as const
+    },
+    statDetail: {
+      fontSize: 11,
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginTop: 4,
+      textAlign: "right" as const
+    },
+    summaryHint: {
+      marginTop: 10,
+      color: t.colors.infoText,
+      fontSize: 12,
+      ...rtlText,
+      textAlign: "right" as const,
+      alignSelf: "flex-end" as const,
+      backgroundColor: t.colors.infoBg,
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 8
+    },
+    reportCommissionRow: {
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      justifyContent: "flex-end" as const,
+      gap: 8,
+      marginTop: 2,
+      flexWrap: "wrap" as const
+    },
+    reportCommissionAmount: {
+      color: t.colors.accent,
+      fontSize: 14,
+      fontWeight: "800" as const,
+      marginTop: -2,
+      marginBottom: 8,
+      ...rtlText,
+      textAlign: "right" as const,
+      alignSelf: "flex-end" as const
+    },
+    reportCommissionLabel: {
+      color: t.colors.textSubtle,
+      fontSize: 13,
+      fontWeight: "700" as const,
+      ...rtlText,
+      textAlign: "right" as const
+    },
+    reportCommissionBadge: {
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5
+    },
+    reportCommissionBadgeText: {
+      fontSize: 12,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    list: {
+      paddingHorizontal: 20
+    },
+    emptyList: {
+      flexGrow: 1,
+      paddingHorizontal: 20
+    },
+    listFooterLoader: {
+      paddingVertical: 20,
+      alignItems: "center" as const
+    },
+    empty: {
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginTop: 40,
+      fontSize: 15,
+      lineHeight: 24,
+      textAlign: "right" as const
+    },
+    pickerBackdrop: {
+      flex: 1,
+      backgroundColor: t.colors.overlay,
+      justifyContent: "center" as const,
+      paddingHorizontal: 20
+    },
+    pickerSheet: {
+      backgroundColor: t.colors.modalBg,
+      borderRadius: 18,
+      padding: 18,
+      borderWidth: 1,
+      borderColor: t.colors.modalBorder
+    },
+    pickerTitle: {
+      color: t.colors.text,
+      fontSize: 16,
+      fontWeight: "800" as const,
+      ...rtlText,
+      textAlign: "right" as const,
+      marginBottom: 8
+    },
+    pickerActions: {
+      flexDirection: "row-reverse" as const,
+      gap: 10,
+      marginTop: 12
+    },
+    pickerBtn: {
+      flex: 1,
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: "center" as const
+    },
+    pickerBtnGhost: {
+      backgroundColor: t.colors.buttonSecondaryBg
+    },
+    pickerBtnPrimary: {
+      backgroundColor: t.colors.primary
+    },
+    pickerBtnGhostText: {
+      color: t.colors.buttonSecondaryText,
+      fontSize: 14,
+      fontWeight: "800" as const,
+      ...rtlText
+    },
+    pickerBtnPrimaryText: {
+      color: t.colors.textInverse,
+      fontSize: 14,
+      fontWeight: "800" as const,
+      ...rtlText
+    }
+  }));
+
   if (loading && orders.length === 0) {
     return (
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
         <DriverScreenBackground>
           <View style={styles.centered}>
-            <ActivityIndicator size="large" color="#2563eb" />
+            <ActivityIndicator size="large" color={theme.colors.primary} />
             <Text style={styles.loadingText}>جاري تحميل التقرير…</Text>
           </View>
         </DriverScreenBackground>
@@ -313,7 +646,7 @@ export default function DriverReportsTab() {
           data={orders}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => {
-            const commissionColors = reportCommissionStatusColors(item);
+            const commissionColors = reportCommissionStatusColors(item, theme);
             return (
               <DriverOrderCard
                 item={item}
@@ -341,7 +674,7 @@ export default function DriverReportsTab() {
               ? [styles.emptyList, { paddingBottom: listBottomPad }]
               : [styles.list, { paddingBottom: listBottomPad }]
           }
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor="#2563eb" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={theme.colors.primary} />}
           onEndReached={() => void loadMore()}
           onEndReachedThreshold={0.35}
           ListHeaderComponent={
@@ -389,7 +722,7 @@ export default function DriverReportsTab() {
                 <Pressable style={styles.datePickerField} onPress={() => openPicker("from")}>
                   <View style={styles.datePickerTopRow}>
                     <Text style={styles.datePickerLabel}>من</Text>
-                    <Ionicons name="calendar-outline" size={18} color="#2563eb" />
+                    <Ionicons name="calendar-outline" size={18} color={theme.colors.primary} />
                   </View>
                   <Text style={styles.datePickerValue}>{formatYmdLabel(draftFrom)}</Text>
                   <Text style={styles.datePickerHint}>{draftFrom}</Text>
@@ -397,7 +730,7 @@ export default function DriverReportsTab() {
                 <Pressable style={styles.datePickerField} onPress={() => openPicker("to")}>
                   <View style={styles.datePickerTopRow}>
                     <Text style={styles.datePickerLabel}>إلى</Text>
-                    <Ionicons name="calendar-outline" size={18} color="#2563eb" />
+                    <Ionicons name="calendar-outline" size={18} color={theme.colors.primary} />
                   </View>
                   <Text style={styles.datePickerValue}>{formatYmdLabel(draftTo)}</Text>
                   <Text style={styles.datePickerHint}>{draftTo}</Text>
@@ -437,7 +770,7 @@ export default function DriverReportsTab() {
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.listFooterLoader}>
-                <ActivityIndicator color="#2563eb" />
+                <ActivityIndicator color={theme.colors.primary} />
               </View>
             ) : null
           }
@@ -481,332 +814,3 @@ export default function DriverReportsTab() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "transparent",
-    direction: "rtl"
-  },
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24
-  },
-  loadingText: {
-    marginTop: 12,
-    color: "#64748b",
-    fontSize: 15,
-    ...rtlText
-  },
-  header: {
-    paddingTop: 8,
-    paddingBottom: 12,
-    alignItems: "stretch",
-    direction: "rtl"
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#0f172a",
-    ...rtlText,
-    marginBottom: 14,
-    textAlign: "right",
-    alignSelf: "stretch"
-  },
-  filterCard: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#dbe4f0",
-    borderRadius: 18,
-    padding: 16,
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-    alignSelf: "stretch"
-  },
-  filterHeader: {
-    alignItems: "flex-end",
-    marginBottom: 12
-  },
-  filterTitle: {
-    color: "#0f172a",
-    fontSize: 16,
-    fontWeight: "800",
-    ...rtlText,
-    textAlign: "right"
-  },
-  filterHint: {
-    marginTop: 4,
-    color: "#64748b",
-    fontSize: 12,
-    lineHeight: 20,
-    ...rtlText,
-    textAlign: "right"
-  },
-  presetScrollView: {
-    flexGrow: 0,
-    marginBottom: 12
-  },
-  presetRow: {
-    flexDirection: "row-reverse",
-    gap: 8,
-    alignItems: "center"
-  },
-  presetChip: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 10
-  },
-  presetChipActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb"
-  },
-  presetChipText: {
-    color: "#334155",
-    fontSize: 12,
-    fontWeight: "800",
-    ...rtlText
-  },
-  presetChipTextActive: {
-    color: "#ffffff"
-  },
-  dateRow: {
-    flexDirection: "row-reverse",
-    gap: 10
-  },
-  datePickerField: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    alignItems: "flex-end"
-  },
-  datePickerTopRow: {
-    width: "100%",
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8
-  },
-  datePickerLabel: {
-    color: "#475569",
-    fontSize: 13,
-    fontWeight: "800",
-    ...rtlText,
-    textAlign: "right"
-  },
-  datePickerValue: {
-    width: "100%",
-    color: "#0f172a",
-    fontSize: 15,
-    fontWeight: "700",
-    ...rtlText,
-    textAlign: "right"
-  },
-  datePickerHint: {
-    width: "100%",
-    marginTop: 4,
-    color: "#64748b",
-    fontSize: 11,
-    ...rtlText,
-    textAlign: "right"
-  },
-  applyBtn: {
-    marginTop: 12,
-    backgroundColor: "#2563eb",
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center"
-  },
-  applyBtnText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
-    ...rtlText
-  },
-  error: {
-    marginTop: 10,
-    color: "#dc2626",
-    ...rtlText,
-    textAlign: "right"
-  },
-  statsStack: {
-    marginTop: 14,
-    alignSelf: "stretch"
-  },
-  statsRow: {
-    flexDirection: "row-reverse",
-    gap: 12,
-    marginBottom: 12
-  },
-  statCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    marginBottom: 4,
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
-    alignItems: "flex-end"
-  },
-  statCardHalf: {
-    flex: 1
-  },
-  statCardBlue: {
-    borderColor: "#93c5fd"
-  },
-  statCardGreen: {
-    borderColor: "#86efac"
-  },
-  statCardPurple: {
-    borderColor: "#c4b5fd"
-  },
-  statValue: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: "#0f172a",
-    ...rtlText,
-    textAlign: "right"
-  },
-  statLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#334155",
-    ...rtlText,
-    marginTop: 6,
-    textAlign: "right"
-  },
-  statDetail: {
-    fontSize: 11,
-    color: "#64748b",
-    ...rtlText,
-    marginTop: 4,
-    textAlign: "right"
-  },
-  summaryHint: {
-    marginTop: 10,
-    color: "#475569",
-    fontSize: 12,
-    ...rtlText,
-    textAlign: "right",
-    alignSelf: "flex-end",
-    backgroundColor: "#eff6ff",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8
-  },
-  reportCommissionRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 8,
-    marginTop: 2,
-    flexWrap: "wrap"
-  },
-  reportCommissionAmount: {
-    color: "#7c3aed",
-    fontSize: 14,
-    fontWeight: "800",
-    marginTop: -2,
-    marginBottom: 8,
-    ...rtlText,
-    textAlign: "right",
-    alignSelf: "flex-end"
-  },
-  reportCommissionLabel: {
-    color: "#475569",
-    fontSize: 13,
-    fontWeight: "700",
-    ...rtlText,
-    textAlign: "right"
-  },
-  reportCommissionBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5
-  },
-  reportCommissionBadgeText: {
-    fontSize: 12,
-    fontWeight: "800",
-    ...rtlText
-  },
-  list: {
-    paddingHorizontal: 20
-  },
-  emptyList: {
-    flexGrow: 1,
-    paddingHorizontal: 20
-  },
-  listFooterLoader: {
-    paddingVertical: 20,
-    alignItems: "center"
-  },
-  empty: {
-    color: "#64748b",
-    ...rtlText,
-    marginTop: 40,
-    fontSize: 15,
-    lineHeight: 24,
-    textAlign: "right"
-  },
-  pickerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
-    justifyContent: "center",
-    paddingHorizontal: 20
-  },
-  pickerSheet: {
-    backgroundColor: "#ffffff",
-    borderRadius: 18,
-    padding: 18
-  },
-  pickerTitle: {
-    color: "#0f172a",
-    fontSize: 16,
-    fontWeight: "800",
-    ...rtlText,
-    textAlign: "right",
-    marginBottom: 8
-  },
-  pickerActions: {
-    flexDirection: "row-reverse",
-    gap: 10,
-    marginTop: 12
-  },
-  pickerBtn: {
-    flex: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center"
-  },
-  pickerBtnGhost: {
-    backgroundColor: "#e2e8f0"
-  },
-  pickerBtnPrimary: {
-    backgroundColor: "#2563eb"
-  },
-  pickerBtnGhostText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "800",
-    ...rtlText
-  },
-  pickerBtnPrimaryText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
-    ...rtlText
-  }
-});

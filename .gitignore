@@ -6,6 +6,7 @@ dist
 .env
 *.log
 coverage
+apps/api/uploads
 
 # توقيع أندرويد (أي تطبيق) — لا يُرفع
 *.keystore

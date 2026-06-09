@@ -1,6 +1,9 @@
 import type { Server } from "socket.io";
 import { OrderBroadcastTarget, OrderStatus, OrderVehicleRequirement, VehicleKind, type Order } from "@prisma/client";
-import { socketEvents } from "@taxi/config";
+import { chatSocketEvents, socketEvents } from "@taxi/config";
+import { CHAT_GLOBAL_ROOM, emitChatReceipt } from "./modules/chat/chat-socket";
+import { chatService } from "./modules/chat/chat.service";
+import { setChatUserConnected } from "./modules/chat/chat-presence";
 import { prisma } from "./shared/prisma";
 import { redis, redisEnabled } from "./shared/redis";
 import { orderToSocketPayload } from "./modules/orders/order-socket-payload";
@@ -299,6 +302,69 @@ export const initSocket = (io: Server) => {
       void socket.join(ROOM_COORDINATORS);
     });
 
+    socket.on("admin:register", () => {
+      void socket.join(ROOM_COORDINATORS);
+    });
+
+    socket.on(chatSocketEvents.REGISTER, (userId: string) => {
+      if (typeof userId !== "string" || !userId) return;
+      socket.data.chatUserId = userId;
+      void socket.join(`user:${userId}`);
+      void socket.join(CHAT_GLOBAL_ROOM);
+      const becameOnline = setChatUserConnected(userId, true);
+      if (becameOnline === true) {
+        io.emit(socketEvents.CHAT_USER_PRESENCE, { userId, online: true });
+      }
+    });
+
+    socket.on(chatSocketEvents.JOIN_ROOM, (roomId: string) => {
+      if (typeof roomId !== "string" || !roomId) return;
+      void socket.join(`chat:${roomId}`);
+    });
+
+    socket.on(chatSocketEvents.LEAVE_ROOM, (roomId: string) => {
+      if (typeof roomId !== "string" || !roomId) return;
+      void socket.leave(`chat:${roomId}`);
+    });
+
+    socket.on(chatSocketEvents.TYPING, (payload: { roomId?: string; fullName?: string }) => {
+      const userId = socket.data.chatUserId as string | undefined;
+      if (!userId || typeof payload?.roomId !== "string") return;
+      socket.to(`chat:${payload.roomId}`).emit(socketEvents.CHAT_TYPING, {
+        roomId: payload.roomId,
+        userId,
+        fullName: typeof payload.fullName === "string" ? payload.fullName : ""
+      });
+    });
+
+    socket.on(chatSocketEvents.TYPING_STOP, (payload: { roomId?: string }) => {
+      const userId = socket.data.chatUserId as string | undefined;
+      if (!userId || typeof payload?.roomId !== "string") return;
+      socket.to(`chat:${payload.roomId}`).emit(socketEvents.CHAT_TYPING_STOP, {
+        roomId: payload.roomId,
+        userId
+      });
+    });
+
+    socket.on(chatSocketEvents.DELIVERED, (payload: { messageId?: string }) => {
+      const userId = socket.data.chatUserId as string | undefined;
+      if (!userId || typeof payload?.messageId !== "string") return;
+      void chatService.markDelivered(payload.messageId, userId).then((result) => {
+        if (!result) return;
+        emitChatReceipt(io, result.senderUserId, payload.messageId!, result.status);
+      });
+    });
+
+    socket.on(chatSocketEvents.READ, (payload: { roomId?: string }) => {
+      const userId = socket.data.chatUserId as string | undefined;
+      if (!userId || typeof payload?.roomId !== "string") return;
+      void chatService.markRoomReadByUserId(payload.roomId, userId).then((updates) => {
+        for (const row of updates) {
+          emitChatReceipt(io, row.senderUserId, row.messageId, row.status);
+        }
+      });
+    });
+
     socket.on("driver:online", async (driverId: string) => {
       if (typeof driverId !== "string" || !driverId) return;
       memOnline.set(driverId, true);
@@ -366,6 +432,15 @@ export const initSocket = (io: Server) => {
         /* تجاهل */
       }
       io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_OFFLINE, { driverId });
+    });
+
+    socket.on("disconnect", () => {
+      const userId = socket.data.chatUserId as string | undefined;
+      if (!userId) return;
+      const becameOffline = setChatUserConnected(userId, false);
+      if (becameOffline === false) {
+        io.emit(socketEvents.CHAT_USER_PRESENCE, { userId, online: false });
+      }
     });
   });
 };

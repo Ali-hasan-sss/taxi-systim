@@ -45,8 +45,15 @@ const SettingsIcon = (props: IconProps) => (
   </svg>
 );
 
+const ChatIcon = (props: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M21 12a8 8 0 0 1-8 8H8l-4 3v-5.2A8 8 0 1 1 21 12Z" />
+  </svg>
+);
+
 const navItems = [
   { href: "/", label: "الرئيسية", mobileLabel: "الرئيسية", icon: HomeIcon },
+  { href: "/chat", label: "المحادثات", mobileLabel: "المحادثات", icon: ChatIcon },
   { href: "/employees", label: "الموظفون", mobileLabel: "الموظفون", icon: UsersIcon },
   { href: "/drivers-distribution", label: "توزع السائقين", mobileLabel: "السائقون", icon: MapPinIcon },
   { href: "/finance", label: "المالية", mobileLabel: "المالية", icon: WalletIcon },
