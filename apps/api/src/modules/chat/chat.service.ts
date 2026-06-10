@@ -30,6 +30,12 @@ export type ChatRoomPayload = {
   peerName: string | null;
   /** مثال: طلب: البرانية بجانب سوق المدينة */
   orderLabel: string | null;
+  /** للأدمن — اسم المنسق في محادثة الطلب */
+  coordinatorName?: string | null;
+  /** للأدمن — اسم السائق في محادثة الطلب */
+  driverName?: string | null;
+  /** عنوان الالتقاط (مصدر الطلب) */
+  pickupAddress?: string | null;
   peerUserId: string | null;
   peerDriverId: string | null;
   peerOnline: boolean | null;
@@ -97,13 +103,26 @@ function roomPayloadFields(
   role: Role
 ): Pick<
   ChatRoomPayload,
-  "title" | "peerName" | "orderLabel" | "peerUserId" | "peerDriverId" | "peerOnline" | "orderAmount" | "orderStatus"
+  | "title"
+  | "peerName"
+  | "orderLabel"
+  | "coordinatorName"
+  | "driverName"
+  | "pickupAddress"
+  | "peerUserId"
+  | "peerDriverId"
+  | "peerOnline"
+  | "orderAmount"
+  | "orderStatus"
 > {
   if (room.type === ChatRoomType.GLOBAL) {
     return {
       title: GLOBAL_ROOM_TITLE,
       peerName: null,
       orderLabel: null,
+      coordinatorName: null,
+      driverName: null,
+      pickupAddress: null,
       peerUserId: null,
       peerDriverId: null,
       peerOnline: null,
@@ -117,6 +136,9 @@ function roomPayloadFields(
       title: room.title ?? GLOBAL_ROOM_TITLE,
       peerName: null,
       orderLabel: null,
+      coordinatorName: null,
+      driverName: null,
+      pickupAddress: null,
       peerUserId: null,
       peerDriverId: null,
       peerOnline: false,
@@ -124,11 +146,35 @@ function roomPayloadFields(
       orderStatus: null
     };
   }
+  const coordinatorName = order.coordinator.user.fullName;
+  const driverName = order.driver?.user.fullName ?? "سائق غير معيّن";
+  const pickupAddress = order.pickupAddress;
   const peerName = peerNameForOrder(order, role);
+  const orderLabel = orderPickupLabel(order);
+
+  if (role === Role.ADMIN) {
+    return {
+      title: `${coordinatorName} -- ${driverName}`,
+      peerName: null,
+      orderLabel,
+      coordinatorName,
+      driverName,
+      pickupAddress,
+      peerUserId: null,
+      peerDriverId: order.driver?.id ?? null,
+      peerOnline: null,
+      orderAmount: order.amount.toString(),
+      orderStatus: order.status
+    };
+  }
+
   return {
     title: peerName ?? room.title ?? GLOBAL_ROOM_TITLE,
     peerName,
-    orderLabel: orderPickupLabel(order),
+    orderLabel,
+    coordinatorName: null,
+    driverName: null,
+    pickupAddress: null,
     peerUserId: peerUserIdForOrder(order, role),
     peerDriverId: peerDriverIdForOrder(order, role),
     peerOnline: peerOnlineForOrder(order, role),
@@ -247,6 +293,21 @@ function assertRoomWritable(room: { archivedAt: Date | null }) {
   }
 }
 
+function buildRoomSearchWhere(q: string) {
+  const term = q.trim();
+  if (!term) return undefined;
+  return {
+    OR: [
+      { title: { contains: term, mode: "insensitive" as const } },
+      { order: { pickupAddress: { contains: term, mode: "insensitive" as const } } },
+      { order: { customerName: { contains: term, mode: "insensitive" as const } } },
+      { order: { coordinator: { user: { fullName: { contains: term, mode: "insensitive" as const } } } } },
+      { order: { driver: { user: { fullName: { contains: term, mode: "insensitive" as const } } } } },
+      { messages: { some: { body: { contains: term, mode: "insensitive" as const } } } }
+    ]
+  };
+}
+
 export const chatService = {
   async ensureGlobalRoom() {
     const existing = await prisma.chatRoom.findFirst({
@@ -282,9 +343,11 @@ export const chatService = {
     userId: string,
     role: Role,
     apiBase: string,
-    scope: ChatRoomListScope = "active"
+    scope: ChatRoomListScope = "active",
+    q?: string
   ): Promise<ChatRoomPayload[]> {
     const ctx = await getUserContext(userId, role);
+    const searchWhere = q ? buildRoomSearchWhere(q) : undefined;
 
     const mapRoom = (room: {
       id: string;
@@ -328,7 +391,7 @@ export const chatService = {
 
     if (role === Role.ADMIN && scope === "archived") {
       const archivedRooms = await prisma.chatRoom.findMany({
-        where: { archivedAt: { not: null } },
+        where: { archivedAt: { not: null }, ...(searchWhere ?? {}) },
         orderBy: { archivedAt: "desc" },
         take: 100,
         include: roomInclude
@@ -359,7 +422,7 @@ export const chatService = {
 
     if (role === Role.ADMIN) {
       orderRooms = await prisma.chatRoom.findMany({
-        where: { type: ChatRoomType.ORDER, archivedAt: null },
+        where: { type: ChatRoomType.ORDER, archivedAt: null, ...(searchWhere ?? {}) },
         orderBy: { updatedAt: "desc" },
         take: 50,
         include: roomInclude
@@ -369,7 +432,8 @@ export const chatService = {
         where: {
           type: ChatRoomType.ORDER,
           archivedAt: null,
-          order: { coordinatorId: ctx.coordinatorId }
+          order: { coordinatorId: ctx.coordinatorId },
+          ...(searchWhere ?? {})
         },
         orderBy: { updatedAt: "desc" },
         take: 50,
@@ -380,7 +444,8 @@ export const chatService = {
         where: {
           type: ChatRoomType.ORDER,
           archivedAt: null,
-          order: { driverId: ctx.driverId }
+          order: { driverId: ctx.driverId },
+          ...(searchWhere ?? {})
         },
         orderBy: { updatedAt: "desc" },
         take: 50,
@@ -388,17 +453,24 @@ export const chatService = {
       });
     }
 
-    const globalWithLast = await prisma.chatRoom.findUnique({
-      where: { id: globalRoom.id },
-      include: roomInclude
-    });
+    const globalWithLast = searchWhere
+      ? await prisma.chatRoom.findFirst({
+          where: { id: globalRoom.id, ...searchWhere },
+          include: roomInclude
+        })
+      : await prisma.chatRoom.findUnique({
+          where: { id: globalRoom.id },
+          include: roomInclude
+        });
 
     const globalPayload = globalWithLast
       ? mapRoom(globalWithLast)
-      : mapRoom({ ...globalRoom, order: null, messages: [], archivedAt: null });
+      : searchWhere
+        ? null
+        : mapRoom({ ...globalRoom, order: null, messages: [], archivedAt: null });
 
     const orderPayloads = orderRooms.map(mapRoom);
-    return [globalPayload, ...orderPayloads];
+    return globalPayload ? [globalPayload, ...orderPayloads] : orderPayloads;
   },
 
   async listMessages(

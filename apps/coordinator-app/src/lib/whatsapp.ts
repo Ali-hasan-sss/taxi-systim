@@ -1,3 +1,5 @@
+import * as Linking from "expo-linking";
+
 /** عربي/فارسي → أرقام غربية ثم إبقاء الأرقام فقط. */
 function extractWesternDigitRun(phone: string): string {
   const western = phone
@@ -64,4 +66,53 @@ export function buildWhatsAppChatUrlWithText(phone: string | null | undefined, t
   if (!n) return null;
   const q = new URLSearchParams({ text });
   return `https://wa.me/${n}?${q.toString()}`;
+}
+
+/** روابط محتملة: واتساب أعمال ثم واتساب عادي ثم الروابط الرسمية. */
+export function buildWhatsAppOpenCandidates(phone: string | null | undefined, text: string): string[] {
+  const n = waMePhonePart(phone);
+  if (!n) return [];
+  const q = encodeURIComponent(text);
+  return [
+    `whatsapp-business://send?phone=${n}&text=${q}`,
+    `whatsapp://send?phone=${n}&text=${q}`,
+    `https://api.whatsapp.com/send?phone=${n}&text=${q}`,
+    `https://wa.me/${n}?text=${q}`
+  ];
+}
+
+/**
+ * يفتح واتساب (عادي أو أعمال) مع نص جاهز.
+ * يجرّب مخططات التطبيق أولًا ثم الروابط https.
+ */
+export async function openWhatsAppChatWithText(
+  phone: string | null | undefined,
+  text: string
+): Promise<boolean> {
+  const urls = buildWhatsAppOpenCandidates(phone, text);
+  for (const url of urls) {
+    try {
+      if (url.startsWith("http")) {
+        await Linking.openURL(url);
+        return true;
+      }
+      const can = await Linking.canOpenURL(url);
+      if (can) {
+        await Linking.openURL(url);
+        return true;
+      }
+    } catch {
+      /* جرّب الرابط التالي */
+    }
+  }
+  const fallback = urls[urls.length - 1];
+  if (fallback) {
+    try {
+      await Linking.openURL(fallback);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }

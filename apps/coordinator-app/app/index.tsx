@@ -3,6 +3,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { Redirect } from "expo-router";
 import { getSession } from "../src/lib/session";
 
+void SplashScreen.preventAutoHideAsync().catch(() => {});
+
 export default function Index() {
   const [ready, setReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
@@ -17,7 +19,7 @@ export default function Index() {
         if (alive) setLoggedIn(false);
       } finally {
         if (alive) {
-          await SplashScreen.hideAsync();
+          await SplashScreen.hideAsync().catch(() => {});
           setReady(true);
         }
       }

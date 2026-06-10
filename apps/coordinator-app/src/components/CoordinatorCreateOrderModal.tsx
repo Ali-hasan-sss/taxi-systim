@@ -1,9 +1,8 @@
-import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import { useTheme, useThemedStyles, KeyboardAvoidingView } from "@taxi/expo-theme";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   ActivityIndicator,
   Dimensions,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -264,7 +263,7 @@ export function CoordinatorCreateOrderModal({
           onPress={() => !submitting && onClose()}
           accessibilityRole="button"
         />
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <KeyboardAvoidingView trustSystemResize behavior="padding">
           <View
             style={[
               styles.modalSheet,

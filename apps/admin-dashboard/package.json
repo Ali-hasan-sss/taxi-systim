@@ -10,15 +10,18 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.56.2",
+    "@taxi/config": "workspace:*",
     "@taxi/types": "workspace:*",
     "@taxi/ui": "workspace:*",
     "leaflet": "^1.9.4",
+    "lucide-react": "^1.17.0",
     "next": "15.5.18",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-leaflet": "^4.2.1",
     "recharts": "^2.12.7",
     "socket.io-client": "^4.7.5",
+    "xlsx": "^0.18.5",
     "zustand": "^4.5.5"
   },
   "devDependencies": {

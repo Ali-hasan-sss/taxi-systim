@@ -16,6 +16,7 @@ export const usersRouter = Router();
  */
 usersRouter.use(requireAuth, requireRole("ADMIN"));
 usersRouter.get("/", usersController.list);
+usersRouter.post("/bulk-drivers", usersController.bulkCreateDrivers);
 usersRouter.post("/", usersController.create);
 usersRouter.patch("/:userId", usersController.update);
 usersRouter.patch("/:userId/status", usersController.setStatus);

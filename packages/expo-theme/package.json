@@ -15,7 +15,8 @@
     "expo": ">=54",
     "react": ">=18",
     "react-native": ">=0.74",
-    "react-native-gesture-handler": ">=2"
+    "react-native-gesture-handler": ">=2",
+    "react-native-safe-area-context": ">=5"
   },
   "devDependencies": {
     "@expo/vector-icons": "^15.0.3",

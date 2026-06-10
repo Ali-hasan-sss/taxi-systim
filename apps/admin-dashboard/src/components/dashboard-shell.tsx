@@ -6,6 +6,7 @@ import { DashboardNavbar } from "./dashboard-navbar";
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
   "/": { title: "لوحة التحكم", subtitle: "نظرة عامة على العمليات والأداء" },
+  "/orders-room": { title: "غرفة الطلبات", subtitle: "مراقبة مباشرة لحالات الطلبات والسائقين" },
   "/chat": { title: "المحادثات", subtitle: "المحادثة العامة ومحادثات الطلبات" },
   "/employees": { title: "الموظفون", subtitle: "إدارة المستخدمين والأدوار" },
   "/drivers-distribution": { title: "توزع السائقين", subtitle: "خريطة مباشرة لمواقع السائقين وإجراءات سريعة" },
@@ -15,10 +16,17 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
 
 export const DashboardShell = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname();
+  const isImmersivePage =
+    pathname === "/chat" ||
+    pathname.startsWith("/chat/") ||
+    pathname === "/drivers-distribution" ||
+    pathname.startsWith("/drivers-distribution/");
   const meta =
     titles[pathname] ??
     (pathname.startsWith("/chat")
       ? titles["/chat"]
+      : pathname.startsWith("/orders-room")
+        ? titles["/orders-room"]
       : pathname.startsWith("/employees")
       ? titles["/employees"]
       : pathname.startsWith("/drivers-distribution")
@@ -34,7 +42,7 @@ export const DashboardShell = ({ children }: { children: React.ReactNode }) => {
       <DashboardSidebar />
       <div className="dashboard-layout__main">
         <DashboardNavbar title={meta.title} subtitle={meta.subtitle} />
-        <div className="dashboard-content">{children}</div>
+        <div className={`dashboard-content${isImmersivePage ? " dashboard-content--immersive" : ""}`}>{children}</div>
       </div>
     </div>
   );

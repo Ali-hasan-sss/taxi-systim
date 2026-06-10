@@ -23,7 +23,8 @@ export const chatController = {
         req.auth!.userId,
         req.auth!.role,
         apiBaseFromRequest(req),
-        scope
+        scope,
+        parsed.q
       );
       res.json({ rooms });
     } catch (e) {

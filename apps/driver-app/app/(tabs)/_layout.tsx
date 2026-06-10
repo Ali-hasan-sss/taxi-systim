@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverAppHeader } from "../../src/components/DriverAppHeader";
 import { DriverSocketProvider } from "../../src/driver-socket-context";
 import { getDriverLocationAccessState, isDriverLocationReady } from "../../src/lib/location-access";
-import { shouldLoadExpoPushModule } from "../../src/lib/push-environment";
 import { getDriverSession } from "../../src/lib/session";
 import { driverTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { useDriverStore } from "../../src/store";
@@ -64,28 +63,6 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { theme } = useTheme();
-
-  useEffect(() => {
-    if (!shouldLoadExpoPushModule()) return;
-    let cancelled = false;
-    let removeTokenListener: (() => void) | undefined;
-    let appSub: ReturnType<typeof AppState.addEventListener> | undefined;
-
-    void import("../../src/lib/expo-push").then((mod) => {
-      if (cancelled) return;
-      void mod.ensurePushRegistrationForDriver();
-      removeTokenListener = mod.subscribeDriverPushTokenRefresh();
-      appSub = AppState.addEventListener("change", (state) => {
-        if (state === "active") void mod.ensurePushRegistrationForDriver();
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      removeTokenListener?.();
-      appSub?.remove();
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;

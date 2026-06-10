@@ -1,8 +1,7 @@
-import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import { useTheme, useThemedStyles, KeyboardAvoidingView } from "@taxi/expo-theme";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -168,7 +167,7 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior="padding"
       style={[
         styles.root,
         { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingHorizontal: 24 }

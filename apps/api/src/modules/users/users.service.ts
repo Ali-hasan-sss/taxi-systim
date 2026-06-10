@@ -12,11 +12,26 @@ export type DriverProfilePayload = {
 };
 
 export const usersService = {
-  async list(filters: { role?: Role; isActive?: boolean }) {
+  async list(filters: { role?: Role; isActive?: boolean; q?: string }) {
+    const q = filters.q?.trim();
+    const searchWhere = q
+      ? {
+          OR: [
+            { fullName: { contains: q, mode: "insensitive" as const } },
+            { email: { contains: q, mode: "insensitive" as const } },
+            { phone: { contains: q, mode: "insensitive" as const } },
+            { driver: { vehicleBrand: { contains: q, mode: "insensitive" as const } } },
+            { driver: { vehicleColor: { contains: q, mode: "insensitive" as const } } },
+            { driver: { vehicleNumber: { contains: q, mode: "insensitive" as const } } }
+          ]
+        }
+      : undefined;
+
     return prisma.user.findMany({
       where: {
         role: filters.role,
-        isActive: filters.isActive
+        isActive: filters.isActive,
+        ...(searchWhere ?? {})
       },
       select: {
         id: true,
@@ -99,6 +114,48 @@ export const usersService = {
       }
       return user;
     });
+  },
+
+  async bulkCreateDrivers(
+    rows: {
+      fullName: string;
+      phone: string;
+      password: string;
+      vehicleBrand?: string | null;
+      vehicleKind?: VehicleKind | null;
+      vehicleColor?: string | null;
+      plateNumber?: string | null;
+    }[]
+  ) {
+    const created: { id: string; fullName: string; phone: string | null }[] = [];
+    const failed: { row: number; fullName: string; reason: string }[] = [];
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index]!;
+      try {
+        const user = await this.create({
+          fullName: row.fullName,
+          phone: row.phone,
+          password: row.password,
+          role: Role.DRIVER,
+          driverProfile: {
+            vehicleBrand: row.vehicleBrand ?? null,
+            vehicleKind: row.vehicleKind ?? null,
+            vehicleColor: row.vehicleColor ?? null,
+            plateNumber: row.plateNumber ?? null
+          }
+        });
+        created.push({ id: user.id, fullName: user.fullName, phone: user.phone });
+      } catch (err) {
+        failed.push({
+          row: index + 1,
+          fullName: row.fullName,
+          reason: err instanceof AppError ? err.message : "تعذر إنشاء السائق"
+        });
+      }
+    }
+
+    return { createdCount: created.length, failed, created };
   },
 
   async update(

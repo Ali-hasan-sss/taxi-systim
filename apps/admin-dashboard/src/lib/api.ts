@@ -102,6 +102,65 @@ export interface FinanceExportFile {
   filename: string;
 }
 
+export interface AdminDashboardStats {
+  today: string;
+  revenueToday: string;
+  commissionToday: string;
+  dueCommission: string;
+  completedOrdersToday: number;
+  activeTrips: number;
+  activeDriversOnline: number;
+  totalDrivers: number;
+  employeesTotal: number;
+  employeesByRole: {
+    admin: number;
+    coordinator: number;
+    driver: number;
+  };
+}
+
+export type AdminOrdersRoomSegment =
+  | "pending"
+  | "in_progress"
+  | "stuck"
+  | "needs_info"
+  | "needs_invoice"
+  | "completed";
+
+export interface AdminOrderRoomRow {
+  id: string;
+  driverId?: string | null;
+  customerName: string;
+  customerPhone: string | null;
+  pickupAddress: string;
+  dropoffAddress: string;
+  amount: string;
+  status: string;
+  broadcastTarget: string;
+  vehicleRequirement?: string;
+  notes?: string | null;
+  createdAt: string;
+  coordinatorName: string;
+  driver: null | {
+    id: string;
+    user: { fullName: string; phone: string | null };
+    vehicleBrand?: string | null;
+    vehicleColor?: string | null;
+    vehicleNumber?: string | null;
+    vehicleKind?: string | null;
+  };
+}
+
+export interface AdminOrdersRoomFilterCounts {
+  all: number;
+  needs_info: number;
+  needs_invoice: number;
+  stuck: number;
+  pending: number;
+  completed: number;
+  in_progress: number;
+}
+
 export type DriverLiveStatus = "online" | "busy" | "offline";
 
 export type OrderBroadcastTarget = "ALL" | "NEAREST_THREE";
@@ -260,9 +319,51 @@ export const api = {
     return res.json() as Promise<{ id: string; email: string; fullName: string; role: "ADMIN" }>;
   },
 
-  async listEmployees(accessToken: string, params?: { role?: Employee["role"] }) {
-    const query = params?.role ? `?role=${params.role}` : "";
-    const res = await authorizedFetch(`/users${query}`, { method: "GET" }, accessToken);
+  async getDashboardStats(accessToken: string) {
+    const res = await authorizedFetch("/admin/dashboard-stats", { method: "GET", cache: "no-store" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل الإحصائيات"));
+    return res.json() as Promise<AdminDashboardStats>;
+  },
+
+  async listOrdersRoom(
+    accessToken: string,
+    segment?: AdminOrdersRoomSegment | null,
+    opts?: { cursor?: string; limit?: number }
+  ) {
+    const params = new URLSearchParams({ t: String(Date.now()) });
+    if (segment) params.set("segment", segment);
+    if (opts?.cursor) params.set("cursor", opts.cursor);
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    const res = await authorizedFetch(`/admin/orders-room?${params.toString()}`, { method: "GET", cache: "no-store" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل الطلبات"));
+    const body = (await res.json()) as { orders?: AdminOrderRoomRow[]; nextCursor?: string | null };
+    return {
+      orders: Array.isArray(body.orders) ? body.orders : [],
+      nextCursor: body.nextCursor ?? null
+    };
+  },
+
+  async getOrdersRoomStats(accessToken: string) {
+    const res = await authorizedFetch("/admin/orders-room/stats", { method: "GET", cache: "no-store" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل إحصائيات الطلبات"));
+    const body = (await res.json()) as { filterCounts?: AdminOrdersRoomFilterCounts };
+    return body.filterCounts ?? {
+      all: 0,
+      needs_info: 0,
+      needs_invoice: 0,
+      stuck: 0,
+      pending: 0,
+      completed: 0,
+      in_progress: 0
+    };
+  },
+
+  async listEmployees(accessToken: string, params?: { role?: Employee["role"]; q?: string }) {
+    const query = new URLSearchParams();
+    if (params?.role) query.set("role", params.role);
+    if (params?.q?.trim()) query.set("q", params.q.trim());
+    const qs = query.toString();
+    const res = await authorizedFetch(`/users${qs ? `?${qs}` : ""}`, { method: "GET" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب الموظفين"));
     return res.json() as Promise<Employee[]>;
   },
@@ -293,6 +394,34 @@ export const api = {
     );
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل إضافة الموظف"));
     return res.json() as Promise<Employee>;
+  },
+
+  async bulkCreateDrivers(
+    accessToken: string,
+    drivers: {
+      fullName: string;
+      phone: string;
+      password: string;
+      vehicleBrand?: string | null;
+      vehicleKind?: VehicleKind | null;
+      vehicleColor?: string | null;
+      plateNumber?: string | null;
+    }[]
+  ) {
+    const res = await authorizedFetch(
+      "/users/bulk-drivers",
+      {
+        method: "POST",
+        body: JSON.stringify({ drivers })
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل استيراد السائقين"));
+    return res.json() as Promise<{
+      createdCount: number;
+      failed: { row: number; fullName: string; reason: string }[];
+      created: { id: string; fullName: string; phone: string | null }[];
+    }>;
   },
 
   async updateEmployee(
@@ -545,9 +674,12 @@ export const api = {
     clearSession();
   },
 
-  async listChatRooms(accessToken: string, scope: "active" | "archived" = "active") {
-    const qs = scope === "archived" ? "?scope=archived" : "";
-    const res = await authorizedFetch(`/chat/rooms${qs}`, {}, accessToken);
+  async listChatRooms(accessToken: string, scope: "active" | "archived" = "active", q?: string) {
+    const params = new URLSearchParams();
+    if (scope === "archived") params.set("scope", "archived");
+    if (q?.trim()) params.set("q", q.trim());
+    const qs = params.toString();
+    const res = await authorizedFetch(`/chat/rooms${qs ? `?${qs}` : ""}`, {}, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل المحادثات"));
     const body = (await res.json()) as { rooms: ChatRoomRow[] };
     return body.rooms;
@@ -579,6 +711,11 @@ export const api = {
     return res.json() as Promise<ChatMessageRow>;
   },
 
+  async markChatRoomRead(accessToken: string, roomId: string) {
+    const res = await authorizedFetch(`/chat/rooms/${roomId}/read`, { method: "POST" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحديث حالة القراءة"));
+  },
+
   async fetchChatImageObjectUrl(accessToken: string, imageUrl: string): Promise<string | null> {
     const rawName = imageUrl.split("?")[0].split("/").pop();
     if (!rawName) return null;
@@ -598,6 +735,7 @@ export type ChatMessageRow = {
   imageExpired: boolean;
   sender: { id: string; fullName: string; role: string };
   createdAt: string;
+  receiptStatus?: "sent" | "delivered" | "read";
 };
 
 export type ChatRoomRow = {
@@ -610,6 +748,9 @@ export type ChatRoomRow = {
   peerDriverId: string | null;
   peerOnline: boolean | null;
   orderLabel: string | null;
+  coordinatorName?: string | null;
+  driverName?: string | null;
+  pickupAddress?: string | null;
   archivedAt: string | null;
   lastMessage: ChatMessageRow | null;
   updatedAt: string;

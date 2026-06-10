@@ -3,13 +3,13 @@ import type { Server } from "socket.io";
 import { Role } from "@prisma/client";
 import { resyncDriverOrderVehicleRooms } from "../../socket";
 import { prisma } from "../../shared/prisma";
-import { createUserDto, listUsersQueryDto, setStatusDto, updateUserDto } from "./users.dto";
+import { createUserDto, bulkCreateDriversDto, listUsersQueryDto, setStatusDto, updateUserDto } from "./users.dto";
 import { usersService } from "./users.service";
 
 export const usersController = {
   async list(req: Request, res: Response) {
     const query = listUsersQueryDto.parse(req.query);
-    const users = await usersService.list({ role: query.role, isActive: query.isActive });
+    const users = await usersService.list({ role: query.role, isActive: query.isActive, q: query.q });
     res.json(users);
   },
 
@@ -17,6 +17,12 @@ export const usersController = {
     const dto = createUserDto.parse(req.body);
     const user = await usersService.create(dto);
     res.status(201).json(user);
+  },
+
+  async bulkCreateDrivers(req: Request, res: Response) {
+    const dto = bulkCreateDriversDto.parse(req.body);
+    const result = await usersService.bulkCreateDrivers(dto.drivers);
+    res.status(result.createdCount > 0 ? 201 : 200).json(result);
   },
 
   async update(req: Request, res: Response) {

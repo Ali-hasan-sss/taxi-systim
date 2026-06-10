@@ -10,5 +10,6 @@ export const listMessagesQueryDto = z.object({
 });
 
 export const listRoomsQueryDto = z.object({
-  scope: z.enum(["active", "archived"]).optional()
+  scope: z.enum(["active", "archived"]).optional(),
+  q: z.string().trim().max(120).optional()
 });

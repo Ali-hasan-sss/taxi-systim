@@ -19,7 +19,8 @@ export const listUsersQueryDto = z.object({
   isActive: z
     .string()
     .optional()
-    .transform((v) => (v === undefined ? undefined : v === "true"))
+    .transform((v) => (v === undefined ? undefined : v === "true")),
+  q: z.string().trim().max(120).optional()
 });
 
 export const createUserDto = z
@@ -83,4 +84,29 @@ export const updateUserDto = z
 
 export const setStatusDto = z.object({
   isActive: z.boolean()
+});
+
+const bulkDriverRowDto = z
+  .object({
+    fullName: z.string().trim().min(2),
+    phone: z.string().trim().min(1),
+    password: z.string().min(6),
+    vehicleBrand: z.string().max(120).optional().nullable(),
+    vehicleKind: z.nativeEnum(VehicleKind).optional().nullable(),
+    vehicleColor: z.string().max(80).optional().nullable(),
+    plateNumber: z.string().max(40).optional().nullable()
+  })
+  .superRefine((row, ctx) => {
+    const digits = normalizePhoneDigits(row.phone);
+    if (!isValidPhoneDigits(digits)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "رقم هاتف غير صالح (8–15 رقمًا)",
+        path: ["phone"]
+      });
+    }
+  });
+
+export const bulkCreateDriversDto = z.object({
+  drivers: z.array(bulkDriverRowDto).min(1).max(500)
 });

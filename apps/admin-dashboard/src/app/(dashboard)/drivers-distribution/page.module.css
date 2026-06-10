@@ -14,8 +14,9 @@
 .introCard {
   padding: 22px 24px;
   border: none;
-  color: #eff6ff;
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+  color: #fff;
+  background: var(--gradient-brand);
+  box-shadow: var(--shadow-md);
 }
 
 .introTitle {
@@ -36,9 +37,9 @@
   margin: 0;
   padding: 14px 16px;
   border-radius: 16px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: var(--brand-accent-soft);
+  color: var(--brand-primary-dark);
+  border: 1px solid var(--brand-border);
   font-size: 14px;
   font-weight: 700;
 }
@@ -62,6 +63,18 @@
   gap: 18px;
   position: sticky;
   top: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.mapCard {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 780px;
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .panel {
@@ -82,14 +95,14 @@
   margin: 0;
   font-size: 1.06rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--brand-text);
 }
 
 .panelHint {
   margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.7;
-  color: #64748b;
+  color: var(--brand-text-muted);
 }
 
 .countChip {
@@ -100,8 +113,8 @@
   justify-content: center;
   padding: 0 12px;
   border-radius: 999px;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--brand-accent-soft);
+  color: var(--brand-primary-dark);
   font-size: 13px;
   font-weight: 800;
 }
@@ -112,8 +125,8 @@
   gap: 10px;
   padding: 14px;
   border-radius: 18px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--brand-bg-muted);
+  border: 1px solid var(--brand-card-border);
 }
 
 .switchRow {
@@ -123,13 +136,13 @@
   gap: 12px;
   font-size: 14px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--brand-text);
 }
 
 .switchInput {
   width: 44px;
   height: 24px;
-  accent-color: #2563eb;
+  accent-color: var(--brand-primary);
   cursor: pointer;
 }
 
@@ -139,14 +152,63 @@
   gap: 10px;
   padding: 12px 14px;
   border-radius: 16px;
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--brand-card-border);
   background: #ffffff;
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .searchIcon {
-  color: #64748b;
+  color: var(--brand-text-muted);
   font-size: 16px;
+}
+
+.searchIconSvg {
+  color: var(--brand-text-muted);
+  flex-shrink: 0;
+}
+
+.panelHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebarCloseBtn {
+  display: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--brand-card-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--brand-text);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebarBackdrop {
+  display: none;
+}
+
+.sidebarToggleBtn {
+  display: none;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--brand-card-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--brand-primary-dark);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.mapHeaderMain {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
 }
 
 .searchInput {
@@ -156,7 +218,7 @@
   outline: none;
   background: transparent;
   font: inherit;
-  color: #0f172a;
+  color: var(--brand-text);
 }
 
 .driverList {
@@ -170,21 +232,21 @@
 
 .driverItem {
   border-radius: 20px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--brand-card-border);
   background: #ffffff;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
 }
 
 .driverItem:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-md);
 }
 
 .driverItemActive {
-  border-color: #93c5fd;
-  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.12);
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border-color: var(--brand-border);
+  box-shadow: 0 16px 30px rgba(234, 88, 12, 0.12);
+  background: linear-gradient(180deg, #ffffff 0%, var(--brand-bg-muted) 100%);
 }
 
 .driverItemButton {
@@ -207,14 +269,14 @@
   margin: 0 0 4px;
   font-size: 15px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--brand-text);
 }
 
 .driverVehicle {
   margin: 0;
   font-size: 13px;
   line-height: 1.7;
-  color: #64748b;
+  color: var(--brand-text-muted);
 }
 
 .driverSubRow {
@@ -228,7 +290,7 @@
 
 .driverPhone {
   font-size: 12px;
-  color: #475569;
+  color: var(--brand-text-muted);
   font-weight: 700;
 }
 
@@ -244,8 +306,8 @@
 }
 
 .statusOnline {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--brand-accent-soft);
+  color: var(--brand-primary-dark);
 }
 
 .statusBusy {
@@ -254,8 +316,8 @@
 }
 
 .statusOffline {
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--brand-bg-muted);
+  color: var(--brand-text-muted);
 }
 
 .driverActions {
@@ -286,9 +348,9 @@
 }
 
 .driverActionPrimary {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #eff6ff;
-  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.24);
+  background: var(--gradient-brand);
+  color: #fff;
+  box-shadow: 0 10px 18px rgba(234, 88, 12, 0.24);
 }
 
 .driverActionSecondary {
@@ -301,9 +363,9 @@
   padding: 18px;
   text-align: center;
   border-radius: 18px;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  color: #64748b;
+  background: var(--brand-bg-muted);
+  border: 1px dashed var(--brand-border);
+  color: var(--brand-text-muted);
   font-size: 14px;
   line-height: 1.8;
 }
@@ -326,7 +388,7 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--brand-text);
 }
 
 .socketBadge {
@@ -350,8 +412,8 @@
 }
 
 .socketDisconnected {
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--brand-bg-muted);
+  color: var(--brand-text-muted);
 }
 
 .statsGrid {
@@ -366,13 +428,13 @@
   gap: 12px;
   padding: 12px 14px;
   border-radius: 16px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--brand-bg-muted);
+  border: 1px solid var(--brand-card-border);
 }
 
 .statLabel {
   font-size: 13px;
-  color: #475569;
+  color: var(--brand-text-muted);
   font-weight: 700;
 }
 
@@ -382,7 +444,7 @@
 }
 
 .statValuePrimary {
-  color: #0f172a;
+  color: var(--brand-text);
 }
 
 .statValueSuccess {
@@ -390,15 +452,7 @@
 }
 
 .statValueInfo {
-  color: #1d4ed8;
-}
-
-.mapCard {
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-height: 780px;
+  color: var(--brand-primary-dark);
 }
 
 .mapCardFullscreen {
@@ -422,14 +476,14 @@
   margin: 0;
   font-size: 1.08rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--brand-text);
 }
 
 .mapHint {
   margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.7;
-  color: #64748b;
+  color: var(--brand-text-muted);
 }
 
 .selectedBadge {
@@ -438,8 +492,8 @@
   margin-top: 10px;
   padding: 7px 12px;
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--brand-accent-soft);
+  color: var(--brand-primary-dark);
   font-size: 12px;
   font-weight: 800;
 }
@@ -471,14 +525,14 @@
 }
 
 .mapButtonPrimary {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #eff6ff;
-  box-shadow: 0 12px 22px rgba(37, 99, 235, 0.22);
+  background: var(--gradient-brand);
+  color: #fff;
+  box-shadow: 0 12px 22px rgba(234, 88, 12, 0.22);
 }
 
 .mapButtonSecondary {
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--brand-bg-muted);
+  color: var(--brand-text);
 }
 
 .mapBody {
@@ -496,8 +550,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 24px;
-  background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 100%);
-  color: #475569;
+  background: linear-gradient(135deg, var(--brand-accent-soft) 0%, var(--brand-bg-muted) 100%);
+  color: var(--brand-text-muted);
   font-size: 15px;
   font-weight: 700;
 }
@@ -506,7 +560,7 @@
   position: fixed;
   inset: 0;
   z-index: 1100;
-  background: rgba(15, 23, 42, 0.5);
+  background: rgba(28, 25, 23, 0.5);
   display: grid;
   place-items: center;
   padding: 18px;
@@ -519,7 +573,7 @@
   overflow: auto;
   background: #ffffff;
   border-radius: 26px;
-  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.3);
+  box-shadow: 0 28px 60px rgba(234, 88, 12, 0.18);
   padding: 22px;
 }
 
@@ -535,21 +589,21 @@
   margin: 0;
   font-size: 1.12rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--brand-text);
 }
 
 .modalSubtitle {
   margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.8;
-  color: #64748b;
+  color: var(--brand-text-muted);
 }
 
 .modalClose {
   border: none;
   border-radius: 14px;
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--brand-bg-muted);
+  color: var(--brand-text);
   width: 40px;
   height: 40px;
   cursor: pointer;
@@ -577,26 +631,26 @@
 .label {
   font-size: 13px;
   font-weight: 800;
-  color: #334155;
+  color: var(--brand-text);
 }
 
 .input,
 .textarea {
   width: 100%;
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--brand-card-border);
   border-radius: 16px;
   padding: 12px 14px;
   background: #ffffff;
   font: inherit;
-  color: #0f172a;
+  color: var(--brand-text);
   outline: none;
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .input:focus,
 .textarea:focus {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.16);
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
 }
 
 .textarea {
@@ -623,14 +677,14 @@
 }
 
 .submitButton {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #eff6ff;
-  box-shadow: 0 12px 20px rgba(37, 99, 235, 0.22);
+  background: var(--gradient-brand);
+  color: #fff;
+  box-shadow: 0 12px 20px rgba(234, 88, 12, 0.22);
 }
 
 .cancelButton {
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--brand-bg-muted);
+  color: var(--brand-text);
 }
 
 @media (max-width: 1100px) {
@@ -643,9 +697,110 @@
   }
 }
 
+@media (max-width: 960px) {
+  .page {
+    gap: 10px;
+    overflow: hidden;
+    height: 100%;
+    min-height: 0;
+    padding-inline-end: 0;
+    padding-bottom: 0;
+  }
+
+  .introCard {
+    display: none;
+  }
+
+  .feedback {
+    flex-shrink: 0;
+    margin-bottom: 0;
+  }
+
+  .layoutGrid {
+    grid-template-columns: 1fr;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    gap: 0;
+    position: relative;
+    align-items: stretch;
+  }
+
+  .mapCard {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebarColumn {
+    position: fixed;
+    inset-inline-start: 0;
+    top: 0;
+    bottom: 0;
+    width: min(360px, 92vw);
+    z-index: 2100;
+    transform: translateX(100%);
+    transition: transform 0.24s ease;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--brand-bg-muted);
+    padding: 14px;
+    gap: 12px;
+    box-shadow: -8px 0 28px rgba(28, 25, 23, 0.18);
+  }
+
+  .layoutSidebarOpen .sidebarColumn {
+    transform: translateX(0);
+  }
+
+  .sidebarBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 2090;
+    border: none;
+    padding: 0;
+    background: rgba(28, 25, 23, 0.45);
+    cursor: pointer;
+  }
+
+  .layoutSidebarOpen .mapCard {
+    pointer-events: none;
+  }
+
+  .sidebarCloseBtn {
+    display: inline-flex;
+  }
+
+  .sidebarToggleBtn {
+    display: inline-flex;
+  }
+
+  .mapBody {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .driverList {
+    max-height: none;
+    flex: 1;
+    min-height: 180px;
+  }
+
+  .panel {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 720px) {
   .mapCard {
-    min-height: 620px;
+    min-height: 0;
   }
 
   .driverActions,

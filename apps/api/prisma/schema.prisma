@@ -134,6 +134,10 @@ model Order {
   startedAt        DateTime?
   completedAt      DateTime?
   cancelledAt      DateTime?
+  /** تاريخ إرسال معلومات السائق للزبون عبر واتساب (منع الإرسال المكرر) */
+  customerInfoSentAt DateTime?
+  /** تاريخ إرسال الفاتورة للزبون عبر واتساب (منع الإرسال المكرر) */
+  invoiceSentAt      DateTime?
   driver           Driver?      @relation(fields: [driverId], references: [id], onDelete: SetNull)
   coordinator      Coordinator  @relation("CreatedByCoordinator", fields: [coordinatorId], references: [id], onDelete: Restrict)
   commission       Commission?

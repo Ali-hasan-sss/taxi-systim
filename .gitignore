@@ -8,6 +8,10 @@ dist
 coverage
 apps/api/uploads
 
+# Firebase Admin SDK — يُرفع إلى EAS credentials محلياً، لا إلى Git
+*-firebase-adminsdk*.json
+taxi-pro-*-firebase-adminsdk*.json
+
 # توقيع أندرويد (أي تطبيق) — لا يُرفع
 *.keystore
 *.jks

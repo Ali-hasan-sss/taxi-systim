@@ -2,9 +2,11 @@ import type { NextFunction, Response } from "express";
 import type { Server } from "socket.io";
 import { OrderStatus } from "@prisma/client";
 import {
-  notifyCoordinatorOrderAcceptedPush,
+  notifyCoordinatorNeedsInfoPush,
   notifyCoordinatorOrderCompletedPush,
   notifyCoordinatorOrderStuckPush,
+  notifyDriverOrderAssignedPush,
+  notifyDriverOrderResumedPush,
   notifyDriversNewOrderPush
 } from "../../shared/expo-push";
 import { assignOrderDto, createOrderDto, updateCompletedOrderAmountDto } from "./orders.dto";
@@ -105,10 +107,24 @@ export const ordersController = {
       const cursor = cursorSingle && cursorSingle.length > 0 ? cursorSingle : undefined;
       const segRaw = req.query.segment;
       const segStr = Array.isArray(segRaw) ? segRaw[0] : segRaw;
-      let activeSegment: "pending" | "in_progress" | "stuck" | undefined;
+      let activeSegment:
+        | "pending"
+        | "in_progress"
+        | "stuck"
+        | "needs_info"
+        | "needs_invoice"
+        | "completed"
+        | undefined;
       let archiveSegment: "completed" | "cancelled" | undefined;
       if (scope === "active" && typeof segStr === "string") {
-        if (segStr === "pending" || segStr === "in_progress" || segStr === "stuck") {
+        if (
+          segStr === "pending" ||
+          segStr === "in_progress" ||
+          segStr === "stuck" ||
+          segStr === "needs_info" ||
+          segStr === "needs_invoice" ||
+          segStr === "completed"
+        ) {
           activeSegment = segStr;
         }
       } else if (scope === "archive" && typeof segStr === "string") {
@@ -201,8 +217,11 @@ export const ordersController = {
     try {
       const order = await ordersService.acceptOrderByDriver(req.auth!.userId, req.params.orderId);
       const io = req.app.get("io") as Server | undefined;
-      if (io) emitDriverClaimedOrder(io, order);
-      void notifyCoordinatorOrderAcceptedPush(order.id);
+      if (io) {
+        emitDriverClaimedOrder(io, order);
+        emitOrderStatusUpdated(io, order);
+      }
+      void notifyCoordinatorNeedsInfoPush(order.id);
       res.json(ordersService.serializeDriverOrderRow(order));
     } catch (e) {
       next(e);
@@ -330,6 +349,8 @@ export const ordersController = {
       const order = await ordersService.resumeStuckOrderByCoordinator(req.auth!.userId, req.params.orderId);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderStatusUpdated(io, order);
+      void notifyDriverOrderResumedPush(order);
+      void notifyCoordinatorNeedsInfoPush(order.id);
       res.json(order);
     } catch (e) {
       next(e);
@@ -342,6 +363,7 @@ export const ordersController = {
       const order = await ordersService.assignByCoordinator(req.auth!.userId, req.params.orderId, body.driverId);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderAssigned(io, order);
+      void notifyDriverOrderAssignedPush(order);
       res.json(order);
     } catch (e) {
       next(e);
@@ -358,6 +380,27 @@ export const ordersController = {
       );
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderStatusUpdated(io, row);
+      res.json(ordersService.serializeCoordinatorOrderRow(row));
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async markCustomerInfoSent(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const row = await ordersService.markCustomerInfoSentByCoordinator(
+        req.auth!.userId,
+        req.params.orderId
+      );
+      res.json(ordersService.serializeCoordinatorOrderRow(row));
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async markInvoiceSent(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const row = await ordersService.markInvoiceSentByCoordinator(req.auth!.userId, req.params.orderId);
       res.json(ordersService.serializeCoordinatorOrderRow(row));
     } catch (e) {
       next(e);

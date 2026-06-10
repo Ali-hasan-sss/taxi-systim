@@ -280,9 +280,7 @@ export default function DriverArchiveTab() {
       <DriverScreenBackground>
         <View style={styles.header}>
           <Text style={styles.title}>الأرشيف</Text>
-          <Text style={styles.subtitle}>
-            مسندة إليك — 10 طلبات لكل تبويب؛ مرّر لأسفل لتحميل الدفعة التالية.
-          </Text>
+        
           <View style={styles.tabsRow}>
             {ARCHIVE_TABS.map((t) => {
               const active = t.key === segment;

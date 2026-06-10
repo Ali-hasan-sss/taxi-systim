@@ -1,10 +1,9 @@
 import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Tabs, usePathname } from "expo-router";
-import { useEffect, useState } from "react";
-import { AppState, Text, View } from "react-native";
+import { useState } from "react";
+import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { shouldLoadExpoPushModule } from "../../src/lib/push-environment";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { CoordinatorAppHeader } from "../../src/components/CoordinatorAppHeader";
 import { CoordinatorCreateOrderModal } from "../../src/components/CoordinatorCreateOrderModal";
@@ -64,28 +63,6 @@ export default function TabsLayout() {
   const { theme } = useTheme();
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const bumpOrderRefresh = useCoordinatorStore((s) => s.bumpOrderRefresh);
-
-  useEffect(() => {
-    if (!shouldLoadExpoPushModule()) return;
-    let cancelled = false;
-    let removeTokenListener: (() => void) | undefined;
-    let appSub: ReturnType<typeof AppState.addEventListener> | undefined;
-
-    void import("../../src/lib/expo-push").then((mod) => {
-      if (cancelled) return;
-      void mod.ensurePushRegistrationForCoordinator();
-      removeTokenListener = mod.subscribeCoordinatorPushTokenRefresh();
-      appSub = AppState.addEventListener("change", (state) => {
-        if (state === "active") void mod.ensurePushRegistrationForCoordinator();
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      removeTokenListener?.();
-      appSub?.remove();
-    };
-  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>

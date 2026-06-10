@@ -127,6 +127,15 @@ export async function coordinatorMe(accessToken: string): Promise<CoordinatorMeR
   return res.json() as Promise<CoordinatorMeResponse>;
 }
 
+export interface CoordinatorOrderFilterCounts {
+  all: number;
+  needs_info: number;
+  needs_invoice: number;
+  stuck: number;
+  pending: number;
+  completed: number;
+}
+
 export interface CoordinatorOrderStats {
   active: number;
   pending: number;
@@ -138,6 +147,8 @@ export interface CoordinatorOrderStats {
   stuckActive?: number;
   /** YYYY-MM-DD اليوم المعتمد بتوقيت سوريا (دمشق) لهذه الإحصائية */
   summaryDaySyria?: string;
+  /** أعداد التبويبات في صفحة الطلبات */
+  filterCounts?: CoordinatorOrderFilterCounts;
 }
 
 /** ملخص طلبات المنسق لـ«اليوم» بتوقيت سوريا (من منتصف الليل المحلي). */
@@ -159,7 +170,18 @@ export async function coordinatorOrderStats(accessToken: string): Promise<Coordi
     cancelled: typeof data.cancelled === "number" ? data.cancelled : 0,
     stuckToday: typeof data.stuckToday === "number" ? data.stuckToday : 0,
     stuckActive: typeof data.stuckActive === "number" ? data.stuckActive : undefined,
-    summaryDaySyria: typeof data.summaryDaySyria === "string" ? data.summaryDaySyria : undefined
+    summaryDaySyria: typeof data.summaryDaySyria === "string" ? data.summaryDaySyria : undefined,
+    filterCounts:
+      data.filterCounts && typeof data.filterCounts === "object"
+        ? {
+            all: Number(data.filterCounts.all) || 0,
+            needs_info: Number(data.filterCounts.needs_info) || 0,
+            needs_invoice: Number(data.filterCounts.needs_invoice) || 0,
+            stuck: Number(data.filterCounts.stuck) || 0,
+            pending: Number(data.filterCounts.pending) || 0,
+            completed: Number(data.filterCounts.completed) || 0
+          }
+        : undefined
   };
 }
 
@@ -178,6 +200,8 @@ export interface CoordinatorOrderRow {
   vehicleRequirement?: OrderVehicleRequirement;
   notes?: string | null;
   createdAt: string;
+  customerInfoSentAt?: string | null;
+  invoiceSentAt?: string | null;
   driver: null | {
     id: string;
     user: { fullName: string; phone: string | null };
@@ -346,10 +370,48 @@ export async function coordinatorUpdateCompletedOrderAmount(
   return res.json() as Promise<CoordinatorOrderRow>;
 }
 
+export async function coordinatorMarkCustomerInfoSent(
+  accessToken: string,
+  orderId: string
+): Promise<CoordinatorOrderRow> {
+  const res = await coordinatorFetchWithRefresh(
+    `/orders/${encodeURIComponent(orderId)}/mark-customer-info-sent`,
+    { method: "PATCH" },
+    accessToken
+  );
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? "فشل تسجيل إرسال المعلومات");
+  }
+  return res.json() as Promise<CoordinatorOrderRow>;
+}
+
+export async function coordinatorMarkInvoiceSent(
+  accessToken: string,
+  orderId: string
+): Promise<CoordinatorOrderRow> {
+  const res = await coordinatorFetchWithRefresh(
+    `/orders/${encodeURIComponent(orderId)}/mark-invoice-sent`,
+    { method: "PATCH" },
+    accessToken
+  );
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(errBody.message ?? "فشل تسجيل إرسال الفاتورة");
+  }
+  return res.json() as Promise<CoordinatorOrderRow>;
+}
+
 export type CoordinatorOrdersListScope = "active" | "archive";
 
-/** تبويب طلباتي: معلّق / في الطريق / متعثرة */
-export type CoordinatorActiveOrdersSegment = "pending" | "in_progress" | "stuck";
+/** تبويب طلباتي */
+export type CoordinatorActiveOrdersSegment =
+  | "pending"
+  | "in_progress"
+  | "stuck"
+  | "needs_info"
+  | "needs_invoice"
+  | "completed";
 
 /** الأرشيف: مكتمل أو ملغى */
 export type CoordinatorArchiveOrdersSegment = "completed" | "cancelled";

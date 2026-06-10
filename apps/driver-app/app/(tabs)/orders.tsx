@@ -31,6 +31,7 @@ import { clearDriverSession, getDriverSession } from "../../src/lib/session";
 import { useDriverStore } from "../../src/store";
 import { rtlText } from "../../src/lib/rtl-text";
 import { driverTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
+import { playDriverOrderPushSound } from "../../src/lib/order-push-sound";
 import { playOrderResumedSound } from "../../src/lib/order-resumed-sound";
 import { playNewPendingOrderSound } from "../../src/lib/pending-order-sound";
 import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
@@ -141,6 +142,7 @@ export default function DriverOrdersTab() {
       if (!p?.orderId) return;
       setPending((prev) => prev.filter((o) => o.id !== p.orderId));
       if (myDriverIdRef.current && p.driverId === myDriverIdRef.current) {
+        void playDriverOrderPushSound("ORDER_ASSIGNED");
         void loadRoomRef.current(false);
       }
     };
@@ -579,13 +581,7 @@ export default function DriverOrdersTab() {
         <View style={styles.header}>
           {connectionStatusRow}
           <Text style={styles.title}>غرفة الطلبات</Text>
-          <Text style={styles.subtitle}>
-            {inProgress
-              ? isEnRouteToCustomer(inProgress.status)
-                ? "أنت في الطريق إلى الزبون: أكد «تم اقلال الزبون» أو «لم أجد الزبون»."
-                : "الزبون في السيارة: اضغط «تم توصيل الزبون» بعد إنهاء التوصيل."
-              : "الطلبات المعلقة تظهر لحظيًا. بعد القبول تصبح «في الطريق إلى الزبون». الإلغاء من المنسق فقط."}
-          </Text>
+         
           {!isOnline ? (
             <Text style={styles.offlineHint}>فعّل بدء العمل من القائمة لاستلام الطلبات.</Text>
           ) : null}
@@ -625,7 +621,7 @@ export default function DriverOrdersTab() {
                         {busy ? (
                           <ActivityIndicator color={theme.colors.textInverse} />
                         ) : (
-                          <Text style={styles.btnPrimaryText}>تم اقلال الزبون</Text>
+                          <Text style={styles.btnPrimaryText}>تم استلام الزبون</Text>
                         )}
                       </Pressable>
                     </View>

@@ -45,6 +45,20 @@ ordersRouter.patch(
   orderMutationRateLimit,
   ordersController.updateCompletedAmount
 );
+ordersRouter.patch(
+  "/:orderId/mark-customer-info-sent",
+  requireAuth,
+  requireRole("COORDINATOR", "ADMIN"),
+  orderMutationRateLimit,
+  ordersController.markCustomerInfoSent
+);
+ordersRouter.patch(
+  "/:orderId/mark-invoice-sent",
+  requireAuth,
+  requireRole("COORDINATOR", "ADMIN"),
+  orderMutationRateLimit,
+  ordersController.markInvoiceSent
+);
 ordersRouter.patch("/:orderId/accept", requireAuth, requireRole("DRIVER"), orderMutationRateLimit, ordersController.acceptByDriver);
 ordersRouter.patch("/:orderId/board", requireAuth, requireRole("DRIVER"), orderMutationRateLimit, ordersController.boardCustomer);
 ordersRouter.patch(

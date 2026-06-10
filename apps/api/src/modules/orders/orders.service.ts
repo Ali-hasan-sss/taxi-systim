@@ -17,6 +17,49 @@ const orderIncludeDriverUser = {
   driver: { include: { user: { select: { fullName: true, phone: true } } } }
 } as const;
 
+const orderIncludeAdmin = {
+  ...orderIncludeDriverUser,
+  coordinator: { include: { user: { select: { fullName: true } } } }
+} as const;
+
+/** حالات «في الطريق إلى الزبون» التي تستحق إرسال معلومات السائق */
+const COORDINATOR_CUSTOMER_INFO_STATUSES = [
+  OrderStatus.EN_ROUTE_TO_CUSTOMER,
+  OrderStatus.ACCEPTED,
+  OrderStatus.ARRIVED
+] as const;
+
+export type CoordinatorOrdersListSegment =
+  | "pending"
+  | "in_progress"
+  | "stuck"
+  | "needs_info"
+  | "needs_invoice"
+  | "completed";
+
+function coordinatorCustomerPhoneWhere(): Prisma.OrderWhereInput {
+  return {
+    AND: [{ customerPhone: { not: null } }, { NOT: { customerPhone: "" } }]
+  };
+}
+
+function coordinatorNeedsInfoWhere(): Prisma.OrderWhereInput {
+  return {
+    status: { in: [...COORDINATOR_CUSTOMER_INFO_STATUSES] },
+    customerInfoSentAt: null,
+    driverId: { not: null },
+    ...coordinatorCustomerPhoneWhere()
+  };
+}
+
+function coordinatorNeedsInvoiceWhere(): Prisma.OrderWhereInput {
+  return {
+    status: OrderStatus.COMPLETED,
+    invoiceSentAt: null,
+    ...coordinatorCustomerPhoneWhere()
+  };
+}
+
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -92,8 +135,74 @@ export const COORDINATOR_REPORTS_PAGE_DEFAULT = 20;
 export const COORDINATOR_REPORTS_PAGE_MAX = 100;
 export const DRIVER_REPORTS_PAGE_DEFAULT = 20;
 export const DRIVER_REPORTS_PAGE_MAX = 100;
+export const ADMIN_ORDERS_ROOM_PAGE_DEFAULT = 30;
+export const ADMIN_ORDERS_ROOM_PAGE_MAX = 100;
 
 const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+type AdminOrdersRoomPhase = "pending" | "rest";
+
+type AdminOrdersRoomCursor = {
+  phase?: AdminOrdersRoomPhase;
+  createdAt: Date;
+  id: string;
+};
+
+function encodeAdminOrdersRoomCursor(row: AdminOrdersRoomCursor): string {
+  return Buffer.from(
+    JSON.stringify({
+      phase: row.phase,
+      createdAt: row.createdAt.toISOString(),
+      id: row.id
+    }),
+    "utf8"
+  ).toString("base64url");
+}
+
+function decodeAdminOrdersRoomCursor(cursor: string): AdminOrdersRoomCursor | null {
+  try {
+    const raw = Buffer.from(cursor, "base64url").toString("utf8");
+    const p = JSON.parse(raw) as { phase?: AdminOrdersRoomPhase; createdAt?: string; id?: string };
+    if (typeof p.createdAt !== "string" || typeof p.id !== "string") return null;
+    const d = new Date(p.createdAt);
+    if (Number.isNaN(d.getTime())) return null;
+    if (p.phase !== undefined && p.phase !== "pending" && p.phase !== "rest") return null;
+    return { phase: p.phase, createdAt: d, id: p.id };
+  } catch {
+    return null;
+  }
+}
+
+function ascOrderCursorWhere(
+  decoded: { createdAt: Date; id: string } | null | undefined
+): Prisma.OrderWhereInput | undefined {
+  if (!decoded) return undefined;
+  return {
+    OR: [
+      { createdAt: { gt: decoded.createdAt } },
+      { AND: [{ createdAt: decoded.createdAt }, { id: { gt: decoded.id } }] }
+    ]
+  };
+}
+
+function descOrderCursorWhere(
+  decoded: { createdAt: Date; id: string } | null | undefined
+): Prisma.OrderWhereInput | undefined {
+  if (!decoded) return undefined;
+  return {
+    OR: [
+      { createdAt: { lt: decoded.createdAt } },
+      { AND: [{ createdAt: decoded.createdAt }, { id: { lt: decoded.id } }] }
+    ]
+  };
+}
+
+function mergeOrderWhere(
+  base: Prisma.OrderWhereInput,
+  cursor?: Prisma.OrderWhereInput
+): Prisma.OrderWhereInput {
+  return cursor ? { AND: [base, cursor] } : base;
+}
 
 function encodeOrderCursor(row: { createdAt: Date; id: string }): string {
   return Buffer.from(
@@ -297,6 +406,8 @@ export const ordersService = {
       vehicleRequirement: row.vehicleRequirement,
       notes: row.notes,
       createdAt: row.createdAt.toISOString(),
+      customerInfoSentAt: row.customerInfoSentAt?.toISOString() ?? null,
+      invoiceSentAt: row.invoiceSentAt?.toISOString() ?? null,
       driver: row.driver
         ? {
             id: row.driver.id,
@@ -315,6 +426,14 @@ export const ordersService = {
 
   serializeCoordinatorOrderRow(row: Prisma.OrderGetPayload<{ include: typeof orderIncludeDriverUser }>) {
     return this.serializeDriverOrderRow(row);
+  },
+
+  serializeAdminOrderRow(row: Prisma.OrderGetPayload<{ include: typeof orderIncludeAdmin }>) {
+    const base = this.serializeDriverOrderRow(row);
+    return {
+      ...base,
+      coordinatorName: row.coordinator.user.fullName?.trim() || "—"
+    };
   },
 
   async createOrder(coordinatorUserId: string, payload: CreateOrderDto) {
@@ -465,8 +584,8 @@ export const ordersService = {
     opts?: {
       limit?: number;
       cursor?: string | null;
-      /** نشط: معلّق / في الطريق / متعثرة — بدونها = كل النشط */
-      activeSegment?: "pending" | "in_progress" | "stuck";
+      /** معلّق / متعثرة / بحاجة معلومات / بحاجة فاتورة / مكتملة — بدونها = الكل (غير الملغاة) */
+      activeSegment?: CoordinatorOrdersListSegment;
       /** أرشيف: مكتمل أو ملغى — بدونها = الاثنان */
       archiveSegment?: "completed" | "cancelled";
     }
@@ -500,7 +619,13 @@ export const ordersService = {
             ? { status: { in: [...inProgressStatuses] } }
             : opts?.activeSegment === "stuck"
               ? { status: OrderStatus.STUCK }
-              : { status: { notIn: [OrderStatus.COMPLETED, OrderStatus.CANCELLED] } };
+              : opts?.activeSegment === "needs_info"
+                ? coordinatorNeedsInfoWhere()
+                : opts?.activeSegment === "needs_invoice"
+                  ? coordinatorNeedsInvoiceWhere()
+                  : opts?.activeSegment === "completed"
+                    ? { status: OrderStatus.COMPLETED }
+                    : { status: { not: OrderStatus.CANCELLED } };
 
     const cursorWhere: Prisma.OrderWhereInput | undefined = decoded
       ? {
@@ -529,6 +654,173 @@ export const ordersService = {
       hasMore && page.length > 0 ? encodeOrderCursor(page[page.length - 1]!) : null;
 
     return { orders: page, nextCursor };
+  },
+
+  /** غرفة الطلبات للأدمن — دفعات مع فلترة حسب الشريحة */
+  async listForAdmin(opts?: {
+    activeSegment?: CoordinatorOrdersListSegment;
+    limit?: number;
+    cursor?: string | null;
+  }) {
+    const rawLimit = opts?.limit ?? ADMIN_ORDERS_ROOM_PAGE_DEFAULT;
+    const limit = Math.min(ADMIN_ORDERS_ROOM_PAGE_MAX, Math.max(1, rawLimit));
+    const seg = opts?.activeSegment;
+
+    if (seg === undefined) {
+      return this.listForAdminAll({ limit, cursor: opts?.cursor });
+    }
+
+    const inProgressStatuses = [
+      OrderStatus.EN_ROUTE_TO_CUSTOMER,
+      OrderStatus.STARTED,
+      OrderStatus.ACCEPTED,
+      OrderStatus.ARRIVED
+    ] as const;
+
+    const statusWhere: Prisma.OrderWhereInput =
+      seg === "pending"
+        ? { status: OrderStatus.PENDING }
+        : seg === "in_progress"
+          ? { status: { in: [...inProgressStatuses] } }
+          : seg === "stuck"
+            ? { status: OrderStatus.STUCK }
+            : seg === "needs_info"
+              ? coordinatorNeedsInfoWhere()
+              : seg === "needs_invoice"
+                ? coordinatorNeedsInvoiceWhere()
+                : seg === "completed"
+                  ? { status: OrderStatus.COMPLETED }
+                  : { status: { not: OrderStatus.CANCELLED } };
+
+    const orderAsc = seg === "pending";
+    const decoded = opts?.cursor ? decodeOrderCursor(opts.cursor) : null;
+    const cursorWhere = orderAsc ? ascOrderCursorWhere(decoded) : descOrderCursorWhere(decoded);
+    const where = mergeOrderWhere(statusWhere, cursorWhere);
+
+    const rows = await prisma.order.findMany({
+      where,
+      orderBy: orderAsc
+        ? [{ createdAt: "asc" }, { id: "asc" }]
+        : [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      include: orderIncludeAdmin
+    });
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasMore && page.length > 0 ? encodeOrderCursor(page[page.length - 1]!) : null;
+
+    return { orders: page, nextCursor };
+  },
+
+  /** تاب «الكل»: المعلّقة أولاً (الأقدم أولاً) ثم باقي الطلبات */
+  async listForAdminAll(opts: { limit: number; cursor?: string | null }) {
+    type AdminOrderRow = Prisma.OrderGetPayload<{ include: typeof orderIncludeAdmin }>;
+
+    const decoded = opts.cursor ? decodeAdminOrdersRoomCursor(opts.cursor) : null;
+    const startPhase: AdminOrdersRoomPhase = decoded?.phase ?? "pending";
+    let remaining = opts.limit;
+    const collected: AdminOrderRow[] = [];
+
+    if (startPhase === "pending") {
+      const pendingCursor =
+        decoded?.phase === "pending" ? ascOrderCursorWhere(decoded) : undefined;
+      const pendingWhere = mergeOrderWhere({ status: OrderStatus.PENDING }, pendingCursor);
+      const pendingRows = await prisma.order.findMany({
+        where: pendingWhere,
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        take: remaining + 1,
+        include: orderIncludeAdmin
+      });
+
+      const pendingHasMore = pendingRows.length > remaining;
+      const pendingPage = pendingHasMore ? pendingRows.slice(0, remaining) : pendingRows;
+      collected.push(...pendingPage);
+      remaining -= pendingPage.length;
+
+      if (pendingHasMore) {
+        const last = pendingPage[pendingPage.length - 1]!;
+        return {
+          orders: collected,
+          nextCursor: encodeAdminOrdersRoomCursor({
+            phase: "pending",
+            createdAt: last.createdAt,
+            id: last.id
+          })
+        };
+      }
+    }
+
+    if (remaining > 0) {
+      const restCursor = decoded?.phase === "rest" ? descOrderCursorWhere(decoded) : undefined;
+      const restWhere = mergeOrderWhere(
+        {
+          AND: [{ status: { not: OrderStatus.CANCELLED } }, { status: { not: OrderStatus.PENDING } }]
+        },
+        restCursor
+      );
+      const restRows = await prisma.order.findMany({
+        where: restWhere,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: remaining + 1,
+        include: orderIncludeAdmin
+      });
+
+      const restHasMore = restRows.length > remaining;
+      const restPage = restHasMore ? restRows.slice(0, remaining) : restRows;
+      collected.push(...restPage);
+
+      if (restHasMore) {
+        const last = restPage[restPage.length - 1]!;
+        return {
+          orders: collected,
+          nextCursor: encodeAdminOrdersRoomCursor({
+            phase: "rest",
+            createdAt: last.createdAt,
+            id: last.id
+          })
+        };
+      }
+    }
+
+    return { orders: collected, nextCursor: null };
+  },
+
+  async orderStatsForAdmin() {
+    const [filterAll, filterPending, filterStuck, filterCompleted, filterNeedsInfo, filterNeedsInvoice, filterInProgress] =
+      await Promise.all([
+        prisma.order.count({ where: { status: { not: OrderStatus.CANCELLED } } }),
+        prisma.order.count({ where: { status: OrderStatus.PENDING } }),
+        prisma.order.count({ where: { status: OrderStatus.STUCK } }),
+        prisma.order.count({ where: { status: OrderStatus.COMPLETED } }),
+        prisma.order.count({ where: coordinatorNeedsInfoWhere() }),
+        prisma.order.count({ where: coordinatorNeedsInvoiceWhere() }),
+        prisma.order.count({
+          where: {
+            status: {
+              in: [
+                OrderStatus.EN_ROUTE_TO_CUSTOMER,
+                OrderStatus.STARTED,
+                OrderStatus.ACCEPTED,
+                OrderStatus.ARRIVED
+              ]
+            }
+          }
+        })
+      ]);
+
+    return {
+      filterCounts: {
+        all: filterAll,
+        needs_info: filterNeedsInfo,
+        needs_invoice: filterNeedsInvoice,
+        stuck: filterStuck,
+        pending: filterPending,
+        completed: filterCompleted,
+        in_progress: filterInProgress
+      }
+    };
   },
 
   /** تقارير طلبات المنسق حسب تاريخ الإنشاء ضمن فترة، مع فلتر اختياري بالسائق وإجماليات كاملة. */
@@ -861,7 +1153,15 @@ export const ordersService = {
         cancelled: 0,
         stuckToday: 0,
         stuckActive: 0,
-        summaryDaySyria
+        summaryDaySyria,
+        filterCounts: {
+          all: 0,
+          needs_info: 0,
+          needs_invoice: 0,
+          stuck: 0,
+          pending: 0,
+          completed: 0
+        }
       };
     }
 
@@ -895,7 +1195,93 @@ export const ordersService = {
       where: { coordinatorId: coordinator.id, status: OrderStatus.STUCK }
     });
 
-    return { active, pending, completed, cancelled, stuckToday, stuckActive, summaryDaySyria };
+    const coordinatorBase = { coordinatorId: coordinator.id };
+    const [filterAll, filterPending, filterStuck, filterCompleted, filterNeedsInfo, filterNeedsInvoice] =
+      await Promise.all([
+        prisma.order.count({ where: { ...coordinatorBase, status: { not: OrderStatus.CANCELLED } } }),
+        prisma.order.count({ where: { ...coordinatorBase, status: OrderStatus.PENDING } }),
+        prisma.order.count({ where: { ...coordinatorBase, status: OrderStatus.STUCK } }),
+        prisma.order.count({ where: { ...coordinatorBase, status: OrderStatus.COMPLETED } }),
+        prisma.order.count({ where: { ...coordinatorBase, ...coordinatorNeedsInfoWhere() } }),
+        prisma.order.count({ where: { ...coordinatorBase, ...coordinatorNeedsInvoiceWhere() } })
+      ]);
+
+    return {
+      active,
+      pending,
+      completed,
+      cancelled,
+      stuckToday,
+      stuckActive,
+      summaryDaySyria,
+      filterCounts: {
+        all: filterAll,
+        needs_info: filterNeedsInfo,
+        needs_invoice: filterNeedsInvoice,
+        stuck: filterStuck,
+        pending: filterPending,
+        completed: filterCompleted
+      }
+    };
+  },
+
+  async markCustomerInfoSentByCoordinator(coordinatorUserId: string, orderId: string) {
+    const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
+    if (!coordinator) throw new AppError("ملف المنسق غير موجود", 404);
+
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, coordinatorId: coordinator.id },
+      include: orderIncludeDriverUser
+    });
+    if (!order) throw new AppError("الطلب غير موجود أو لا يخصّك", 404);
+
+    if (!(COORDINATOR_CUSTOMER_INFO_STATUSES as readonly OrderStatus[]).includes(order.status)) {
+      throw new AppError("لا يمكن إرسال معلومات السائق في هذه الحالة", 400);
+    }
+    if (!order.driverId) {
+      throw new AppError("لا يوجد سائق مُسند لهذا الطلب", 400);
+    }
+    const phone = order.customerPhone?.trim();
+    if (!phone) {
+      throw new AppError("لا يوجد رقم هاتف للزبون", 400);
+    }
+    if (order.customerInfoSentAt) {
+      return order;
+    }
+
+    return prisma.order.update({
+      where: { id: orderId },
+      data: { customerInfoSentAt: new Date() },
+      include: orderIncludeDriverUser
+    });
+  },
+
+  async markInvoiceSentByCoordinator(coordinatorUserId: string, orderId: string) {
+    const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
+    if (!coordinator) throw new AppError("ملف المنسق غير موجود", 404);
+
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, coordinatorId: coordinator.id },
+      include: orderIncludeDriverUser
+    });
+    if (!order) throw new AppError("الطلب غير موجود أو لا يخصّك", 404);
+
+    if (order.status !== OrderStatus.COMPLETED) {
+      throw new AppError("إرسال الفاتورة متاح للطلبات المكتملة فقط", 400);
+    }
+    const phone = order.customerPhone?.trim();
+    if (!phone) {
+      throw new AppError("لا يوجد رقم هاتف للزبون", 400);
+    }
+    if (order.invoiceSentAt) {
+      return order;
+    }
+
+    return prisma.order.update({
+      where: { id: orderId },
+      data: { invoiceSentAt: new Date() },
+      include: orderIncludeDriverUser
+    });
   },
 
   /** غرفة السائق: طلب قيد التنفيذ فقط إن وُجد، وإلا الطلبات المعلقة المتاحة له (بث). */
@@ -1046,7 +1432,7 @@ export const ordersService = {
       }
 
       if (order.status !== OrderStatus.STARTED) {
-        throw new AppError("أكمل «تم اقلال الزبون» أولًا ثم «تم توصيل الزبون».", 400);
+        throw new AppError("أكمل «تم استلام الزبون» أولًا ثم «تم توصيل الزبون».", 400);
       }
 
       const setting = await tx.systemSettings.findFirst({ where: { key: "commission" } });

@@ -6,6 +6,7 @@ import { settingsRouter } from "./modules/settings/settings.routes";
 import { usersRouter } from "./modules/users/users.routes";
 import { driversRouter } from "./modules/drivers/drivers.routes";
 import { chatRouter } from "./modules/chat/chat.routes";
+import { adminRouter } from "./modules/admin/admin.routes";
 
 export const apiRouter = Router();
 
@@ -16,3 +17,4 @@ apiRouter.use("/accounting", accountingRouter);
 apiRouter.use("/settings", settingsRouter);
 apiRouter.use("/users", usersRouter);
 apiRouter.use("/chat", chatRouter);
+apiRouter.use("/admin", adminRouter);

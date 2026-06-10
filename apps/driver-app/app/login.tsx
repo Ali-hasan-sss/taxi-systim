@@ -1,10 +1,9 @@
-import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import { useTheme, useThemedStyles, KeyboardAvoidingView } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -198,7 +197,7 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <DriverScreenBackground variant="auth">
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.kav}>
+        <KeyboardAvoidingView behavior="padding" style={styles.kav}>
           <ScrollView
             contentContainerStyle={[styles.scrollContent, { paddingTop: 12, paddingBottom: scrollBottomPad }]}
             keyboardShouldPersistTaps="handled"

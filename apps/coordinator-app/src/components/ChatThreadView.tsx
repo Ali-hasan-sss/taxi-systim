@@ -1,4 +1,13 @@
-import { useTheme, useThemedStyles, ChatHeaderPeer, ChatImageZoomModal, MessageReceipt, TypingIndicator } from "@taxi/expo-theme";
+import {
+  useTheme,
+  useThemedStyles,
+  ChatHeaderPeer,
+  ChatImageZoomModal,
+  KeyboardAvoidingView,
+  useKeyboardOpen,
+  MessageReceipt,
+  TypingIndicator
+} from "@taxi/expo-theme";
 import { chatSocketEvents, socketEvents, type ChatReceiptStatus } from "@taxi/config";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -7,7 +16,6 @@ import {
   FlatList,
   Image,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -93,6 +101,7 @@ type Props = {
 
 export function ChatThreadView({ roomId, title, subtitle, canArchive = false, onBack }: Props) {
   const insets = useSafeAreaInsets();
+  const keyboardOpen = useKeyboardOpen();
   const { theme } = useTheme();
   const [messages, setMessages] = useState<ChatMessageRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -597,8 +606,39 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
     );
   };
 
+  const composerBottomPad = keyboardOpen ? 10 : Math.max(insets.bottom, 10);
+
+  const composer = (
+    <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>
+      <Pressable
+        style={styles.iconBtn}
+        onPress={() => void handleCaptureImage()}
+        disabled={sending}
+        accessibilityLabel="التقاط صورة"
+      >
+        <Ionicons name="camera-outline" size={22} color={theme.colors.text} />
+      </Pressable>
+      <TextInput
+        style={styles.input}
+        value={draft}
+        onChangeText={onDraftChange}
+        placeholder="اكتب رسالة…"
+        placeholderTextColor={theme.colors.textMuted}
+        multiline
+        onFocus={() => setTimeout(() => scrollToBottom(true), 80)}
+      />
+      <Pressable style={[styles.iconBtn, styles.sendBtn]} onPress={() => void handleSend()} disabled={sending}>
+        {sending ? (
+          <ActivityIndicator color={theme.colors.textInverse} size="small" />
+        ) : (
+          <Ionicons name="send" size={20} color={theme.colors.textInverse} />
+        )}
+      </Pressable>
+    </View>
+  );
+
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={styles.root} behavior="padding">
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         {onBack ? (
           <Pressable style={styles.backBtn} onPress={onBack}>
@@ -719,32 +759,7 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
           </Pressable>
         </Pressable>
       </Modal>
-      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-        <Pressable
-          style={styles.iconBtn}
-          onPress={() => void handleCaptureImage()}
-          disabled={sending}
-          accessibilityLabel="التقاط صورة"
-        >
-          <Ionicons name="camera-outline" size={22} color={theme.colors.text} />
-        </Pressable>
-        <TextInput
-          style={styles.input}
-          value={draft}
-          onChangeText={onDraftChange}
-          placeholder="اكتب رسالة…"
-          placeholderTextColor={theme.colors.textMuted}
-          multiline
-          onFocus={() => setTimeout(() => scrollToBottom(true), 80)}
-        />
-        <Pressable style={[styles.iconBtn, styles.sendBtn]} onPress={() => void handleSend()} disabled={sending}>
-          {sending ? (
-            <ActivityIndicator color={theme.colors.textInverse} size="small" />
-          ) : (
-            <Ionicons name="send" size={20} color={theme.colors.textInverse} />
-          )}
-        </Pressable>
-      </View>
+      {composer}
     </KeyboardAvoidingView>
   );
 }

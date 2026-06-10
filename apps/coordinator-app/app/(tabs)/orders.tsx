@@ -1,4 +1,4 @@
-import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import { useTheme, useThemedStyles, KeyboardAvoidingView } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -21,6 +21,7 @@ import { io, type Socket } from "socket.io-client";
 import { CoordinatorOrderCard } from "../../src/components/CoordinatorOrderCard";
 import {
   type CoordinatorActiveOrdersSegment,
+  type CoordinatorOrderFilterCounts,
   type CoordinatorOrderRow,
   type DriverForAssignment,
   coordinatorAssignOrder,
@@ -33,11 +34,41 @@ import {
   getSocketOrigin
 } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
+import { playCoordinatorOrderPushSound } from "../../src/lib/order-push-sound";
 import { playOrderStuckSound } from "../../src/lib/order-stuck-sound";
 import { clearSession, getSession } from "../../src/lib/session";
 import { useCoordinatorStore } from "../../src/store";
 import { rtlText } from "../../src/lib/rtl-text";
 import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
+
+type OrderFilterDef = {
+  key: CoordinatorActiveOrdersSegment | null;
+  label: string;
+  countKey: keyof CoordinatorOrderFilterCounts;
+};
+
+const ORDER_FILTER_ROWS: OrderFilterDef[][] = [
+  [
+    { key: null, label: "الكل", countKey: "all" },
+    { key: "needs_invoice", label: "بحاجة فاتورة", countKey: "needs_invoice" },
+    { key: "needs_info", label: "بحاجة معلومات", countKey: "needs_info" }
+  ],
+  [
+    { key: "stuck", label: "متعثرة", countKey: "stuck" },
+    { key: "pending", label: "معلقة", countKey: "pending" },
+    { key: "completed", label: "مكتملة", countKey: "completed" }
+  ]
+];
+
+const EMPTY_FILTER_MESSAGES: Record<CoordinatorActiveOrdersSegment | "all", string> = {
+  all: "لا توجد طلبات. أنشئ طلبًا من زر + في الشريط السفلي.",
+  needs_info: "لا توجد طلبات بحاجة لإرسال معلومات السائق للزبون.",
+  needs_invoice: "لا توجد طلبات مكتملة بحاجة لإرسال فاتورة.",
+  stuck: "لا توجد طلبات متعثرة.",
+  pending: "لا توجد طلبات معلقة.",
+  completed: "لا توجد طلبات مكتملة.",
+  in_progress: "لا توجد طلبات في الطريق."
+};
 
 export default function OrdersTab() {
   const router = useRouter();
@@ -83,21 +114,26 @@ export default function OrdersTab() {
       marginBottom: 10,
       paddingHorizontal: 20
     },
-    filterScrollView: {
-      flexGrow: 0,
-      marginBottom: 12
-    },
-    filterScroll: {
-      flexDirection: "row" as const,
-      gap: 8,
+    filterPanel: {
       paddingHorizontal: 20,
-      paddingVertical: 4,
-      alignItems: "center" as const
+      paddingTop: 6,
+      marginBottom: 12,
+      gap: 8,
+      overflow: "visible" as const
+    },
+    filterRow: {
+      flexDirection: "row-reverse" as const,
+      gap: 8,
+      alignItems: "stretch" as const,
+      overflow: "visible" as const
     },
     filterChip: {
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 22,
+      flex: 1,
+      position: "relative" as const,
+      overflow: "visible" as const,
+      paddingVertical: 10,
+      paddingHorizontal: 8,
+      borderRadius: 14,
       backgroundColor: t.colors.filterBg,
       borderWidth: 1,
       borderColor: t.colors.filterBorder,
@@ -115,13 +151,48 @@ export default function OrdersTab() {
     filterChipText: {
       color: t.colors.filterText,
       fontWeight: "700" as const,
-      fontSize: 13,
-      lineHeight: 22,
+      fontSize: 12,
+      lineHeight: 18,
+      textAlign: "center" as const,
+      flexShrink: 1,
       ...rtlText,
       ...Platform.select({ android: { includeFontPadding: false }, default: {} })
     },
     filterChipTextActive: {
       color: t.colors.filterActiveText
+    },
+    filterBadge: {
+      position: "absolute" as const,
+      top: -8,
+      left: -4,
+      zIndex: 2,
+      minWidth: 20,
+      height: 20,
+      paddingHorizontal: 5,
+      borderRadius: 10,
+      backgroundColor: t.colors.chipBg,
+      borderWidth: 2,
+      borderColor: t.colors.background,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      ...Platform.select({
+        android: { elevation: 3 },
+        default: {}
+      })
+    },
+    filterBadgeActive: {
+      backgroundColor: t.colors.filterActiveText,
+      borderColor: t.colors.filterActiveBg
+    },
+    filterBadgeText: {
+      color: t.colors.chipText,
+      fontSize: 11,
+      fontWeight: "800" as const,
+      ...rtlText,
+      ...Platform.select({ android: { includeFontPadding: false }, default: {} })
+    },
+    filterBadgeTextActive: {
+      color: t.colors.filterActiveBg
     },
     error: {
       color: t.colors.danger,
@@ -322,6 +393,15 @@ export default function OrdersTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myCoordinatorId, setMyCoordinatorId] = useState<string | null>(null);
+  const [coordinatorFullName, setCoordinatorFullName] = useState("—");
+  const [filterCounts, setFilterCounts] = useState<CoordinatorOrderFilterCounts>({
+    all: 0,
+    needs_info: 0,
+    needs_invoice: 0,
+    stuck: 0,
+    pending: 0,
+    completed: 0
+  });
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
@@ -354,9 +434,11 @@ export default function OrdersTab() {
         coordinatorOrderStats(session.accessToken)
       ]);
       setMyCoordinatorId(me.coordinatorId);
+      if (me.fullName?.trim()) setCoordinatorFullName(me.fullName.trim());
       setOrders(page.orders);
       setNextCursor(page.nextCursor);
       setStuckOrdersCount(stats.stuckActive ?? 0);
+      if (stats.filterCounts) setFilterCounts(stats.filterCounts);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "حدث خطأ";
       setError(msg);
@@ -419,6 +501,15 @@ export default function OrdersTab() {
     }, [load])
   );
 
+  const listSegmentChangedRef = useRef(false);
+  useEffect(() => {
+    if (!listSegmentChangedRef.current) {
+      listSegmentChangedRef.current = true;
+      return;
+    }
+    void load(false);
+  }, [listSegment]);
+
   const orderRefreshTickRef = useRef(orderRefreshTick);
   useEffect(() => {
     if (orderRefreshTickRef.current === orderRefreshTick) return;
@@ -457,8 +548,16 @@ export default function OrdersTab() {
       const onStatusUpdated = (raw: unknown) => {
         const p = raw as { coordinatorId?: string; status?: string };
         const cid = myCoordinatorIdRef.current;
-        if (p?.status === "STUCK" && cid && p.coordinatorId === cid) {
+        if (!cid || p?.coordinatorId !== cid) {
+          maybeReload(p);
+          return;
+        }
+        if (p.status === "STUCK") {
           void playOrderStuckSound();
+        } else if (p.status === "EN_ROUTE_TO_CUSTOMER") {
+          void playCoordinatorOrderPushSound("ORDER_NEEDS_INFO");
+        } else if (p.status === "COMPLETED") {
+          void playCoordinatorOrderPushSound("ORDER_NEEDS_INVOICE");
         }
         maybeReload(p);
       };
@@ -691,7 +790,17 @@ export default function OrdersTab() {
       footer = <View style={styles.actions}>{chatBtn(item.id)}</View>;
     }
 
-    return <CoordinatorOrderCard item={item} footer={footer} />;
+    return (
+      <CoordinatorOrderCard
+        item={item}
+        footer={footer}
+        coordinatorFullName={coordinatorFullName}
+        onOrderUpdated={(row) => {
+          setOrders((prev) => prev.map((o) => (o.id === row.id ? row : o)));
+          void load(true);
+        }}
+      />
+    );
   };
 
   if (loading && orders.length === 0) {
@@ -705,43 +814,45 @@ export default function OrdersTab() {
 
   const listBottomPad = coordinatorTabBarOuterHeight(insets.bottom) + 24;
 
+  const renderFilterChip = ({ key, label, countKey }: OrderFilterDef) => {
+    const active = key === null ? listSegment === null : listSegment === key;
+    const count = filterCounts[countKey];
+    return (
+      <Pressable
+        key={key ?? "all"}
+        onPress={() => setListSegment(key)}
+        style={({ pressed }) => [
+          styles.filterChip,
+          active && styles.filterChipActive,
+          pressed && styles.filterChipPressed
+        ]}
+      >
+        {count > 0 ? (
+          <View style={[styles.filterBadge, active && styles.filterBadgeActive]}>
+            <Text style={[styles.filterBadgeText, active && styles.filterBadgeTextActive]}>
+              {count > 99 ? "99+" : String(count)}
+            </Text>
+          </View>
+        ) : null}
+        <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={2}>
+          {label}
+        </Text>
+      </Pressable>
+    );
+  };
+
   return (
     <View style={[styles.root, { paddingTop: 8 }]}>
       <Text style={styles.title}>طلباتي</Text>
-      <Text style={styles.subtitle}>
-        صفِّ حسب الحالة. المكتملة والملغاة في الأرشيف. مرّر للأسفل لتحميل المزيد (10 لكل دفعة).
-      </Text>
+     
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterScroll}
-        style={styles.filterScrollView}
-      >
-        {(
-          [
-            { key: "all" as const, label: "الكل" },
-            { key: "pending" as const, label: "معلقة" },
-            { key: "in_progress" as const, label: "في الطريق" },
-            { key: "stuck" as const, label: "متعثرة" }
-          ] as const
-        ).map(({ key, label }) => {
-          const active = key === "all" ? listSegment === null : listSegment === key;
-          return (
-            <Pressable
-              key={key}
-              onPress={() => setListSegment(key === "all" ? null : key)}
-              style={({ pressed }) => [
-                styles.filterChip,
-                active && styles.filterChipActive,
-                pressed && styles.filterChipPressed
-              ]}
-            >
-              <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <View style={styles.filterPanel}>
+        {ORDER_FILTER_ROWS.map((row, rowIndex) => (
+          <View key={rowIndex} style={styles.filterRow}>
+            {row.map(renderFilterChip)}
+          </View>
+        ))}
+      </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -766,18 +877,12 @@ export default function OrdersTab() {
         }
         ListEmptyComponent={
           <Text style={styles.empty}>
-            {listSegment === null
-              ? "لا توجد طلبات نشطة. أنشئ طلبًا من زر + في الشريط السفلي."
-              : listSegment === "pending"
-                ? "لا توجد طلبات معلقة ضمن هذا التصفية."
-                : listSegment === "in_progress"
-                  ? "لا توجد طلبات في الطريق ضمن هذا التصفية."
-                  : "لا توجد طلبات متعثرة ضمن هذا التصفية."}
+            {EMPTY_FILTER_MESSAGES[listSegment ?? "all"]}
           </Text>
         }
       />
       <Modal visible={assignModalOpen} animationType="slide" transparent onRequestClose={() => !assignSubmitting && setAssignModalOpen(false)}>
-        <View style={[styles.modalRoot, styles.rtlScreen]}>
+        <KeyboardAvoidingView trustSystemResize behavior="padding" style={[styles.modalRoot, styles.rtlScreen]}>
           <Pressable style={styles.modalBackdrop} onPress={() => !assignSubmitting && setAssignModalOpen(false)} />
           <View style={[styles.modalSheet, styles.rtlScreen, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
             <ScrollView
@@ -835,7 +940,7 @@ export default function OrdersTab() {
               {assignSubmitting ? <ActivityIndicator color={theme.colors.accent} style={{ marginTop: 8 }} /> : null}
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

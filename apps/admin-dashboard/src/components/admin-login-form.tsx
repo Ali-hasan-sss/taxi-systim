@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../lib/api";
 import { useAuthStore } from "../store/auth.store";
+import { DashboardBrandLogo } from "./dashboard-brand-logo";
 
 export const AdminLoginForm = () => {
   const router = useRouter();
@@ -42,30 +43,44 @@ export const AdminLoginForm = () => {
   };
 
   return (
-    <form onSubmit={onSubmit} className="card" style={{ padding: 24, width: "100%", maxWidth: 420 }}>
-      <h2 style={{ marginTop: 0, marginBottom: 8 }}>تسجيل دخول الأدمن</h2>
-      <p style={{ marginTop: 0, marginBottom: 20, color: "#6b7280" }}>لوحة إدارة شركة التكسي</p>
+    <form onSubmit={onSubmit} className="card login-card">
+      <div className="login-card__brand">
+        <div className="login-card__logo">
+          <DashboardBrandLogo priority />
+        </div>
+        <div>
+          <h2 className="login-card__title">Taxi Bro</h2>
+          <p className="login-card__subtitle">لوحة إدارة شركة التكسي</p>
+        </div>
+      </div>
 
-      <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>البريد الإلكتروني</label>
-      <input
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        type="email"
-        required
-        style={{ width: "100%", padding: 10, marginBottom: 12, borderRadius: 10, border: "1px solid #d1d5db" }}
-      />
+      <div className="login-field">
+        <label htmlFor="admin-email">البريد الإلكتروني</label>
+        <input
+          id="admin-email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          type="email"
+          required
+          autoComplete="username"
+        />
+      </div>
 
-      <label style={{ display: "block", marginBottom: 6, fontSize: 14 }}>كلمة المرور</label>
-      <input
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        type="password"
-        required
-        style={{ width: "100%", padding: 10, marginBottom: 16, borderRadius: 10, border: "1px solid #d1d5db" }}
-      />
+      <div className="login-field">
+        <label htmlFor="admin-password">كلمة المرور</label>
+        <input
+          id="admin-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          type="password"
+          required
+          autoComplete="current-password"
+        />
+      </div>
 
-      {error ? <p style={{ color: "#dc2626", marginTop: 0 }}>{error}</p> : null}
-      <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: "100%" }}>
+      {error ? <p className="login-error">{error}</p> : null}
+
+      <button className="btn btn-primary login-submit" type="submit" disabled={loading}>
         {loading ? "جاري تسجيل الدخول..." : "دخول"}
       </button>
     </form>

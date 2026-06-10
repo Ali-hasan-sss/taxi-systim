@@ -17,6 +17,7 @@
     "@react-native-community/datetimepicker": "^9.1.0",
     "@taxi/config": "workspace:*",
     "@taxi/expo-api-base": "workspace:*",
+    "@taxi/expo-push": "workspace:*",
     "@taxi/expo-theme": "workspace:*",
     "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.34",

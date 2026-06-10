@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
+import { PanelRightOpen, Search, X } from "lucide-react";
 import { api, getSocketOrigin, type AdminLiveDriver, type LiveDriverSummary } from "../../../lib/api";
 import styles from "./page.module.css";
 
@@ -86,6 +87,7 @@ export default function DriversDistributionPage() {
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedDriverFocusKey, setSelectedDriverFocusKey] = useState(0);
   const [fullscreenMap, setFullscreenMap] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [modalDriver, setModalDriver] = useState<AdminLiveDriver | null>(null);
   const [form, setForm] = useState<OrderFormState>({
     customerName: "",
@@ -308,7 +310,31 @@ export default function DriversDistributionPage() {
     } else {
       setNotice(null);
     }
+
+    if (window.matchMedia("(max-width: 960px)").matches) {
+      setSidebarOpen(false);
+    }
   };
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const mq = window.matchMedia("(max-width: 960px)");
+    if (!mq.matches) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sidebarOpen]);
 
   const openOrderModal = (driver: AdminLiveDriver) => {
     if (!driver.isOnline) {
@@ -386,6 +412,142 @@ export default function DriversDistributionPage() {
     }
   };
 
+  const sidebarPanel = (
+    <>
+      <section className={`card ${styles.panel}`}>
+        <div className={styles.panelHeader}>
+          <div>
+            <h3 className={styles.panelTitle}>السائقون والخيارات</h3>
+            <p className={styles.panelHint}>ابحث، فلتر، واختر سائقًا لتمييزه على الخريطة.</p>
+          </div>
+          <div className={styles.panelHeaderActions}>
+            <span className={styles.countChip}>{drivers.length}</span>
+            <button
+              type="button"
+              className={styles.sidebarCloseBtn}
+              onClick={() => setSidebarOpen(false)}
+              aria-label="إغلاق القائمة"
+            >
+              <X size={18} strokeWidth={2.2} aria-hidden />
+            </button>
+          </div>
+        </div>
+
+        <div className={styles.switchColumn}>
+          <label className={styles.switchRow}>
+            <span>تتبع مباشر</span>
+            <input
+              className={styles.switchInput}
+              type="checkbox"
+              checked={liveTracking}
+              onChange={(event) => setLiveTracking(event.target.checked)}
+            />
+          </label>
+          <label className={styles.switchRow}>
+            <span>عرض غير النشطين</span>
+            <input
+              className={styles.switchInput}
+              type="checkbox"
+              checked={includeInactive}
+              onChange={(event) => setIncludeInactive(event.target.checked)}
+            />
+          </label>
+        </div>
+
+        <div className={styles.searchBox}>
+          <Search className={styles.searchIconSvg} size={18} strokeWidth={2.2} aria-hidden />
+          <input
+            className={styles.searchInput}
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="ابحث عن سائق بالاسم أو الهاتف"
+          />
+        </div>
+
+        <div className={styles.driverList}>
+          {loading ? (
+            <p className={styles.emptyState}>جاري تحميل بيانات السائقين…</p>
+          ) : drivers.length === 0 ? (
+            <p className={styles.emptyState}>لا يوجد سائقون مطابقون للفلاتر الحالية.</p>
+          ) : (
+            drivers.map((driver) => {
+              const active = driver.driverId === selectedDriverId;
+              return (
+                <article
+                  key={driver.driverId}
+                  className={`${styles.driverItem} ${active ? styles.driverItemActive : ""}`}
+                >
+                  <button
+                    type="button"
+                    className={styles.driverItemButton}
+                    onClick={() => focusDriverFromSidebar(driver)}
+                  >
+                    <div className={styles.driverHeading}>
+                      <div>
+                        <h4 className={styles.driverName}>{driver.fullName}</h4>
+                        <p className={styles.driverVehicle}>{formatVehicle(driver)}</p>
+                      </div>
+                      <span className={`${styles.statusBadge} ${getStatusClass(driver)}`}>{formatStatus(driver)}</span>
+                    </div>
+
+                    <div className={styles.driverSubRow}>
+                      <span className={styles.driverPhone}>{driver.phone || "لا يوجد رقم هاتف"}</span>
+                      <span className={styles.driverPhone}>
+                        {hasDriverLocation(driver) ? "له موقع ظاهر على الخريطة" : "لا يوجد موقع مباشر"}
+                      </span>
+                    </div>
+                  </button>
+
+                  <div className={styles.driverActions}>
+                    <button
+                      type="button"
+                      className={`${styles.driverActionButton} ${styles.driverActionSecondary}`}
+                      onClick={() => openWhatsApp(driver)}
+                      disabled={!driver.phone}
+                    >
+                      واتساب
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.driverActionButton} ${styles.driverActionPrimary}`}
+                      onClick={() => openOrderModal(driver)}
+                      disabled={!driver.isOnline || driver.isBusy}
+                    >
+                      إضافة طلب
+                    </button>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      <section className={`card ${styles.statsCard}`}>
+        <div className={styles.statsHeader}>
+          <h3 className={styles.statsTitle}>إحصائيات سريعة</h3>
+          <span className={`${styles.socketBadge} ${socketStatusClass}`}>{socketStatusLabel}</span>
+        </div>
+
+        <div className={styles.statsGrid}>
+          <div className={styles.statRow}>
+            <span className={styles.statLabel}>إجمالي السائقين</span>
+            <span className={`${styles.statValue} ${styles.statValuePrimary}`}>{summary.totalDrivers}</span>
+          </div>
+          <div className={styles.statRow}>
+            <span className={styles.statLabel}>السائقون النشطون</span>
+            <span className={`${styles.statValue} ${styles.statValueSuccess}`}>{summary.activeDrivers}</span>
+          </div>
+          <div className={styles.statRow}>
+            <span className={styles.statLabel}>على الخريطة</span>
+            <span className={`${styles.statValue} ${styles.statValueInfo}`}>{summary.driversOnMap}</span>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+
   return (
     <div className={styles.page}>
       <section className={`card ${styles.introCard}`}>
@@ -399,143 +561,29 @@ export default function DriversDistributionPage() {
       {notice ? <p className={styles.feedback}>{notice}</p> : null}
       {error ? <p className={`${styles.feedback} ${styles.feedbackError}`}>{error}</p> : null}
 
-      <div className={styles.layoutGrid}>
-        <div className={styles.sidebarColumn}>
-          <section className={`card ${styles.panel}`}>
-            <div className={styles.panelHeader}>
-              <div>
-                <h3 className={styles.panelTitle}>السائقون</h3>
-                <p className={styles.panelHint}>اختر سائقًا من القائمة لتمييزه على الخريطة وفتح الإجراءات السريعة.</p>
-              </div>
-              <span className={styles.countChip}>{drivers.length}</span>
-            </div>
-
-            <div className={styles.switchColumn}>
-              <label className={styles.switchRow}>
-                <span>تتبع مباشر</span>
-                <input
-                  className={styles.switchInput}
-                  type="checkbox"
-                  checked={liveTracking}
-                  onChange={(event) => setLiveTracking(event.target.checked)}
-                />
-              </label>
-              <label className={styles.switchRow}>
-                <span>عرض غير النشطين</span>
-                <input
-                  className={styles.switchInput}
-                  type="checkbox"
-                  checked={includeInactive}
-                  onChange={(event) => setIncludeInactive(event.target.checked)}
-                />
-              </label>
-            </div>
-
-            <div className={styles.searchBox}>
-              <span className={styles.searchIcon} aria-hidden>
-                🔎
-              </span>
-              <input
-                className={styles.searchInput}
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="ابحث عن سائق بالاسم أو الهاتف"
-              />
-            </div>
-
-            <div className={styles.driverList}>
-              {loading ? (
-                <p className={styles.emptyState}>جاري تحميل بيانات السائقين…</p>
-              ) : drivers.length === 0 ? (
-                <p className={styles.emptyState}>لا يوجد سائقون مطابقون للفلاتر الحالية.</p>
-              ) : (
-                drivers.map((driver) => {
-                  const active = driver.driverId === selectedDriverId;
-                  return (
-                    <article
-                      key={driver.driverId}
-                      className={`${styles.driverItem} ${active ? styles.driverItemActive : ""}`}
-                    >
-                      <button
-                        type="button"
-                        className={styles.driverItemButton}
-                        onClick={() => focusDriverFromSidebar(driver)}
-                      >
-                        <div className={styles.driverHeading}>
-                          <div>
-                            <h4 className={styles.driverName}>{driver.fullName}</h4>
-                            <p className={styles.driverVehicle}>{formatVehicle(driver)}</p>
-                          </div>
-                          <span className={`${styles.statusBadge} ${getStatusClass(driver)}`}>{formatStatus(driver)}</span>
-                        </div>
-
-                        <div className={styles.driverSubRow}>
-                          <span className={styles.driverPhone}>{driver.phone || "لا يوجد رقم هاتف"}</span>
-                          <span className={styles.driverPhone}>
-                            {hasDriverLocation(driver) ? "له موقع ظاهر على الخريطة" : "لا يوجد موقع مباشر"}
-                          </span>
-                        </div>
-                      </button>
-
-                      <div className={styles.driverActions}>
-                        <button
-                          type="button"
-                          className={`${styles.driverActionButton} ${styles.driverActionSecondary}`}
-                          onClick={() => openWhatsApp(driver)}
-                          disabled={!driver.phone}
-                        >
-                          واتساب
-                        </button>
-                        <button
-                          type="button"
-                          className={`${styles.driverActionButton} ${styles.driverActionPrimary}`}
-                          onClick={() => openOrderModal(driver)}
-                          disabled={!driver.isOnline || driver.isBusy}
-                        >
-                          إضافة طلب
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
-          <section className={`card ${styles.statsCard}`}>
-            <div className={styles.statsHeader}>
-              <h3 className={styles.statsTitle}>إحصائيات سريعة</h3>
-              <span className={`${styles.socketBadge} ${socketStatusClass}`}>{socketStatusLabel}</span>
-            </div>
-
-            <div className={styles.statsGrid}>
-              <div className={styles.statRow}>
-                <span className={styles.statLabel}>إجمالي السائقين</span>
-                <span className={`${styles.statValue} ${styles.statValuePrimary}`}>{summary.totalDrivers}</span>
-              </div>
-              <div className={styles.statRow}>
-                <span className={styles.statLabel}>السائقون النشطون</span>
-                <span className={`${styles.statValue} ${styles.statValueSuccess}`}>{summary.activeDrivers}</span>
-              </div>
-              <div className={styles.statRow}>
-                <span className={styles.statLabel}>على الخريطة</span>
-                <span className={`${styles.statValue} ${styles.statValueInfo}`}>{summary.driversOnMap}</span>
-              </div>
-            </div>
-          </section>
-        </div>
-
+      <div className={`${styles.layoutGrid}${sidebarOpen ? ` ${styles.layoutSidebarOpen}` : ""}`}>
         <section className={`card ${styles.mapCard} ${fullscreenMap ? styles.mapCardFullscreen : ""}`}>
           <div className={styles.mapHeader}>
-            <div>
-              <h3 className={styles.mapTitle}>خريطة التوزع المباشر</h3>
-              <p className={styles.mapHint}>اختر سائقًا من القائمة أو اضغط اسمه على الخريطة لمراجعة بياناته الحالية.</p>
-              {selectedDriver ? (
-                <span className={styles.selectedBadge}>
-                  المحدد الآن: {selectedDriver.fullName} {hasDriverLocation(selectedDriver) ? "• موقع ظاهر" : "• بدون موقع"}
-                </span>
-              ) : null}
+            <div className={styles.mapHeaderMain}>
+              <button
+                type="button"
+                className={styles.sidebarToggleBtn}
+                onClick={() => setSidebarOpen(true)}
+                aria-label="فتح قائمة السائقين والخيارات"
+                aria-expanded={sidebarOpen}
+              >
+                <PanelRightOpen size={20} strokeWidth={2.2} aria-hidden />
+              </button>
+              <div>
+                <h3 className={styles.mapTitle}>خريطة التوزع المباشر</h3>
+                <p className={styles.mapHint}>اختر سائقًا من القائمة أو اضغط اسمه على الخريطة لمراجعة بياناته الحالية.</p>
+                {selectedDriver ? (
+                  <span className={styles.selectedBadge}>
+                    المحدد الآن: {selectedDriver.fullName}{" "}
+                    {hasDriverLocation(selectedDriver) ? "• موقع ظاهر" : "• بدون موقع"}
+                  </span>
+                ) : null}
+              </div>
             </div>
 
             <div className={styles.mapActions}>
@@ -569,6 +617,17 @@ export default function DriversDistributionPage() {
             />
           </div>
         </section>
+
+        {sidebarOpen ? (
+          <button
+            type="button"
+            className={styles.sidebarBackdrop}
+            onClick={() => setSidebarOpen(false)}
+            aria-label="إغلاق قائمة السائقين"
+          />
+        ) : null}
+
+        <aside className={styles.sidebarColumn}>{sidebarPanel}</aside>
       </div>
 
       {modalDriver ? (

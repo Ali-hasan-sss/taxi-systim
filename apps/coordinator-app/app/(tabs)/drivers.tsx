@@ -1,9 +1,8 @@
-import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import { useTheme, useThemedStyles, KeyboardAvoidingView } from "@taxi/expo-theme";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -936,7 +935,7 @@ export default function DriversTab() {
       )}
 
       <Modal visible={quickOpen} animationType="slide" transparent onRequestClose={closeQuickOrder}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.quickModalRoot}>
+        <KeyboardAvoidingView trustSystemResize behavior="padding" style={styles.quickModalRoot}>
           <Pressable style={styles.quickBackdrop} onPress={closeQuickOrder} />
           <View style={[styles.quickSheet, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
             <Text style={styles.quickTitle}>طلب سريع للسائق</Text>

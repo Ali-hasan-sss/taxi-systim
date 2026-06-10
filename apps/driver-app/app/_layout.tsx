@@ -1,10 +1,11 @@
-import { ThemeProvider, useTheme, SystemChrome } from "@taxi/expo-theme";
+import { ThemeProvider, useTheme, SystemChrome, KeyboardInsetsProvider } from "@taxi/expo-theme";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ChatSocketProvider } from "../src/chat-socket-context";
+import { DriverPushBootstrap } from "../src/lib/expo-push";
 import { FeedbackHost } from "../src/lib/feedback";
 
 function RootLayoutInner() {
@@ -14,6 +15,7 @@ function RootLayoutInner() {
     <View style={{ flex: 1, direction: "rtl", backgroundColor: theme.colors.background }}>
       <StatusBar style={theme.statusBar} />
       <SystemChrome />
+      <DriverPushBootstrap />
       <ChatSocketProvider>
         <Stack
           screenOptions={{
@@ -31,9 +33,11 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider accent="driver">
-          <RootLayoutInner />
-        </ThemeProvider>
+        <KeyboardInsetsProvider>
+          <ThemeProvider accent="driver">
+            <RootLayoutInner />
+          </ThemeProvider>
+        </KeyboardInsetsProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

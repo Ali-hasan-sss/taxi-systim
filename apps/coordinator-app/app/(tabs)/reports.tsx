@@ -1,9 +1,8 @@
-import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import { useTheme, useThemedStyles, KeyboardAvoidingView } from "@taxi/expo-theme";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -680,11 +679,7 @@ export default function ReportsTab() {
       />
 
       <Modal visible={driverModalOpen} animationType="slide" transparent onRequestClose={() => setDriverModalOpen(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
-          style={styles.modalRoot}
-        >
+        <KeyboardAvoidingView trustSystemResize behavior="padding" keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0} style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => setDriverModalOpen(false)} />
           <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
             <Text style={styles.modalTitle}>اختر سائقًا للتقرير</Text>

@@ -3,6 +3,12 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, type Employee, type VehicleKind } from "../../../lib/api";
+import { useDebouncedSearch } from "../../../lib/use-debounced-value";
+import {
+  downloadDriversImportTemplate,
+  parseDriversExcelBuffer,
+  type ParsedDriverImportRow
+} from "../../../lib/parse-drivers-excel";
 
 type RoleFilter = "ALL" | "ADMIN" | "COORDINATOR" | "DRIVER";
 
@@ -32,10 +38,20 @@ export default function EmployeesPage() {
   const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
+  const [searchDraft, setSearchDraft] = useState("");
+  const { query: searchQuery, isPending: searchPending } = useDebouncedSearch(searchDraft);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importRows, setImportRows] = useState<ParsedDriverImportRow[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importResult, setImportResult] = useState<{
+    createdCount: number;
+    failed: { row: number; fullName: string; reason: string }[];
+  } | null>(null);
   const [rowLoadingId, setRowLoadingId] = useState<string | null>(null);
 
   const [editId, setEditId] = useState<string | null>(null);
@@ -43,7 +59,7 @@ export default function EmployeesPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Employee["role"]>("COORDINATOR");
+  const [role, setRole] = useState<Employee["role"]>("DRIVER");
   const [vehicleBrand, setVehicleBrand] = useState("");
   const [vehicleKind, setVehicleKind] = useState<"" | VehicleKind>("");
   const [vehicleColor, setVehicleColor] = useState("");
@@ -67,7 +83,10 @@ export default function EmployeesPage() {
     setLoading(true);
     setError(null);
     try {
-      const list = await api.listEmployees(token, roleFilter === "ALL" ? undefined : { role: roleFilter });
+      const list = await api.listEmployees(token, {
+        role: roleFilter === "ALL" ? undefined : roleFilter,
+        q: searchQuery || undefined
+      });
       setEmployees(list);
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تحميل الموظفين";
@@ -85,7 +104,7 @@ export default function EmployeesPage() {
   useEffect(() => {
     void loadEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roleFilter]);
+  }, [roleFilter, searchQuery]);
 
   const resetForm = () => {
     setEditId(null);
@@ -93,7 +112,7 @@ export default function EmployeesPage() {
     setEmail("");
     setPhone("");
     setPassword("");
-    setRole("COORDINATOR");
+    setRole("DRIVER");
     setVehicleBrand("");
     setVehicleKind("");
     setVehicleColor("");
@@ -204,6 +223,50 @@ export default function EmployeesPage() {
     }
   };
 
+  const resetImportModal = () => {
+    setShowImportModal(false);
+    setImportRows([]);
+    setImportErrors([]);
+    setImportResult(null);
+  };
+
+  const onImportFile = async (file: File | null) => {
+    if (!file) return;
+    setImportResult(null);
+    setImportErrors([]);
+    setImportRows([]);
+    try {
+      const buffer = await file.arrayBuffer();
+      const parsed = parseDriversExcelBuffer(buffer);
+      setImportErrors(parsed.errors);
+      setImportRows(parsed.rows);
+    } catch {
+      setImportErrors(["تعذر قراءة ملف Excel."]);
+    }
+  };
+
+  const onSubmitImport = async () => {
+    if (!token || !importRows.length) return;
+    setImporting(true);
+    setError(null);
+    setImportResult(null);
+    try {
+      const result = await api.bulkCreateDrivers(token, importRows);
+      setImportResult(result);
+      await loadEmployees();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "فشل استيراد السائقين";
+      if (message === "SESSION_EXPIRED") {
+        localStorage.removeItem("taxi_admin_session");
+        router.replace("/login");
+        return;
+      }
+      setError(message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const onDelete = async (item: Employee) => {
     if (!token) return;
     if (!confirm(`هل أنت متأكد من حذف الموظف ${item.fullName}؟`)) return;
@@ -227,27 +290,55 @@ export default function EmployeesPage() {
   return (
     <div className="dashboard-page employees-page">
       <div className="card employees-toolbar">
-        <p className="employees-toolbar__hint">إضافة، تعديل، حذف، تفعيل وتعطيل حسب الدور</p>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => {
-            setError(null);
-            setEditId(null);
-            setName("");
-            setEmail("");
-            setPhone("");
-            setPassword("");
-            setRole("COORDINATOR");
-            setVehicleBrand("");
-            setVehicleKind("");
-            setVehicleColor("");
-            setPlateNumber("");
-            setShowModal(true);
-          }}
-        >
-          + إضافة موظف
-        </button>
+        <div className="employees-toolbar__main">
+          <p className="employees-toolbar__hint">إضافة، تعديل، حذف، تفعيل وتعطيل حسب الدور</p>
+          <div className="employees-search">
+            <input
+              className="input-styled employees-search__input"
+              type="search"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              placeholder="بحث بالاسم، البريد، الهاتف، أو بيانات المركبة…"
+              aria-label="بحث الموظفين"
+            />
+            {searchPending || (loading && searchDraft.trim()) ? (
+              <span className="employees-search__pending">جاري البحث…</span>
+            ) : null}
+          </div>
+        </div>
+        <div className="employees-toolbar__actions">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              setError(null);
+              resetImportModal();
+              setShowImportModal(true);
+            }}
+          >
+            استيراد سائقين (Excel)
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setError(null);
+              setEditId(null);
+              setName("");
+              setEmail("");
+              setPhone("");
+              setPassword("");
+              setRole("DRIVER");
+              setVehicleBrand("");
+              setVehicleKind("");
+              setVehicleColor("");
+              setPlateNumber("");
+              setShowModal(true);
+            }}
+          >
+            + إضافة موظف
+          </button>
+        </div>
       </div>
 
       <section className="card employees-table-card">
@@ -414,9 +505,9 @@ export default function EmployeesPage() {
 
               <div className="select-wrap select-wrap--narrow">
                 <select className="select-styled" value={role} onChange={(e) => setRole(e.target.value as Employee["role"])}>
-                  <option value="ADMIN">أدمن</option>
-                  <option value="COORDINATOR">منسق</option>
                   <option value="DRIVER">سائق</option>
+                  <option value="COORDINATOR">منسق</option>
+                  <option value="ADMIN">أدمن</option>
                 </select>
                 <span className="select-wrap__chevron" aria-hidden>
                   ▼
@@ -441,6 +532,110 @@ export default function EmployeesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {showImportModal ? (
+        <div className="modal-backdrop" onClick={resetImportModal} role="presentation">
+          <div className="card modal-panel modal-panel--wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="modal-panel__header">
+              <h3>استيراد سائقين من Excel</h3>
+              <button type="button" className="btn btn-ghost" onClick={resetImportModal}>
+                إغلاق
+              </button>
+            </div>
+
+            <div className="import-drivers">
+              <p className="import-drivers__hint">
+                ارفع ملف Excel يحتوي الأعمدة: الاسم، الهاتف، نوع السيارة (عامة/خاصة)، لون السيارة، رقم اللوحة، كلمة
+                المرور.
+              </p>
+              <div className="import-drivers__actions">
+                <button type="button" className="btn btn-ghost" onClick={downloadDriversImportTemplate}>
+                  تنزيل قالب Excel
+                </button>
+                <label className="btn btn-primary import-drivers__fileBtn">
+                  اختيار ملف Excel
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    className="import-drivers__fileInput"
+                    onChange={(e) => void onImportFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+              </div>
+
+              {importErrors.length ? (
+                <ul className="import-drivers__errors">
+                  {importErrors.map((msg) => (
+                    <li key={msg}>{msg}</li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {importRows.length ? (
+                <>
+                  <p className="import-drivers__summary">جاهز للاستيراد: {importRows.length} سائق</p>
+                  <div className="table-scroll import-drivers__preview">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>الاسم</th>
+                          <th>الهاتف</th>
+                          <th>نوع السيارة</th>
+                          <th>اللون</th>
+                          <th>اللوحة</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importRows.slice(0, 8).map((row, index) => (
+                          <tr key={`${row.phone}-${index}`}>
+                            <td>{row.fullName}</td>
+                            <td>{row.phone}</td>
+                            <td>{row.vehicleKind ? vehicleKindText[row.vehicleKind] : "—"}</td>
+                            <td>{row.vehicleColor || "—"}</td>
+                            <td>{row.plateNumber || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {importRows.length > 8 ? (
+                    <p className="import-drivers__more">… و{importRows.length - 8} سائقين إضافيين</p>
+                  ) : null}
+                </>
+              ) : null}
+
+              {importResult ? (
+                <div className="import-drivers__result">
+                  <p>تم إنشاء {importResult.createdCount} سائق بنجاح.</p>
+                  {importResult.failed.length ? (
+                    <ul className="import-drivers__errors">
+                      {importResult.failed.map((item) => (
+                        <li key={`${item.row}-${item.fullName}`}>
+                          الصف {item.row} ({item.fullName}): {item.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="modal-form__actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={importing || !importRows.length}
+                  onClick={() => void onSubmitImport()}
+                >
+                  {importing ? "جاري الاستيراد…" : `استيراد ${importRows.length || ""} سائق`}
+                </button>
+                <button type="button" className="btn" onClick={resetImportModal} disabled={importing}>
+                  إلغاء
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
