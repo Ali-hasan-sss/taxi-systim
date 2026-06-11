@@ -1308,6 +1308,32 @@ body {
   font-size: 1.05rem;
 }
 
+.employees-push-cell {
+  width: 52px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.employees-push-bell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #fef2f2;
+}
+
+.employees-push-bell--on {
+  color: #16a34a;
+  background: #f0fdf4;
+}
+
+.employees-push-bell--off {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
 .select-wrap {
   position: relative;
   display: inline-block;

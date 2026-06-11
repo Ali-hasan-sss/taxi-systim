@@ -3,6 +3,8 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
+const LOG = "[expo-push]";
+
 export type PushRegistrationResult =
   | { ok: true; token: string }
   | {
@@ -21,7 +23,11 @@ function resolveExpoProjectId(): string | undefined {
   const fromExtra = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
   if (fromExtra && fromExtra.length > 8 && !fromExtra.includes("NEED")) return fromExtra;
   const legacy = (Constants as unknown as { easConfig?: { projectId?: string } }).easConfig?.projectId;
-  return legacy && legacy.length > 8 ? legacy : undefined;
+  if (legacy && legacy.length > 8) return legacy;
+  const manifest2 = Constants.manifest2 as { extra?: { expoClient?: { extra?: { eas?: { projectId?: string } } } } } | null;
+  const fromManifest2 = manifest2?.extra?.expoClient?.extra?.eas?.projectId;
+  if (fromManifest2 && fromManifest2.length > 8) return fromManifest2;
+  return undefined;
 }
 
 /** يُستدعى مرة عند بدء التطبيق — إظهار الإشعار في المقدمة. */
@@ -71,8 +77,52 @@ export async function ensureAndroidNotificationChannel(
   });
 }
 
+export type PushRegistrationFailure = Extract<PushRegistrationResult, { ok: false }>;
+
+function isPushRegistrationFailure(result: PushRegistrationResult): result is PushRegistrationFailure {
+  return result.ok === false;
+}
+
+export function logPushRegistrationResult(result: PushRegistrationResult): void {
+  if (isPushRegistrationFailure(result)) {
+    console.warn(`${LOG} not registered:`, result.reason, result.message ?? "");
+    return;
+  }
+  console.info(`${LOG} registered on server`, result.token.slice(0, 24) + "…");
+}
+
+/** إعادة المحاولة بعد تسجيل الدخول — FCM قد لا يكون جاهزًا فورًا. */
+export async function retryExpoPushRegistration(
+  deps: PushRegistrationDeps,
+  options?: { attempts?: number; delayMs?: number }
+): Promise<PushRegistrationResult> {
+  const attempts = options?.attempts ?? 10;
+  const delayMs = options?.delayMs ?? 3000;
+  let last: PushRegistrationResult = { ok: false, reason: "no_session" };
+
+  for (let i = 0; i < attempts; i++) {
+    const outcome = await ensureExpoPushRegistration(deps);
+    last = outcome;
+    logPushRegistrationResult(outcome);
+    if (outcome.ok) return outcome;
+    if (isPushRegistrationFailure(outcome)) {
+      if (outcome.reason === "simulator" || outcome.reason === "permission_denied") return outcome;
+    }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return last;
+}
+
 /** تسجيل صلاحية الإشعار وإرسال رمز Expo إلى الخادم. */
 export async function ensureExpoPushRegistration(deps: PushRegistrationDeps): Promise<PushRegistrationResult> {
+  if (Constants.appOwnership === "expo" && Platform.OS === "android") {
+    return {
+      ok: false,
+      reason: "server_error",
+      message: "Expo Go على أندرويد لا يدعم Push — ثبّت APK من EAS"
+    };
+  }
+
   const accessToken = await deps.getAccessToken();
   if (!accessToken) return { ok: false, reason: "no_session" };
   if (!Device.isDevice) return { ok: false, reason: "simulator" };
@@ -86,18 +136,36 @@ export async function ensureExpoPushRegistration(deps: PushRegistrationDeps): Pr
 
   const projectId = resolveExpoProjectId();
   if (!projectId) {
-    return { ok: false, reason: "no_project_id", message: "missing EAS projectId in app.json extra.eas" };
+    return {
+      ok: false,
+      reason: "no_project_id",
+      message: "missing EAS projectId — تحقق من app.json extra.eas.projectId"
+    };
+  }
+
+  let expoToken: string;
+  try {
+    const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId });
+    expoToken = tokenResult.data ?? "";
+    if (!expoToken) return { ok: false, reason: "no_token", message: "getExpoPushTokenAsync returned empty" };
+    console.info(`${LOG} device token obtained`, expoToken.slice(0, 24) + "…");
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "getExpoPushTokenAsync failed";
+    console.warn(`${LOG} FCM/token error:`, message);
+    return {
+      ok: false,
+      reason: "no_token",
+      message: `${message} — ارفع FCM V1 في: eas credentials (Android → Push Notifications)`
+    };
   }
 
   try {
-    const { data: expoToken } = await Notifications.getExpoPushTokenAsync({ projectId });
-    if (!expoToken) return { ok: false, reason: "no_token" };
+    console.info(`${LOG} POST /auth/push-token…`);
     await deps.registerToken(accessToken, expoToken);
-    if (__DEV__) console.info("[expo-push] registered", expoToken.slice(0, 24) + "…");
     return { ok: true, token: expoToken };
   } catch (e) {
-    const message = e instanceof Error ? e.message : "registration failed";
-    if (__DEV__) console.warn("[expo-push] registration failed", message);
+    const message = e instanceof Error ? e.message : "API registration failed";
+    console.warn(`${LOG} API error:`, message);
     return { ok: false, reason: "server_error", message };
   }
 }

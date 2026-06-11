@@ -41,6 +41,7 @@ export const usersService = {
         role: true,
         isActive: true,
         createdAt: true,
+        expoPushToken: true,
         driver: {
           select: {
             id: true,

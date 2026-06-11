@@ -1,4 +1,10 @@
-import { ensureExpoPushRegistration, ExpoPushBootstrap, shouldLoadExpoPushModule } from "@taxi/expo-push";
+import {
+  ExpoPushBootstrap,
+  resetPushRegistrationState,
+  retryExpoPushRegistration,
+  shouldLoadExpoPushModule,
+  type PushRegistrationResult
+} from "@taxi/expo-push";
 import { useCallback } from "react";
 import { clearExpoPushToken, registerExpoPushToken } from "./api";
 import { setupDriverOrderPushHandlers } from "./push-order-notifications";
@@ -25,6 +31,7 @@ export function DriverPushBootstrap() {
 }
 
 export async function unregisterDriverPushOnServer(): Promise<void> {
+  resetPushRegistrationState();
   const session = await getDriverSession();
   if (!session?.accessToken) return;
   try {
@@ -36,9 +43,9 @@ export async function unregisterDriverPushOnServer(): Promise<void> {
 
 export { ensureExpoPushRegistration, shouldLoadExpoPushModule } from "@taxi/expo-push";
 
-export async function ensurePushRegistrationForDriver(): Promise<void> {
-  await ensureExpoPushRegistration({
-    getAccessToken: async () => (await getDriverSession())?.accessToken,
+export async function ensurePushRegistrationForDriver(accessToken?: string): Promise<PushRegistrationResult> {
+  return retryExpoPushRegistration({
+    getAccessToken: async () => accessToken ?? (await getDriverSession())?.accessToken,
     registerToken: registerExpoPushToken,
     channelName: "الطلبات"
   });

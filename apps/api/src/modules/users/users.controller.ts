@@ -10,7 +10,12 @@ export const usersController = {
   async list(req: Request, res: Response) {
     const query = listUsersQueryDto.parse(req.query);
     const users = await usersService.list({ role: query.role, isActive: query.isActive, q: query.q });
-    res.json(users);
+    res.json(
+      users.map(({ expoPushToken, ...user }) => ({
+        ...user,
+        hasPushToken: Boolean(expoPushToken?.trim())
+      }))
+    );
   },
 
   async create(req: Request, res: Response) {

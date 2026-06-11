@@ -30,6 +30,8 @@ export interface Employee {
   role: "ADMIN" | "COORDINATOR" | "DRIVER";
   isActive: boolean;
   createdAt: string;
+  /** هل سجّل الجهاز رمز Expo Push (من قائمة الموظفين — بدون طلب إضافي) */
+  hasPushToken?: boolean;
   driver?: EmployeeDriverProfile | null;
 }
 

@@ -12,6 +12,7 @@ import {
   requestDriverLocationAccess,
   type DriverLocationAccessState
 } from "../src/lib/location-access";
+import { ensurePushRegistrationForDriver } from "../src/lib/expo-push";
 import { rtlText } from "../src/lib/rtl-text";
 import { getDriverSession } from "../src/lib/session";
 import { useDriverStore } from "../src/store";
@@ -169,6 +170,7 @@ export default function DriverLocationAccessScreen() {
 
         if (isDriverLocationReady(nextState)) {
           setOnline(true);
+          void ensurePushRegistrationForDriver(session.accessToken);
           router.replace("/(tabs)");
           return;
         }

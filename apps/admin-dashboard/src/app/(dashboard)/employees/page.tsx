@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Bell } from "lucide-react";
 import { api, type Employee, type VehicleKind } from "../../../lib/api";
 import { useDebouncedSearch } from "../../../lib/use-debounced-value";
 import {
@@ -32,6 +33,20 @@ function formatDriverVehicleRow(item: Employee): string {
   if (d.vehicleColor?.trim()) parts.push(d.vehicleColor.trim());
   if (d.vehicleNumber?.trim()) parts.push(`لوحة: ${d.vehicleNumber.trim()}`);
   return parts.length ? parts.join(" · ") : "—";
+}
+
+function PushTokenBell({ item }: { item: Employee }) {
+  const registered = item.hasPushToken === true;
+  const label = registered ? "إشعارات الجوال: مسجّل" : "إشعارات الجوال: غير مسجّل";
+  return (
+    <span
+      className={`employees-push-bell ${registered ? "employees-push-bell--on" : "employees-push-bell--off"}`}
+      title={label}
+      aria-label={label}
+    >
+      <Bell size={18} strokeWidth={2.25} aria-hidden />
+    </span>
+  );
 }
 
 export default function EmployeesPage() {
@@ -376,6 +391,7 @@ export default function EmployeesPage() {
                   <th>البريد</th>
                   <th>الهاتف</th>
                   <th>الدور</th>
+                  <th>إشعارات</th>
                   <th>المركبة (سائق)</th>
                   <th>الحالة</th>
                   <th>الإجراءات</th>
@@ -388,6 +404,9 @@ export default function EmployeesPage() {
                     <td>{item.email ?? "—"}</td>
                     <td>{item.phone ?? "—"}</td>
                     <td>{roleText[item.role]}</td>
+                    <td className="employees-push-cell">
+                      <PushTokenBell item={item} />
+                    </td>
                     <td className="employees-vehicle-cell">{formatDriverVehicleRow(item)}</td>
                     <td>
                       <label className="switch-row">

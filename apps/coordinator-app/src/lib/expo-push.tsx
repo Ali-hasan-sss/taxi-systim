@@ -1,4 +1,10 @@
-import { ensureExpoPushRegistration, ExpoPushBootstrap, shouldLoadExpoPushModule } from "@taxi/expo-push";
+import {
+  ExpoPushBootstrap,
+  resetPushRegistrationState,
+  retryExpoPushRegistration,
+  shouldLoadExpoPushModule,
+  type PushRegistrationResult
+} from "@taxi/expo-push";
 import { useCallback } from "react";
 import { clearExpoPushToken, registerExpoPushToken } from "./api";
 import { setupCoordinatorOrderPushHandlers } from "./push-order-notifications";
@@ -25,6 +31,7 @@ export function CoordinatorPushBootstrap() {
 }
 
 export async function unregisterCoordinatorPushOnServer(): Promise<void> {
+  resetPushRegistrationState();
   const session = await getSession();
   if (!session?.accessToken) return;
   try {
@@ -36,9 +43,9 @@ export async function unregisterCoordinatorPushOnServer(): Promise<void> {
 
 export { ensureExpoPushRegistration, shouldLoadExpoPushModule } from "@taxi/expo-push";
 
-export async function ensurePushRegistrationForCoordinator(): Promise<void> {
-  await ensureExpoPushRegistration({
-    getAccessToken: async () => (await getSession())?.accessToken,
+export async function ensurePushRegistrationForCoordinator(accessToken?: string): Promise<PushRegistrationResult> {
+  return retryExpoPushRegistration({
+    getAccessToken: async () => accessToken ?? (await getSession())?.accessToken,
     registerToken: registerExpoPushToken,
     channelName: "الطلبات"
   });

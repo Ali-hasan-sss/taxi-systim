@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
 import { Redirect, type Href } from "expo-router";
 import { getDriverLocationAccessState, isDriverLocationReady } from "../src/lib/location-access";
+import { ensurePushRegistrationForDriver } from "../src/lib/expo-push";
 import { getDriverSession } from "../src/lib/session";
 import { useDriverStore } from "../src/store";
 
@@ -22,6 +23,8 @@ export default function Index() {
           setTarget("/login");
           return;
         }
+
+        void ensurePushRegistrationForDriver(s.accessToken);
 
         const locationState = await getDriverLocationAccessState();
         if (!alive) return;

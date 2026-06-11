@@ -76,6 +76,7 @@ export const authController = {
     try {
       const body = expoPushTokenDto.parse(req.body);
       await authService.setExpoPushToken(req.auth!.userId, body.token);
+      console.info("[auth] push-token registered", req.auth!.userId, body.token.slice(0, 24) + "…");
       res.status(204).end();
     } catch (err) {
       next(err);
