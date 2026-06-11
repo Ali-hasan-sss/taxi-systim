@@ -26,7 +26,8 @@ function applyMonorepoMetroConfig(config, projectRoot) {
     react: packageRootFrom(projectRoot, "react"),
     "react-native": packageRootFrom(projectRoot, "react-native"),
     "@taxi/expo-theme": path.resolve(monorepoRoot, "packages/expo-theme"),
-    "@taxi/expo-api-base": path.resolve(monorepoRoot, "packages/expo-api-base")
+    "@taxi/expo-api-base": path.resolve(monorepoRoot, "packages/expo-api-base"),
+    "@taxi/expo-push": path.resolve(monorepoRoot, "packages/expo-push")
   };
 
   return config;
