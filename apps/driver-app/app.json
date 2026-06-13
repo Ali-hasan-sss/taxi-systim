@@ -68,7 +68,7 @@
     "android": {
       "package": "com.taxioffice.driver",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 2,
+      "versionCode": 3,
       "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",
       "navigationBar": {
