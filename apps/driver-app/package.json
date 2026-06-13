@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "expo start --offline",
-    "eas:android:preview": "eas build --platform android --profile preview",
-    "eas:android:production": "eas build --platform android --profile production",
+    "eas:android:preview": "node ../../scripts/verify-google-services.cjs apps/driver-app && eas build --platform android --profile preview",
+    "eas:android:production": "node ../../scripts/verify-google-services.cjs apps/driver-app && eas build --platform android --profile production",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },

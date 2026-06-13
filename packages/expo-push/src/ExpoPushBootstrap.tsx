@@ -55,9 +55,7 @@ export function ExpoPushBootstrap(props: ExpoPushBootstrapProps) {
       }
     };
 
-    void import("expo-notifications").then(() => {
-      if (cancelled) return;
-
+    void (async () => {
       configureForegroundNotificationHandler();
 
       void attemptRegistration();
@@ -76,7 +74,7 @@ export function ExpoPushBootstrap(props: ExpoPushBootstrapProps) {
         const cleanup = setup();
         if (typeof cleanup === "function") removeHandlers = cleanup;
       }
-    });
+    })();
 
     return () => {
       cancelled = true;
