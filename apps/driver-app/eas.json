@@ -16,7 +16,6 @@
     },
     "preview": {
       "extends": "monorepo",
-      "prebuildCommand": "node ../../scripts/verify-google-services.cjs apps/driver-app",
       "distribution": "internal",
       "env": {
         "EXPO_USE_FAST_RESOLVER": "1",
@@ -28,7 +27,6 @@
     },
     "production": {
       "extends": "monorepo",
-      "prebuildCommand": "node ../../scripts/verify-google-services.cjs apps/driver-app",
       "distribution": "store",
       "env": {
         "EXPO_USE_FAST_RESOLVER": "1",
