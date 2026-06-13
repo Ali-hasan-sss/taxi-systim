@@ -1,0 +1,16 @@
+{
+  "_comment": "نزّل الملف الحقيقي من Firebase Console → تطبيق Android بـ package com.taxioffice.coordinator",
+  "_comment2": "احفظه باسم google-services.json بجانب هذا الملف ثم أعد بناء EAS",
+  "project_info": {
+    "project_id": "taxi-pro-c3a54"
+  },
+  "client": [
+    {
+      "client_info": {
+        "android_client_info": {
+          "package_name": "com.taxioffice.coordinator"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "_comment": "نزّل الملف الحقيقي من Firebase Console → تطبيق Android بـ package com.taxioffice.driver",
+  "_comment2": "احفظه باسم google-services.json بجانب هذا الملف ثم أعد بناء EAS",
+  "project_info": {
+    "project_number": "YOUR_PROJECT_NUMBER",
+    "project_id": "taxi-pro-c3a54",
+    "storage_bucket": "taxi-pro-c3a54.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:XXXX:android:XXXX",
+        "android_client_info": {
+          "package_name": "com.taxioffice.driver"
+        }
+      }
+    }
+  ]
+}

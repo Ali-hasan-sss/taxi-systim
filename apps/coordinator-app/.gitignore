@@ -9,7 +9,6 @@
 *.p12
 upload-keystore.properties
 credentials.json
-google-services.json
 GoogleService-Info.plist
 
 # Expo / EAS محلي

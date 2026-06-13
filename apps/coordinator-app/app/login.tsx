@@ -13,7 +13,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { coordinatorLogin } from "../src/lib/api";
-import { ensurePushRegistrationForCoordinator } from "../src/lib/expo-push";
+import { ensurePushRegistrationForCoordinator, isPushRegistrationFailure } from "../src/lib/expo-push";
+import { feedback } from "../src/lib/feedback";
 import { saveSession } from "../src/lib/session";
 import { rtlText } from "../src/lib/rtl-text";
 
@@ -158,7 +159,14 @@ export default function LoginScreen() {
     try {
       const result = await coordinatorLogin(trimmedPhone, password);
       await saveSession(JSON.stringify(result));
-      await ensurePushRegistrationForCoordinator(result.accessToken);
+      const pushResult = await ensurePushRegistrationForCoordinator(result.accessToken);
+      if (isPushRegistrationFailure(pushResult)) {
+        feedback.warning(
+          pushResult.message ??
+            `تعذر تسجيل إشعارات الجهاز (${pushResult.reason}). راجع docs/PUSH-SETUP-AR.md`,
+          "إشعارات الجوال"
+        );
+      }
       router.replace("/(tabs)");
     } catch (e) {
       setError(e instanceof Error ? e.message : "حدث خطأ غير متوقع.");

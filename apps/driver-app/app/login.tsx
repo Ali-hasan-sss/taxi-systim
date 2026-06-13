@@ -14,7 +14,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverScreenBackground } from "../src/components/DriverScreenBackground";
 import { driverLogin } from "../src/lib/api";
-import { ensurePushRegistrationForDriver } from "../src/lib/expo-push";
+import { ensurePushRegistrationForDriver, isPushRegistrationFailure } from "../src/lib/expo-push";
+import { feedback } from "../src/lib/feedback";
 import { getDriverLocationAccessState, isDriverLocationReady } from "../src/lib/location-access";
 import { rtlText } from "../src/lib/rtl-text";
 import { saveDriverSession } from "../src/lib/session";
@@ -178,7 +179,14 @@ export default function LoginScreen() {
     try {
       const session = await driverLogin(trimmedPhone, password);
       await saveDriverSession(JSON.stringify(session));
-      void ensurePushRegistrationForDriver(session.accessToken);
+      const pushResult = await ensurePushRegistrationForDriver(session.accessToken);
+      if (isPushRegistrationFailure(pushResult)) {
+        feedback.warning(
+          pushResult.message ??
+            `تعذر تسجيل إشعارات الجهاز (${pushResult.reason}). راجع docs/PUSH-SETUP-AR.md — غالباً ينقص google-services.json`,
+          "إشعارات الجوال"
+        );
+      }
       const locationState = await getDriverLocationAccessState();
       if (isDriverLocationReady(locationState)) {
         setOnline(true);

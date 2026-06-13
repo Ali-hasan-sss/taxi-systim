@@ -41,7 +41,11 @@ export async function unregisterCoordinatorPushOnServer(): Promise<void> {
   }
 }
 
-export { ensureExpoPushRegistration, shouldLoadExpoPushModule } from "@taxi/expo-push";
+export {
+  ensureExpoPushRegistration,
+  isPushRegistrationFailure,
+  shouldLoadExpoPushModule
+} from "@taxi/expo-push";
 
 export async function ensurePushRegistrationForCoordinator(accessToken?: string): Promise<PushRegistrationResult> {
   return retryExpoPushRegistration({

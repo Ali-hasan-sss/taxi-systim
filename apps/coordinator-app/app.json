@@ -68,7 +68,8 @@
     },
     "android": {
       "package": "com.taxioffice.coordinator",
-      "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
+      "versionCode": 2,
       "usesCleartextTraffic": true,
       "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",

@@ -79,7 +79,7 @@ export async function ensureAndroidNotificationChannel(
 
 export type PushRegistrationFailure = Extract<PushRegistrationResult, { ok: false }>;
 
-function isPushRegistrationFailure(result: PushRegistrationResult): result is PushRegistrationFailure {
+export function isPushRegistrationFailure(result: PushRegistrationResult): result is PushRegistrationFailure {
   return result.ok === false;
 }
 
@@ -152,10 +152,14 @@ export async function ensureExpoPushRegistration(deps: PushRegistrationDeps): Pr
   } catch (e) {
     const message = e instanceof Error ? e.message : "getExpoPushTokenAsync failed";
     console.warn(`${LOG} FCM/token error:`, message);
+    const needsGoogleServices =
+      /FirebaseApp is not initialized|google-services/i.test(message);
     return {
       ok: false,
       reason: "no_token",
-      message: `${message} — ارفع FCM V1 في: eas credentials (Android → Push Notifications)`
+      message: needsGoogleServices
+        ? `${message} — أضف google-services.json من Firebase إلى مجلد التطبيق (انظر docs/PUSH-SETUP-AR.md) ثم أعد بناء EAS`
+        : `${message} — تحقق من FCM V1 و google-services.json و SHA-1 في Firebase`
     };
   }
 

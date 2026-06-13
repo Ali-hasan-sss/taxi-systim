@@ -41,7 +41,11 @@ export async function unregisterDriverPushOnServer(): Promise<void> {
   }
 }
 
-export { ensureExpoPushRegistration, shouldLoadExpoPushModule } from "@taxi/expo-push";
+export {
+  ensureExpoPushRegistration,
+  isPushRegistrationFailure,
+  shouldLoadExpoPushModule
+} from "@taxi/expo-push";
 
 export async function ensurePushRegistrationForDriver(accessToken?: string): Promise<PushRegistrationResult> {
   return retryExpoPushRegistration({
