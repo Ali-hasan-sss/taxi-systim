@@ -137,6 +137,8 @@ export const DRIVER_REPORTS_PAGE_DEFAULT = 20;
 export const DRIVER_REPORTS_PAGE_MAX = 100;
 export const ADMIN_ORDERS_ROOM_PAGE_DEFAULT = 30;
 export const ADMIN_ORDERS_ROOM_PAGE_MAX = 100;
+export const ADMIN_ORDERS_PAGE_DEFAULT = 20;
+export const ADMIN_ORDERS_PAGE_MAX = 100;
 
 const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -1622,6 +1624,132 @@ export const ordersService = {
         where: { id: orderId },
         include: orderIncludeDriverUser
       });
+    });
+  },
+
+  /** قائمة الطلبات للأدمن — جدول مع بحث وفلترة حسب الحالة وترقيم الصفحات */
+  async listOrdersForAdminTable(opts?: {
+    status?: OrderStatus;
+    q?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const rawLimit = opts?.limit ?? ADMIN_ORDERS_PAGE_DEFAULT;
+    const limit = Math.min(ADMIN_ORDERS_PAGE_MAX, Math.max(1, rawLimit));
+    const page = Math.max(1, opts?.page ?? 1);
+    const skip = (page - 1) * limit;
+
+    const q = opts?.q?.trim();
+    const searchWhere: Prisma.OrderWhereInput | undefined = q
+      ? {
+          OR: [
+            { pickupAddress: { contains: q, mode: "insensitive" } },
+            { dropoffAddress: { contains: q, mode: "insensitive" } },
+            { coordinator: { user: { fullName: { contains: q, mode: "insensitive" } } } },
+            { driver: { user: { fullName: { contains: q, mode: "insensitive" } } } }
+          ]
+        }
+      : undefined;
+
+    const statusWhere: Prisma.OrderWhereInput | undefined =
+      opts?.status !== undefined ? { status: opts.status } : undefined;
+
+    const where: Prisma.OrderWhereInput =
+      statusWhere && searchWhere
+        ? { AND: [statusWhere, searchWhere] }
+        : statusWhere ?? searchWhere ?? {};
+
+    const [total, rows] = await Promise.all([
+      prisma.order.count({ where }),
+      prisma.order.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip,
+        take: limit,
+        include: orderIncludeAdmin
+      })
+    ]);
+
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    return {
+      orders: rows,
+      total,
+      page,
+      limit,
+      totalPages
+    };
+  },
+
+  async orderStatusCountsForAdminTable() {
+    const statuses = Object.values(OrderStatus);
+    const [all, ...statusCounts] = await Promise.all([
+      prisma.order.count(),
+      ...statuses.map((status) => prisma.order.count({ where: { status } }))
+    ]);
+    const byStatus = Object.fromEntries(statuses.map((status, i) => [status, statusCounts[i] ?? 0])) as Record<
+      OrderStatus,
+      number
+    >;
+    return { all, byStatus };
+  },
+
+  async updateOrderAmountByAdmin(orderId: string, newAmount: number) {
+    const order = await prisma.order.findFirst({
+      where: { id: orderId },
+      include: { coordinator: { select: { userId: true } } }
+    });
+    if (!order) throw new AppError("الطلب غير موجود", 404);
+    await this.updateOrderAmountByCoordinator(order.coordinator.userId, orderId, newAmount);
+    return prisma.order.findFirstOrThrow({
+      where: { id: orderId },
+      include: orderIncludeAdmin
+    });
+  },
+
+  async deleteOrderByAdmin(orderId: string) {
+    return prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { commission: true }
+      });
+      if (!order) throw new AppError("الطلب غير موجود", 404);
+
+      if (order.commission) {
+        const paid = toNum(order.commission.paidAmount);
+        if (paid > 0) {
+          throw new AppError("لا يمكن حذف الطلب بعد تسديد جزء من عمولة السائق", 400);
+        }
+
+        if (order.status === OrderStatus.COMPLETED && order.driverId) {
+          const amount = toNum(order.amount);
+          const commissionAmount = toNum(order.commission.calculatedCommission);
+          const balance = await tx.driverBalance.findUnique({ where: { driverId: order.driverId } });
+          if (balance) {
+            await tx.driverBalance.update({
+              where: { driverId: order.driverId },
+              data: {
+                totalEarnings: new Prisma.Decimal((toNum(balance.totalEarnings) - amount).toFixed(2)),
+                totalCommissions: new Prisma.Decimal(
+                  (toNum(balance.totalCommissions) - commissionAmount).toFixed(2)
+                ),
+                remainingDebt: new Prisma.Decimal((toNum(balance.remainingDebt) - commissionAmount).toFixed(2)),
+                availableBalance: new Prisma.Decimal(
+                  (toNum(balance.availableBalance) - (amount - commissionAmount)).toFixed(2)
+                )
+              }
+            });
+          }
+        }
+
+        await tx.commissionPayment.deleteMany({ where: { commissionId: order.commission.id } });
+        await tx.commission.delete({ where: { orderId } });
+      }
+
+      await tx.financialTransaction.deleteMany({ where: { referenceId: orderId } });
+      await tx.order.delete({ where: { id: orderId } });
+
+      return { id: orderId };
     });
   }
 };

@@ -163,6 +163,31 @@ export interface AdminOrdersRoomFilterCounts {
   in_progress: number;
 }
 
+export type AdminOrderStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "ARRIVED"
+  | "EN_ROUTE_TO_CUSTOMER"
+  | "STARTED"
+  | "STUCK"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export type AdminOrderStatusFilter = AdminOrderStatus | "ALL";
+
+export interface AdminOrdersTableStats {
+  all: number;
+  byStatus: Record<AdminOrderStatus, number>;
+}
+
+export interface AdminOrdersTableResponse {
+  orders: AdminOrderRoomRow[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export type DriverLiveStatus = "online" | "busy" | "offline";
 
 export type OrderBroadcastTarget = "ALL" | "NEAREST_THREE";
@@ -358,6 +383,51 @@ export const api = {
       completed: 0,
       in_progress: 0
     };
+  },
+
+  async listAdminOrders(
+    accessToken: string,
+    params?: {
+      status?: AdminOrderStatusFilter;
+      q?: string;
+      page?: number;
+      limit?: number;
+    }
+  ) {
+    const query = new URLSearchParams({ t: String(Date.now()) });
+    if (params?.status && params.status !== "ALL") query.set("status", params.status);
+    if (params?.q?.trim()) query.set("q", params.q.trim());
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.limit) query.set("limit", String(params.limit));
+    const res = await authorizedFetch(`/admin/orders?${query.toString()}`, { method: "GET", cache: "no-store" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل الطلبات"));
+    return res.json() as Promise<AdminOrdersTableResponse>;
+  },
+
+  async getAdminOrdersStats(accessToken: string) {
+    const res = await authorizedFetch("/admin/orders/stats", { method: "GET", cache: "no-store" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل إحصائيات الطلبات"));
+    return res.json() as Promise<AdminOrdersTableStats>;
+  },
+
+  async updateAdminOrderAmount(accessToken: string, orderId: string, amount: number) {
+    const res = await authorizedFetch(
+      `/admin/orders/${encodeURIComponent(orderId)}/amount`,
+      { method: "PATCH", body: JSON.stringify({ amount }) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تعديل الأجرة"));
+    return res.json() as Promise<AdminOrderRoomRow>;
+  },
+
+  async deleteAdminOrder(accessToken: string, orderId: string) {
+    const res = await authorizedFetch(
+      `/admin/orders/${encodeURIComponent(orderId)}`,
+      { method: "DELETE" },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر حذف الطلب"));
+    return res.json() as Promise<{ id: string }>;
   },
 
   async listEmployees(accessToken: string, params?: { role?: Employee["role"]; q?: string }) {

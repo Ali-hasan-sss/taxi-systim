@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ClipboardList,
   Home,
+  ListOrdered,
   MapPinned,
   MessageSquareText,
   Settings,
@@ -23,6 +24,7 @@ function navIcon(Icon: LucideIcon) {
 
 export const DashboardHomeIcon = navIcon(Home);
 export const DashboardOrdersRoomIcon = navIcon(ClipboardList);
+export const DashboardOrdersListIcon = navIcon(ListOrdered);
 export const DashboardChatIcon = navIcon(MessageSquareText);
 export const DashboardEmployeesIcon = navIcon(Users);
 export const DashboardDriversIcon = navIcon(MapPinned);

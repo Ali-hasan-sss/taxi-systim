@@ -8,6 +8,7 @@ import {
   DashboardEmployeesIcon,
   DashboardFinanceIcon,
   DashboardHomeIcon,
+  DashboardOrdersListIcon,
   DashboardOrdersRoomIcon,
   DashboardSettingsIcon
 } from "./dashboard-nav-icons";
@@ -15,20 +16,35 @@ import { DashboardBrandLogo } from "./dashboard-brand-logo";
 
 type NavIcon = typeof DashboardHomeIcon;
 
-const navItems: {
+type NavItem = {
   href: string;
   label: string;
   mobileLabel: string;
   icon: NavIcon;
-}[] = [
+  nested?: boolean;
+};
+
+const navItems: NavItem[] = [
   { href: "/", label: "الرئيسية", mobileLabel: "الرئيسية", icon: DashboardHomeIcon },
   { href: "/orders-room", label: "غرفة الطلبات", mobileLabel: "الطلبات", icon: DashboardOrdersRoomIcon },
+  { href: "/orders", label: "جميع الطلبات", mobileLabel: "الجدول", icon: DashboardOrdersListIcon, nested: true },
   { href: "/chat", label: "المحادثات", mobileLabel: "المحادثات", icon: DashboardChatIcon },
   { href: "/employees", label: "الموظفون", mobileLabel: "الموظفون", icon: DashboardEmployeesIcon },
   { href: "/drivers-distribution", label: "توزع السائقين", mobileLabel: "السائقون", icon: DashboardDriversIcon },
   { href: "/finance", label: "المالية", mobileLabel: "المالية", icon: DashboardFinanceIcon },
   { href: "/settings", label: "الإعدادات", mobileLabel: "الإعدادات", icon: DashboardSettingsIcon }
 ];
+
+function isNavActive(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  if (href === "/orders") {
+    return pathname === "/orders" || pathname.startsWith("/orders/");
+  }
+  if (href === "/orders-room") {
+    return pathname === "/orders-room" || pathname.startsWith("/orders-room/");
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export const DashboardSidebar = () => {
   const pathname = usePathname();
@@ -46,17 +62,17 @@ export const DashboardSidebar = () => {
       </div>
       <nav className="dashboard-sidebar__nav" aria-label="القائمة الرئيسية">
         {navItems.map((item) => {
-          const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+          const active = isNavActive(pathname, item.href);
           const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`dashboard-sidebar__link${active ? " dashboard-sidebar__link--active" : ""}`}
+              className={`dashboard-sidebar__link${active ? " dashboard-sidebar__link--active" : ""}${item.nested ? " dashboard-sidebar__link--nested" : ""}`}
               aria-current={active ? "page" : undefined}
             >
               <span className="dashboard-sidebar__icon" aria-hidden>
-                <Icon size={18} strokeWidth={2.1} />
+                <Icon size={item.nested ? 16 : 18} strokeWidth={2.1} />
               </span>
               <span className="dashboard-sidebar__label">{item.label}</span>
               <span className="dashboard-sidebar__mobile-label">{item.mobileLabel}</span>

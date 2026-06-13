@@ -1,7 +1,11 @@
+import { OrderStatus } from "@prisma/client";
 import type { NextFunction, Response } from "express";
 import type { Server } from "socket.io";
 import type { AuthRequest } from "../../shared/auth";
+import { updateCompletedOrderAmountDto } from "../orders/orders.dto";
 import {
+  ADMIN_ORDERS_PAGE_DEFAULT,
+  ADMIN_ORDERS_PAGE_MAX,
   ADMIN_ORDERS_ROOM_PAGE_DEFAULT,
   ADMIN_ORDERS_ROOM_PAGE_MAX,
   ordersService,
@@ -67,6 +71,95 @@ export const adminController = {
     try {
       const stats = await ordersService.orderStatsForAdmin();
       res.json(stats);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async ordersTable(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const statusRaw = req.query.status;
+      const statusStr = typeof statusRaw === "string" ? statusRaw.trim() : "";
+      const status =
+        statusStr && statusStr !== "ALL" && Object.values(OrderStatus).includes(statusStr as OrderStatus)
+          ? (statusStr as OrderStatus)
+          : undefined;
+
+      const qRaw = req.query.q;
+      const q = typeof qRaw === "string" ? qRaw.trim() : undefined;
+
+      const pageRaw = req.query.page;
+      let page: number | undefined;
+      if (typeof pageRaw === "string") {
+        const parsed = Number.parseInt(pageRaw, 10);
+        if (Number.isFinite(parsed)) page = Math.max(1, parsed);
+      }
+
+      const limitRaw = req.query.limit;
+      let limit: number | undefined;
+      if (typeof limitRaw === "string") {
+        const parsed = Number.parseInt(limitRaw, 10);
+        if (Number.isFinite(parsed)) {
+          limit = Math.min(ADMIN_ORDERS_PAGE_MAX, Math.max(1, parsed));
+        }
+      }
+
+      const result = await ordersService.listOrdersForAdminTable({
+        status,
+        q: q || undefined,
+        page: page ?? 1,
+        limit: limit ?? ADMIN_ORDERS_PAGE_DEFAULT
+      });
+
+      res.json({
+        orders: result.orders.map((o) => ordersService.serializeAdminOrderRow(o)),
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async ordersTableStats(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const stats = await ordersService.orderStatusCountsForAdminTable();
+      res.json(stats);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async updateOrderAmount(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const orderId = req.params.orderId;
+      if (!orderId) {
+        res.status(400).json({ message: "معرّف الطلب مطلوب" });
+        return;
+      }
+      const parsed = updateCompletedOrderAmountDto.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.issues[0]?.message ?? "بيانات غير صالحة" });
+        return;
+      }
+      const updated = await ordersService.updateOrderAmountByAdmin(orderId, parsed.data.amount);
+      res.json(ordersService.serializeAdminOrderRow(updated));
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async deleteOrder(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const orderId = req.params.orderId;
+      if (!orderId) {
+        res.status(400).json({ message: "معرّف الطلب مطلوب" });
+        return;
+      }
+      const result = await ordersService.deleteOrderByAdmin(orderId);
+      res.json(result);
     } catch (err) {
       next(err);
     }
