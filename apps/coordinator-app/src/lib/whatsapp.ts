@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import * as Linking from "expo-linking";
 
 /** عربي/فارسي → أرقام غربية ثم إبقاء الأرقام فقط. */
@@ -68,22 +69,46 @@ export function buildWhatsAppChatUrlWithText(phone: string | null | undefined, t
   return `https://wa.me/${n}?${q.toString()}`;
 }
 
-/** روابط محتملة: واتساب أعمال ثم واتساب عادي ثم الروابط الرسمية. */
+async function tryOpenUrl(url: string): Promise<boolean> {
+  try {
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * روابط محتملة لفتح واتساب (عادي أو أعمال) مع نص جاهز.
+ * الروابط https أولًا لأنها الأكثر موثوقية، ثم intent لأندرويد، ثم مخططات التطبيق.
+ */
 export function buildWhatsAppOpenCandidates(phone: string | null | undefined, text: string): string[] {
   const n = waMePhonePart(phone);
   if (!n) return [];
-  const q = encodeURIComponent(text);
-  return [
-    `whatsapp-business://send?phone=${n}&text=${q}`,
-    `whatsapp://send?phone=${n}&text=${q}`,
-    `https://api.whatsapp.com/send?phone=${n}&text=${q}`,
-    `https://wa.me/${n}?text=${q}`
+
+  const encodedText = encodeURIComponent(text);
+  const query = `phone=${n}&text=${encodedText}`;
+
+  const urls: string[] = [
+    `https://wa.me/${n}?text=${encodedText}`,
+    `https://api.whatsapp.com/send?${query}`
   ];
+
+  if (Platform.OS === "android") {
+    urls.push(
+      `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`,
+      `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp;end`
+    );
+  }
+
+  urls.push(`whatsapp://send?${query}`, `whatsapp-business://send?${query}`);
+
+  return urls;
 }
 
 /**
  * يفتح واتساب (عادي أو أعمال) مع نص جاهز.
- * يجرّب مخططات التطبيق أولًا ثم الروابط https.
+ * يجرّب كل رابط بالترتيب دون الاعتماد على canOpenURL الذي يفشل أحيانًا مع واتساب أعمال على أندرويد.
  */
 export async function openWhatsAppChatWithText(
   phone: string | null | undefined,
@@ -91,27 +116,8 @@ export async function openWhatsAppChatWithText(
 ): Promise<boolean> {
   const urls = buildWhatsAppOpenCandidates(phone, text);
   for (const url of urls) {
-    try {
-      if (url.startsWith("http")) {
-        await Linking.openURL(url);
-        return true;
-      }
-      const can = await Linking.canOpenURL(url);
-      if (can) {
-        await Linking.openURL(url);
-        return true;
-      }
-    } catch {
-      /* جرّب الرابط التالي */
-    }
-  }
-  const fallback = urls[urls.length - 1];
-  if (fallback) {
-    try {
-      await Linking.openURL(fallback);
+    if (await tryOpenUrl(url)) {
       return true;
-    } catch {
-      return false;
     }
   }
   return false;

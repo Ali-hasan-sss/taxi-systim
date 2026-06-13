@@ -420,12 +420,13 @@ export function CoordinatorOrderCard({
     }
     setSendingWhatsApp("info");
     try {
-      const updated = await coordinatorMarkCustomerInfoSent(session.accessToken, item.id);
-      onOrderUpdated?.(updated);
       const opened = await openWhatsAppChatWithText(contactPhone, buildCustomerTaxiBroMessage(item));
       if (!opened) {
         feedback.warning("تعذر فتح واتساب. تحقق من تثبيت واتساب أو واتساب أعمال.");
+        return;
       }
+      const updated = await coordinatorMarkCustomerInfoSent(session.accessToken, item.id);
+      onOrderUpdated?.(updated);
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر إرسال المعلومات");
     } finally {
@@ -442,15 +443,16 @@ export function CoordinatorOrderCard({
     }
     setSendingWhatsApp("invoice");
     try {
-      const updated = await coordinatorMarkInvoiceSent(session.accessToken, item.id);
-      onOrderUpdated?.(updated);
       const opened = await openWhatsAppChatWithText(
         contactPhone,
         buildInvoiceWhatsAppMessage(item, coordinatorFullName)
       );
       if (!opened) {
         feedback.warning("تعذر فتح واتساب. تحقق من تثبيت واتساب أو واتساب أعمال.");
+        return;
       }
+      const updated = await coordinatorMarkInvoiceSent(session.accessToken, item.id);
+      onOrderUpdated?.(updated);
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر إرسال الفاتورة");
     } finally {

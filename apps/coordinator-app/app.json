@@ -15,6 +15,44 @@
     "plugins": [
       "expo-router",
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "manifestQueries": {
+              "package": ["com.whatsapp", "com.whatsapp.w4b"],
+              "intent": [
+                {
+                  "action": "android.intent.action.VIEW",
+                  "data": {
+                    "scheme": "whatsapp"
+                  }
+                },
+                {
+                  "action": "android.intent.action.VIEW",
+                  "data": {
+                    "scheme": "whatsapp-business"
+                  }
+                },
+                {
+                  "action": "android.intent.action.VIEW",
+                  "data": {
+                    "scheme": "https",
+                    "host": "wa.me"
+                  }
+                },
+                {
+                  "action": "android.intent.action.VIEW",
+                  "data": {
+                    "scheme": "https",
+                    "host": "api.whatsapp.com"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "نحتاج موقعك كنقطة مرجعية لإرسال الطلب لأقرب 3 سائقين متصلين."
