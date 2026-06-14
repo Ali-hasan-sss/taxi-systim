@@ -7,7 +7,7 @@ dist
 *.log
 coverage
 apps/api/uploads
-
+config.yml
 # Firebase Admin SDK — يُرفع إلى EAS credentials محلياً، لا إلى Git
 *-firebase-adminsdk*.json
 taxi-pro-*-firebase-adminsdk*.json

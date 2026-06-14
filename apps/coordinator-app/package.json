@@ -7,7 +7,10 @@
     "dev": "expo start --offline",
     "eas:init": "eas init",
     "eas:android:preview": "node ../../scripts/verify-google-services.cjs apps/coordinator-app && eas build --platform android --profile preview",
-    "eas:android:production": "node ../../scripts/verify-google-services.cjs apps/coordinator-app && eas build --platform android --profile production"
+    "eas:android:production": "node ../../scripts/verify-google-services.cjs apps/coordinator-app && eas build --platform android --profile production",
+    "android:local": "powershell -ExecutionPolicy Bypass -File ../../scripts/build-android-local.ps1 -App coordinator",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

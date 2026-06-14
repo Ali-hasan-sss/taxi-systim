@@ -30,6 +30,13 @@ function applyMonorepoMetroConfig(config, projectRoot) {
     "@taxi/expo-push": path.resolve(monorepoRoot, "packages/expo-push")
   };
 
+  // بعد بناء أندرويد محلي، Metro يحاول مراقبة android/build و.cxx ويفشل بـ ENOENT
+  config.resolver.blockList = [
+    ...(Array.isArray(config.resolver.blockList) ? config.resolver.blockList : []),
+    /[/\\]android[/\\]build[/\\]/,
+    /[/\\]\.cxx[/\\]/
+  ];
+
   return config;
 }
 

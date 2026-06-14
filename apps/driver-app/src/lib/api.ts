@@ -406,3 +406,22 @@ export async function registerExpoPushToken(accessToken: string, expoToken: stri
 export async function clearExpoPushToken(accessToken: string): Promise<void> {
   await driverFetchWithRefresh("/auth/push-token", { method: "DELETE" }, accessToken);
 }
+
+export async function driverChangePassword(
+  accessToken: string,
+  payload: { currentPassword: string; newPassword: string }
+): Promise<void> {
+  const res = await driverFetchWithRefresh(
+    "/auth/driver/change-password",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "فشل تغيير كلمة المرور");
+  }
+}

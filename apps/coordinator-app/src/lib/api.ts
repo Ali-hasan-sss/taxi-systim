@@ -127,6 +127,25 @@ export async function coordinatorMe(accessToken: string): Promise<CoordinatorMeR
   return res.json() as Promise<CoordinatorMeResponse>;
 }
 
+export async function coordinatorChangePassword(
+  accessToken: string,
+  payload: { currentPassword: string; newPassword: string }
+): Promise<void> {
+  const res = await coordinatorFetchWithRefresh(
+    "/auth/coordinator/change-password",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "فشل تغيير كلمة المرور");
+  }
+}
+
 export interface CoordinatorOrderFilterCounts {
   all: number;
   needs_info: number;

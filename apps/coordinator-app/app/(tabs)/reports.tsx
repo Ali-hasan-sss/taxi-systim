@@ -679,7 +679,7 @@ export default function ReportsTab() {
       />
 
       <Modal visible={driverModalOpen} animationType="slide" transparent onRequestClose={() => setDriverModalOpen(false)}>
-        <KeyboardAvoidingView trustSystemResize behavior="padding" keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0} style={styles.modalRoot}>
+        <KeyboardAvoidingView inModal behavior="padding" keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0} style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => setDriverModalOpen(false)} />
           <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
             <Text style={styles.modalTitle}>اختر سائقًا للتقرير</Text>

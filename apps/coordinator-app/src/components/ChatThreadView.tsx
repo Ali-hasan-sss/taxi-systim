@@ -606,7 +606,7 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
     );
   };
 
-  const composerBottomPad = keyboardOpen ? 10 : Math.max(insets.bottom, 10);
+  const composerBottomPad = keyboardOpen && Platform.OS === "ios" ? 10 : Math.max(insets.bottom, 10);
 
   const composer = (
     <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>

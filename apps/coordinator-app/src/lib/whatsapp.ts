@@ -78,31 +78,52 @@ async function tryOpenUrl(url: string): Promise<boolean> {
   }
 }
 
+export type WhatsAppOpenOptions = {
+  /** يفتح واتساب أعمال أولًا ثم العادي (لإرسال الفاتورة) */
+  preferBusiness?: boolean;
+};
+
 /**
- * روابط محتملة لفتح واتساب (عادي أو أعمال) مع نص جاهز.
- * الروابط https أولًا لأنها الأكثر موثوقية، ثم intent لأندرويد، ثم مخططات التطبيق.
+ * روابط محتملة لفتح واتساب مع نص جاهز.
+ * preferBusiness: أعمال أولًا (intent / whatsapp-business) ثم العادي.
  */
-export function buildWhatsAppOpenCandidates(phone: string | null | undefined, text: string): string[] {
+export function buildWhatsAppOpenCandidates(
+  phone: string | null | undefined,
+  text: string,
+  options?: WhatsAppOpenOptions
+): string[] {
   const n = waMePhonePart(phone);
   if (!n) return [];
 
   const encodedText = encodeURIComponent(text);
   const query = `phone=${n}&text=${encodedText}`;
 
-  const urls: string[] = [
+  const httpsUrls = [
     `https://wa.me/${n}?text=${encodedText}`,
     `https://api.whatsapp.com/send?${query}`
   ];
 
-  if (Platform.OS === "android") {
-    urls.push(
-      `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`,
-      `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp;end`
-    );
+  const androidBusiness = `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
+  const androidRegular = `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp;end`;
+  const schemeBusiness = `whatsapp-business://send?${query}`;
+  const schemeRegular = `whatsapp://send?${query}`;
+
+  if (options?.preferBusiness) {
+    const urls: string[] = [];
+    if (Platform.OS === "android") {
+      urls.push(androidBusiness, schemeBusiness, androidRegular, schemeRegular);
+    } else {
+      urls.push(schemeBusiness, schemeRegular);
+    }
+    urls.push(...httpsUrls);
+    return urls;
   }
 
-  urls.push(`whatsapp://send?${query}`, `whatsapp-business://send?${query}`);
-
+  const urls: string[] = [...httpsUrls];
+  if (Platform.OS === "android") {
+    urls.push(androidBusiness, androidRegular);
+  }
+  urls.push(schemeRegular, schemeBusiness);
   return urls;
 }
 
@@ -112,9 +133,10 @@ export function buildWhatsAppOpenCandidates(phone: string | null | undefined, te
  */
 export async function openWhatsAppChatWithText(
   phone: string | null | undefined,
-  text: string
+  text: string,
+  options?: WhatsAppOpenOptions
 ): Promise<boolean> {
-  const urls = buildWhatsAppOpenCandidates(phone, text);
+  const urls = buildWhatsAppOpenCandidates(phone, text, options);
   for (const url of urls) {
     if (await tryOpenUrl(url)) {
       return true;

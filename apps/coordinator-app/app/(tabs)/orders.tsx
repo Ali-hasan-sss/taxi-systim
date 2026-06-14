@@ -882,7 +882,7 @@ export default function OrdersTab() {
         }
       />
       <Modal visible={assignModalOpen} animationType="slide" transparent onRequestClose={() => !assignSubmitting && setAssignModalOpen(false)}>
-        <KeyboardAvoidingView trustSystemResize behavior="padding" style={[styles.modalRoot, styles.rtlScreen]}>
+        <KeyboardAvoidingView inModal behavior="padding" style={[styles.modalRoot, styles.rtlScreen]}>
           <Pressable style={styles.modalBackdrop} onPress={() => !assignSubmitting && setAssignModalOpen(false)} />
           <View style={[styles.modalSheet, styles.rtlScreen, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
             <ScrollView

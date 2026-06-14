@@ -15,6 +15,14 @@
     "plugins": [
       "expo-router",
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "ndkVersion": "30.0.14904198"
+          }
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "نستخدم موقعك لعرض الطلبات المناسبة لقربك من نقطة الانطلاق."
@@ -69,6 +77,7 @@
       "package": "com.taxioffice.driver",
       "googleServicesFile": "./google-services.json",
       "versionCode": 3,
+      "usesCleartextTraffic": true,
       "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",
       "navigationBar": {

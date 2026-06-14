@@ -935,7 +935,7 @@ export default function DriversTab() {
       )}
 
       <Modal visible={quickOpen} animationType="slide" transparent onRequestClose={closeQuickOrder}>
-        <KeyboardAvoidingView trustSystemResize behavior="padding" style={styles.quickModalRoot}>
+        <KeyboardAvoidingView inModal behavior="padding" style={styles.quickModalRoot}>
           <Pressable style={styles.quickBackdrop} onPress={closeQuickOrder} />
           <View style={[styles.quickSheet, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
             <Text style={styles.quickTitle}>طلب سريع للسائق</Text>

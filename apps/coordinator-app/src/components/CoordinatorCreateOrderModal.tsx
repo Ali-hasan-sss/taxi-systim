@@ -22,7 +22,7 @@ import { feedback } from "../lib/feedback";
 import { getSession } from "../lib/session";
 import { rtlText } from "../lib/rtl-text";
 
-const modalSheetMaxHeight = Math.round(Dimensions.get("window").height * 0.92);
+const modalSheetMaxHeight = Math.round(Dimensions.get("window").height * 0.88);
 
 function resetOrderForm(setters: {
   setFromAddr: (v: string) => void;
@@ -257,35 +257,39 @@ export function CoordinatorCreateOrderModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={() => !submitting && onClose()}>
-      <View style={[styles.modalRoot, styles.rtlScreen]}>
+      <KeyboardAvoidingView
+        inModal
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === "ios" ? -20 : 0}
+        style={[styles.modalRoot, styles.rtlScreen]}
+      >
         <Pressable
           style={styles.modalBackdrop}
           onPress={() => !submitting && onClose()}
           accessibilityRole="button"
         />
-        <KeyboardAvoidingView trustSystemResize behavior="padding">
-          <View
-            style={[
-              styles.modalSheet,
-              styles.rtlScreen,
-              {
-                height: modalSheetMaxHeight,
-                maxHeight: modalSheetMaxHeight,
-                paddingBottom: Math.max(insets.bottom, 16)
-              }
+        <View
+          style={[
+            styles.modalSheet,
+            styles.rtlScreen,
+            {
+              height: modalSheetMaxHeight,
+              maxHeight: modalSheetMaxHeight,
+              paddingBottom: Math.max(insets.bottom, 16)
+            }
+          ]}
+        >
+          <ScrollView
+            style={{ flex: 1 }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
+            automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.modalScrollContent,
+              { paddingBottom: Math.max(insets.bottom, 16) + 24 }
             ]}
           >
-            <ScrollView
-              style={{ flex: 1 }}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-              automaticallyAdjustKeyboardInsets
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={[
-                styles.modalScrollContent,
-                { paddingBottom: Math.max(insets.bottom, 16) + 120 }
-              ]}
-            >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>طلب جديد</Text>
               <Pressable onPress={() => !submitting && onClose()} hitSlop={12} style={styles.modalClose}>
@@ -407,8 +411,7 @@ export function CoordinatorCreateOrderModal({
             </Pressable>
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

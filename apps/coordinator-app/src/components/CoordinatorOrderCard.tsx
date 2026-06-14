@@ -62,12 +62,14 @@ function buildCustomerTaxiBroMessage(item: CoordinatorOrderRow): string {
 *نوع السيارة*: ${kind}`;
 }
 
+const INVOICE_BRAND_LABEL = "كونترول pro";
+
 function buildInvoiceWhatsAppMessage(item: CoordinatorOrderRow, coordinatorName: string): string {
   const rawAmt = String(item.amount ?? "").trim();
   const amount = rawAmt !== "" ? rawAmt : "—";
   const coord = coordinatorName.trim() || "—";
   return `*فاتورة طلب*📝
-*المنسق*🎀 ${coord}
+*${INVOICE_BRAND_LABEL}*🎀 ${coord}
 *الاجرة* ${amount}`;
 }
 
@@ -420,7 +422,9 @@ export function CoordinatorOrderCard({
     }
     setSendingWhatsApp("info");
     try {
-      const opened = await openWhatsAppChatWithText(contactPhone, buildCustomerTaxiBroMessage(item));
+      const opened = await openWhatsAppChatWithText(contactPhone, buildCustomerTaxiBroMessage(item), {
+        preferBusiness: true
+      });
       if (!opened) {
         feedback.warning("تعذر فتح واتساب. تحقق من تثبيت واتساب أو واتساب أعمال.");
         return;
@@ -445,7 +449,8 @@ export function CoordinatorOrderCard({
     try {
       const opened = await openWhatsAppChatWithText(
         contactPhone,
-        buildInvoiceWhatsAppMessage(item, coordinatorFullName)
+        buildInvoiceWhatsAppMessage(item, coordinatorFullName),
+        { preferBusiness: true }
       );
       if (!opened) {
         feedback.warning("تعذر فتح واتساب. تحقق من تثبيت واتساب أو واتساب أعمال.");

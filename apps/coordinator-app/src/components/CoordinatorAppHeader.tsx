@@ -186,6 +186,17 @@ export function CoordinatorAppHeader() {
                   style={styles.dropdownRow}
                   onPress={() => {
                     closeMenu();
+                    router.push("/change-password");
+                  }}
+                >
+                  <Text style={styles.dropdownActionText}>تغيير كلمة المرور</Text>
+                  <Ionicons name="key-outline" size={22} color={theme.colors.text} />
+                </Pressable>
+                <View style={styles.dropdownDivider} />
+                <Pressable
+                  style={styles.dropdownRow}
+                  onPress={() => {
+                    closeMenu();
                     router.push("/(tabs)/reports");
                   }}
                 >

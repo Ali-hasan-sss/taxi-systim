@@ -18,6 +18,7 @@
         "expo-build-properties",
         {
           "android": {
+            "ndkVersion": "30.0.14904198",
             "manifestQueries": {
               "package": ["com.whatsapp", "com.whatsapp.w4b"],
               "intent": [

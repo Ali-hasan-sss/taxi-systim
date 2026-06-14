@@ -13,7 +13,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   Keyboard,
@@ -301,7 +300,7 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
       peerDriverIdRef.current = page.room.peerDriverId;
       setPeerOnline(page.room.peerOnline);
     } catch (e) {
-      Alert.alert("خطأ", e instanceof Error ? e.message : "تعذر تحميل الرسائل");
+      feedback.error(e instanceof Error ? e.message : "تعذر تحميل الرسائل");
     } finally {
       setLoading(false);
     }
@@ -431,7 +430,7 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
       scrollToBottom(true);
     } catch (e) {
       setDraft(text);
-      Alert.alert("خطأ", e instanceof Error ? e.message : "تعذر الإرسال");
+      feedback.error(e instanceof Error ? e.message : "تعذر الإرسال");
     } finally {
       setSending(false);
     }
@@ -440,7 +439,7 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
   const handleCaptureImage = async () => {
     const uri = await captureCompressedChatPhoto();
     if (!uri) {
-      Alert.alert("خطأ", "يجب السماح بالوصول للكاميرا");
+      feedback.error("يجب السماح بالوصول للكاميرا");
       return;
     }
     setSending(true);
@@ -449,7 +448,7 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
       scrollToBottom(true);
     } catch (e) {
-      Alert.alert("خطأ", e instanceof Error ? e.message : "تعذر رفع الصورة");
+      feedback.error(e instanceof Error ? e.message : "تعذر رفع الصورة");
     } finally {
       setSending(false);
     }
@@ -488,7 +487,7 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
     );
   };
 
-  const composerBottomPad = keyboardOpen ? 10 : Math.max(insets.bottom, 10);
+  const composerBottomPad = keyboardOpen && Platform.OS === "ios" ? 10 : Math.max(insets.bottom, 10);
 
   const composer = (
     <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>
