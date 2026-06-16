@@ -21,15 +21,16 @@ allprojects {
   }
 }
 
-// Windows: مسارات pnpm الطويلة — يتطلب CMake 3.26+
 subprojects { sub ->
   sub.afterEvaluate {
     def androidExt = sub.extensions.findByName("android")
     if (androidExt == null) return
     try {
-      def cmake = androidExt.defaultConfig.externalNativeBuild.cmake
-      def args = cmake.arguments
-      if (args != null && !args.contains("-DCMAKE_OBJECT_PATH_MAX=1024")) {
+      def defaultConfig = androidExt.defaultConfig
+      def cmake = defaultConfig?.externalNativeBuild?.cmake
+      if (cmake == null) return
+      def args = cmake.arguments?.toList() ?: []
+      if (!args.any { it.toString().contains("CMAKE_OBJECT_PATH_MAX") }) {
         cmake.arguments args + ["-DCMAKE_OBJECT_PATH_MAX=1024"]
       }
     } catch (Throwable ignored) {

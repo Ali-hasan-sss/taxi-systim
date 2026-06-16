@@ -167,7 +167,7 @@ export async function driverReportCustomerNoShow(accessToken: string, orderId: s
   return res.json() as Promise<DriverOrderRow>;
 }
 
-export type DriverOrderVehicleRequirement = "ANY" | "PUBLIC" | "PRIVATE";
+export type DriverOrderVehicleRequirement = "ANY" | "PUBLIC" | "PRIVATE" | "VIP";
 
 export interface DriverOrderRow {
   id: string;
@@ -188,7 +188,7 @@ export interface DriverOrderRow {
     vehicleBrand?: string | null;
     vehicleColor?: string | null;
     vehicleNumber?: string | null;
-    vehicleKind?: "PUBLIC" | "PRIVATE" | null;
+    vehicleKind?: "PUBLIC" | "PRIVATE" | "VIP" | null;
   };
   commission?: null | {
     calculatedCommission: string;

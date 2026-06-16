@@ -2,7 +2,7 @@
   "expo": {
     "name": "منسق برو",
     "slug": "taxi-coordinator",
-    "version": "1.0.0",
+    "version": "1.0.6",
     "orientation": "portrait",
     "scheme": "taxi-coordinator",
     "userInterfaceStyle": "dark",
@@ -20,7 +20,10 @@
           "android": {
             "ndkVersion": "30.0.14904198",
             "manifestQueries": {
-              "package": ["com.whatsapp", "com.whatsapp.w4b"],
+              "package": [
+                "com.whatsapp",
+                "com.whatsapp.w4b"
+              ],
               "intent": [
                 {
                   "action": "android.intent.action.VIEW",
@@ -46,6 +49,12 @@
                   "data": {
                     "scheme": "https",
                     "host": "api.whatsapp.com"
+                  }
+                },
+                {
+                  "action": "android.intent.action.SENDTO",
+                  "data": {
+                    "scheme": "smsto"
                   }
                 }
               ]
@@ -99,7 +108,10 @@
     "ios": {
       "bundleIdentifier": "com.taxioffice.coordinator",
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["whatsapp", "whatsapp-business"]
+        "LSApplicationQueriesSchemes": [
+          "whatsapp",
+          "whatsapp-business"
+        ]
       },
       "splash": {
         "backgroundColor": "#1c1917"
@@ -108,7 +120,7 @@
     "android": {
       "package": "com.taxioffice.coordinator",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 3,
+      "versionCode": 6,
       "usesCleartextTraffic": true,
       "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",

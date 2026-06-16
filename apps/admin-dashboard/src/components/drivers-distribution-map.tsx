@@ -29,7 +29,7 @@ function escapeHtml(text: string): string {
 }
 
 function formatVehicle(driver: AdminLiveDriver): string {
-  const pieces = [driver.vehicleBrand, driver.vehicleColor, driver.vehicleKind === "PUBLIC" ? "عامة" : driver.vehicleKind === "PRIVATE" ? "خاصة" : null]
+  const pieces = [driver.vehicleBrand, driver.vehicleColor, driver.vehicleKind === "PUBLIC" ? "عامة" : driver.vehicleKind === "PRIVATE" ? "خاصة" : driver.vehicleKind === "VIP" ? "VIP" : null]
     .map((item) => item?.trim())
     .filter(Boolean);
   return pieces.length > 0 ? pieces.join(" - ") : "لا توجد بيانات سيارة";

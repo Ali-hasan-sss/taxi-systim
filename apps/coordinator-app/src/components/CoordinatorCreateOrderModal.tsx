@@ -321,6 +321,12 @@ export function CoordinatorCreateOrderModal({
               >
                 <Text style={[styles.chipText, vehicleRequirement === "PRIVATE" && styles.chipTextOn]}>خاصة</Text>
               </Pressable>
+              <Pressable
+                onPress={() => setVehicleRequirement("VIP")}
+                style={[styles.chip, vehicleRequirement === "VIP" && styles.chipOn]}
+              >
+                <Text style={[styles.chipText, vehicleRequirement === "VIP" && styles.chipTextOn]}>VIP</Text>
+              </Pressable>
             </View>
             <View style={styles.scrollGap} />
 

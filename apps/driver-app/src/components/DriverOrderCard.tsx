@@ -47,7 +47,8 @@ const BROADCAST_AR: Record<string, string> = {
 const VEHICLE_REQ_AR: Record<string, string> = {
   ANY: "غير مهم",
   PUBLIC: "عامة",
-  PRIVATE: "خاصة"
+  PRIVATE: "خاصة",
+  VIP: "VIP"
 };
 
 function mapStatusForPill(status: string): string {

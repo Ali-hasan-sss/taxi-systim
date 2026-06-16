@@ -1716,37 +1716,57 @@ export const ordersService = {
       if (!order) throw new AppError("الطلب غير موجود", 404);
 
       if (order.commission) {
-        const paid = toNum(order.commission.paidAmount);
-        if (paid > 0) {
-          throw new AppError("لا يمكن حذف الطلب بعد تسديد جزء من عمولة السائق", 400);
-        }
+        const commission = order.commission;
+        const paid = toNum(commission.paidAmount);
+        const commissionAmount = toNum(commission.calculatedCommission);
 
         if (order.status === OrderStatus.COMPLETED && order.driverId) {
           const amount = toNum(order.amount);
-          const commissionAmount = toNum(order.commission.calculatedCommission);
           const balance = await tx.driverBalance.findUnique({ where: { driverId: order.driverId } });
           if (balance) {
             await tx.driverBalance.update({
               where: { driverId: order.driverId },
               data: {
-                totalEarnings: new Prisma.Decimal((toNum(balance.totalEarnings) - amount).toFixed(2)),
-                totalCommissions: new Prisma.Decimal(
-                  (toNum(balance.totalCommissions) - commissionAmount).toFixed(2)
+                totalEarnings: new Prisma.Decimal(
+                  Math.max(0, toNum(balance.totalEarnings) - amount).toFixed(2)
                 ),
-                remainingDebt: new Prisma.Decimal((toNum(balance.remainingDebt) - commissionAmount).toFixed(2)),
+                totalCommissions: new Prisma.Decimal(
+                  Math.max(0, toNum(balance.totalCommissions) - commissionAmount).toFixed(2)
+                ),
+                totalPaidCommissions: new Prisma.Decimal(
+                  Math.max(0, toNum(balance.totalPaidCommissions) - paid).toFixed(2)
+                ),
+                remainingDebt: new Prisma.Decimal(
+                  Math.max(0, toNum(balance.remainingDebt) - commissionAmount + paid).toFixed(2)
+                ),
                 availableBalance: new Prisma.Decimal(
-                  (toNum(balance.availableBalance) - (amount - commissionAmount)).toFixed(2)
+                  Math.max(0, toNum(balance.availableBalance) - (amount - commissionAmount)).toFixed(2)
                 )
               }
             });
           }
         }
 
-        await tx.commissionPayment.deleteMany({ where: { commissionId: order.commission.id } });
+        await tx.commissionPayment.deleteMany({ where: { commissionId: commission.id } });
+        await tx.financialTransaction.deleteMany({
+          where: { OR: [{ referenceId: orderId }, { referenceId: commission.id }] }
+        });
         await tx.commission.delete({ where: { orderId } });
+      } else {
+        await tx.financialTransaction.deleteMany({ where: { referenceId: orderId } });
       }
 
-      await tx.financialTransaction.deleteMany({ where: { referenceId: orderId } });
+      if (
+        order.driverId &&
+        order.status !== OrderStatus.COMPLETED &&
+        order.status !== OrderStatus.CANCELLED
+      ) {
+        await tx.driver.update({
+          where: { id: order.driverId },
+          data: { isBusy: false }
+        });
+      }
+
       await tx.order.delete({ where: { id: orderId } });
 
       return { id: orderId };

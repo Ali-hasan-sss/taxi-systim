@@ -1,4 +1,6 @@
 import { coordinatorOrderStatusPill, useTheme, useThemedStyles } from "@taxi/expo-theme";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Clipboard from "expo-clipboard";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import {
@@ -17,6 +19,7 @@ import {
 } from "../lib/api";
 import { feedback } from "../lib/feedback";
 import { getSession } from "../lib/session";
+import { openSmsWithText } from "../lib/sms";
 import {
   formatSyrianPhoneForDisplay,
   normalizeSyriaPhoneForWaMe,
@@ -42,27 +45,41 @@ function extractWesternDigits(s: string): string {
   return out;
 }
 
-function buildCustomerTaxiBroMessage(item: CoordinatorOrderRow): string {
+function buildCustomerDriverInfoLines(item: CoordinatorOrderRow): {
+  driverName: string;
+  brand: string;
+  color: string;
+  plateDisplay: string;
+} {
   const d = item.driver;
   const driverName = d?.user?.fullName?.trim() || "—";
-  const brand = d?.vehicleBrand?.trim();
-  const color = d?.vehicleColor?.trim();
-  const brandColorParts = [brand, color].filter(Boolean);
-  const brandColor = brandColorParts.length ? brandColorParts.join(" - ") : "—";
+  const brand = d?.vehicleBrand?.trim() || "—";
+  const color = d?.vehicleColor?.trim() || "—";
   const rawPlate = d?.vehicleNumber?.trim() || "";
   const plateDigits = rawPlate ? extractWesternDigits(rawPlate) : "";
   const plateDisplay = plateDigits.length ? toArabicIndicDigits(plateDigits) : rawPlate ? rawPlate : "—";
-  const kind =
-    d?.vehicleKind === "PUBLIC" ? "عامة" : d?.vehicleKind === "PRIVATE" ? "خاصة" : "—";
-
-  return `*TAXI BRO*.      🚖
-*اسم السائق* : ${driverName}
-*نوع السيارة* : ${brandColor}
-*رقم اللوحة* :  ${plateDisplay}
-*نوع السيارة*: ${kind}`;
+  return { driverName, brand, color, plateDisplay };
 }
 
-const INVOICE_BRAND_LABEL = "كونترول pro";
+function buildCustomerTaxiBroMessage(item: CoordinatorOrderRow): string {
+  const { driverName, brand, color, plateDisplay } = buildCustomerDriverInfoLines(item);
+  return `*TAXI BRO*.      🚖
+*اسم السائق* : ${driverName}
+*نوع السيارة* : ${brand}
+*لون السيارة* : ${color}
+*رقم اللوحة* :  ${plateDisplay}`;
+}
+
+function buildCustomerTaxiBroSmsMessage(item: CoordinatorOrderRow): string {
+  const { driverName, brand, color, plateDisplay } = buildCustomerDriverInfoLines(item);
+  return `TAXI BRO 🚖
+اسم السائق : ${driverName}
+نوع السيارة : ${brand}
+لون السيارة : ${color}
+رقم اللوحة : ${plateDisplay}`;
+}
+
+const INVOICE_BRAND_LABEL = "كونترول BRO";
 
 function buildInvoiceWhatsAppMessage(item: CoordinatorOrderRow, coordinatorName: string): string {
   const rawAmt = String(item.amount ?? "").trim();
@@ -71,6 +88,15 @@ function buildInvoiceWhatsAppMessage(item: CoordinatorOrderRow, coordinatorName:
   return `*فاتورة طلب*📝
 *${INVOICE_BRAND_LABEL}*🎀 ${coord}
 *الاجرة* ${amount}`;
+}
+
+function buildInvoiceSmsMessage(item: CoordinatorOrderRow, coordinatorName: string): string {
+  const rawAmt = String(item.amount ?? "").trim();
+  const amount = rawAmt !== "" ? rawAmt : "—";
+  const coord = coordinatorName.trim() || "—";
+  return `فاتورة طلب 📝
+${INVOICE_BRAND_LABEL} 🎀 ${coord}
+الاجرة ${amount}`;
 }
 
 const STATUS_AR: Record<string, string> = {
@@ -92,7 +118,8 @@ const BROADCAST_AR: Record<string, string> = {
 const VEHICLE_REQ_AR: Record<string, string> = {
   ANY: "سيارة: غير مهم",
   PUBLIC: "سيارة عامة",
-  PRIVATE: "سيارة خاصة"
+  PRIVATE: "سيارة خاصة",
+  VIP: "سيارة VIP"
 };
 
 function normalizeStatusForPill(status: string): string {
@@ -207,44 +234,65 @@ export function CoordinatorOrderCard({
       ...rtlText,
       marginBottom: 4
     },
-    phoneRow: {
+    phoneBlock: {
+      marginBottom: 8,
+      alignItems: "stretch" as const
+    },
+    phoneActionsRow: {
       ...rtlRow,
       flexWrap: "wrap" as const,
-      gap: 10,
-      marginBottom: 8,
+      gap: 8,
       justifyContent: "flex-start" as const
+    },
+    actionBtnGroup: {
+      ...rtlRow,
+      gap: 8,
+      flexShrink: 0 as const,
+      flexWrap: "nowrap" as const
     },
     phone: {
       color: t.colors.textMuted,
-      flexShrink: 1,
+      ...rtlText,
+      marginBottom: 6
+    },
+    iconActionBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      alignItems: "center" as const,
+      justifyContent: "center" as const
+    },
+    smsIconActionBtn: {
+      height: 40,
+      borderRadius: 10,
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 4,
+      paddingHorizontal: 10
+    },
+    smsBtnText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 12,
       ...rtlText
     },
     waBtn: {
-      backgroundColor: t.colors.whatsapp,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      borderRadius: 10
+      backgroundColor: t.colors.whatsapp
     },
     waInvoiceBtn: {
-      backgroundColor: t.colors.navigate,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      borderRadius: 10
+      backgroundColor: t.colors.navigate
+    },
+    smsInvoiceBtn: {
+      backgroundColor: t.colors.copy
+    },
+    copyBtn: {
+      backgroundColor: t.colors.buttonSecondaryBg,
+      borderWidth: 1,
+      borderColor: t.colors.borderStrong
     },
     waBtnPressed: {
       opacity: 0.88
-    },
-    waBtnText: {
-      color: t.colors.textInverse,
-      fontWeight: "800" as const,
-      fontSize: 12,
-      ...rtlText
-    },
-    waInvoiceBtnText: {
-      color: t.colors.textInverse,
-      fontWeight: "800" as const,
-      fontSize: 12,
-      ...rtlText
     },
     sentBadge: {
       backgroundColor: t.colors.successBg,
@@ -385,7 +433,9 @@ export function CoordinatorOrderCard({
   const [amountModalOpen, setAmountModalOpen] = useState(false);
   const [amountDraft, setAmountDraft] = useState("");
   const [savingAmount, setSavingAmount] = useState(false);
-  const [sendingWhatsApp, setSendingWhatsApp] = useState<"info" | "invoice" | null>(null);
+  const [sendingWhatsApp, setSendingWhatsApp] = useState<
+    "info" | "info_sms" | "invoice" | "invoice_sms" | null
+  >(null);
 
   const contactPhone = resolveCustomerPhoneForWhatsApp(item);
   const waE164 = contactPhone ? normalizeSyriaPhoneForWaMe(contactPhone) : null;
@@ -438,6 +488,39 @@ export function CoordinatorOrderCard({
     }
   };
 
+  const openCustomerSms = async () => {
+    if (!canSendCustomerInfo || !contactPhone) return;
+    const session = await getSession();
+    if (!session?.accessToken) {
+      feedback.error("انتهت الجلسة. سجّل الدخول مجددًا.");
+      return;
+    }
+    setSendingWhatsApp("info_sms");
+    try {
+      const opened = await openSmsWithText(contactPhone, buildCustomerTaxiBroSmsMessage(item));
+      if (!opened) {
+        feedback.warning("تعذر فتح تطبيق الرسائل. تحقق من تثبيت تطبيق SMS على الجهاز.");
+        return;
+      }
+      const updated = await coordinatorMarkCustomerInfoSent(session.accessToken, item.id);
+      onOrderUpdated?.(updated);
+    } catch (e) {
+      feedback.error(e instanceof Error ? e.message : "تعذر إرسال المعلومات");
+    } finally {
+      setSendingWhatsApp(null);
+    }
+  };
+
+  const copyCustomerInfo = async () => {
+    if (!canSendCustomerInfo) return;
+    try {
+      await Clipboard.setStringAsync(buildCustomerTaxiBroSmsMessage(item));
+      feedback.success("تم نسخ رسالة المعلومات.");
+    } catch {
+      feedback.error("تعذر نسخ النص.");
+    }
+  };
+
   const openInvoiceWhatsApp = async () => {
     if (!canSendInvoice || !contactPhone) return;
     const session = await getSession();
@@ -462,6 +545,42 @@ export function CoordinatorOrderCard({
       feedback.error(e instanceof Error ? e.message : "تعذر إرسال الفاتورة");
     } finally {
       setSendingWhatsApp(null);
+    }
+  };
+
+  const openInvoiceSms = async () => {
+    if (!canSendInvoice || !contactPhone) return;
+    const session = await getSession();
+    if (!session?.accessToken) {
+      feedback.error("انتهت الجلسة. سجّل الدخول مجددًا.");
+      return;
+    }
+    setSendingWhatsApp("invoice_sms");
+    try {
+      const opened = await openSmsWithText(
+        contactPhone,
+        buildInvoiceSmsMessage(item, coordinatorFullName)
+      );
+      if (!opened) {
+        feedback.warning("تعذر فتح تطبيق الرسائل. تحقق من تثبيت تطبيق SMS على الجهاز.");
+        return;
+      }
+      const updated = await coordinatorMarkInvoiceSent(session.accessToken, item.id);
+      onOrderUpdated?.(updated);
+    } catch (e) {
+      feedback.error(e instanceof Error ? e.message : "تعذر إرسال الفاتورة");
+    } finally {
+      setSendingWhatsApp(null);
+    }
+  };
+
+  const copyInvoice = async () => {
+    if (!canSendInvoice) return;
+    try {
+      await Clipboard.setStringAsync(buildInvoiceSmsMessage(item, coordinatorFullName));
+      feedback.success("تم نسخ رسالة الفاتورة.");
+    } catch {
+      feedback.error("تعذر نسخ النص.");
     }
   };
 
@@ -508,80 +627,133 @@ export function CoordinatorOrderCard({
         </Text>
       </View>
       <Text style={styles.customer}>{item.customerName}</Text>
-      {displayPhone ? (
-        <View style={styles.phoneRow}>
-          <Text style={styles.phone} selectable>
-            {displayPhone}
-          </Text>
-          {canSendCustomerInfo ? (
-            <Pressable
-              onPress={() => void openCustomerWhatsApp()}
-              disabled={sendingWhatsApp != null}
-              style={({ pressed }) => [
-                styles.waBtn,
-                (pressed || sendingWhatsApp === "info") && styles.waBtnPressed
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="إرسال معلومات السائق للزبون عبر واتساب"
-            >
-              {sendingWhatsApp === "info" ? (
-                <ActivityIndicator color={theme.colors.textInverse} size="small" />
-              ) : (
-                <Text style={styles.waBtnText}>إرسال المعلومات — واتساب</Text>
-              )}
-            </Pressable>
-          ) : infoAlreadySent && WHATSAPP_TO_CUSTOMER_STATUSES.has(statusKey) ? (
-            <View style={styles.sentBadge}>
-              <Text style={styles.sentBadgeText}>تم إرسال المعلومات</Text>
+      {displayPhone || canSendCustomerInfo || canSendInvoice || (infoAlreadySent && WHATSAPP_TO_CUSTOMER_STATUSES.has(statusKey)) || (invoiceAlreadySent && isCompleted) ? (
+        <View style={styles.phoneBlock}>
+          {displayPhone ? (
+            <Text style={styles.phone} selectable>
+              {displayPhone}
+            </Text>
+          ) : null}
+          {canSendCustomerInfo || canSendInvoice || (infoAlreadySent && WHATSAPP_TO_CUSTOMER_STATUSES.has(statusKey)) || (invoiceAlreadySent && isCompleted) ? (
+            <View style={styles.phoneActionsRow}>
+              {canSendCustomerInfo ? (
+                <View style={styles.actionBtnGroup}>
+                  <Pressable
+                    onPress={() => void openCustomerWhatsApp()}
+                    disabled={sendingWhatsApp != null}
+                    style={({ pressed }) => [
+                      styles.iconActionBtn,
+                      styles.waBtn,
+                      (pressed || sendingWhatsApp === "info") && styles.waBtnPressed
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="إرسال معلومات السائق للزبون عبر واتساب"
+                  >
+                    {sendingWhatsApp === "info" ? (
+                      <ActivityIndicator color={theme.colors.textInverse} size="small" />
+                    ) : (
+                      <Ionicons name="logo-whatsapp" size={22} color={theme.colors.textInverse} />
+                    )}
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void openCustomerSms()}
+                    disabled={sendingWhatsApp != null}
+                    style={({ pressed }) => [
+                      styles.smsIconActionBtn,
+                      styles.smsInvoiceBtn,
+                      (pressed || sendingWhatsApp === "info_sms") && styles.waBtnPressed
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="إرسال معلومات السائق للزبون عبر SMS"
+                  >
+                    {sendingWhatsApp === "info_sms" ? (
+                      <ActivityIndicator color={theme.colors.textInverse} size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="chatbubble-outline" size={18} color={theme.colors.textInverse} />
+                        <Text style={styles.smsBtnText}>SMS</Text>
+                      </>
+                    )}
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void copyCustomerInfo()}
+                    disabled={sendingWhatsApp != null}
+                    style={({ pressed }) => [
+                      styles.iconActionBtn,
+                      styles.copyBtn,
+                      pressed && styles.waBtnPressed
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="نسخ رسالة المعلومات"
+                  >
+                    <Ionicons name="copy-outline" size={20} color={theme.colors.buttonSecondaryText} />
+                  </Pressable>
+                </View>
+              ) : infoAlreadySent && WHATSAPP_TO_CUSTOMER_STATUSES.has(statusKey) ? (
+                <View style={styles.sentBadge}>
+                  <Text style={styles.sentBadgeText}>تم إرسال المعلومات</Text>
+                </View>
+              ) : null}
+              {canSendInvoice ? (
+                <View style={styles.actionBtnGroup}>
+                  <Pressable
+                    onPress={() => void openInvoiceWhatsApp()}
+                    disabled={sendingWhatsApp != null}
+                    style={({ pressed }) => [
+                      styles.iconActionBtn,
+                      styles.waInvoiceBtn,
+                      (pressed || sendingWhatsApp === "invoice") && styles.waBtnPressed
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="إرسال نص الفاتورة للزبون عبر واتساب"
+                  >
+                    {sendingWhatsApp === "invoice" ? (
+                      <ActivityIndicator color={theme.colors.textInverse} size="small" />
+                    ) : (
+                      <Ionicons name="logo-whatsapp" size={22} color={theme.colors.textInverse} />
+                    )}
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void openInvoiceSms()}
+                    disabled={sendingWhatsApp != null}
+                    style={({ pressed }) => [
+                      styles.smsIconActionBtn,
+                      styles.smsInvoiceBtn,
+                      (pressed || sendingWhatsApp === "invoice_sms") && styles.waBtnPressed
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="إرسال نص الفاتورة للزبون عبر SMS"
+                  >
+                    {sendingWhatsApp === "invoice_sms" ? (
+                      <ActivityIndicator color={theme.colors.textInverse} size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="chatbubble-outline" size={18} color={theme.colors.textInverse} />
+                        <Text style={styles.smsBtnText}>SMS</Text>
+                      </>
+                    )}
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void copyInvoice()}
+                    disabled={sendingWhatsApp != null}
+                    style={({ pressed }) => [
+                      styles.iconActionBtn,
+                      styles.copyBtn,
+                      pressed && styles.waBtnPressed
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="نسخ رسالة الفاتورة"
+                  >
+                    <Ionicons name="copy-outline" size={20} color={theme.colors.buttonSecondaryText} />
+                  </Pressable>
+                </View>
+              ) : invoiceAlreadySent && isCompleted ? (
+                <View style={styles.sentBadge}>
+                  <Text style={styles.sentBadgeText}>تم إرسال الفاتورة</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
-          {canSendInvoice ? (
-            <Pressable
-              onPress={() => void openInvoiceWhatsApp()}
-              disabled={sendingWhatsApp != null}
-              style={({ pressed }) => [
-                styles.waInvoiceBtn,
-                (pressed || sendingWhatsApp === "invoice") && styles.waBtnPressed
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="إرسال نص الفاتورة للزبون عبر واتساب"
-            >
-              {sendingWhatsApp === "invoice" ? (
-                <ActivityIndicator color={theme.colors.textInverse} size="small" />
-              ) : (
-                <Text style={styles.waInvoiceBtnText}>إرسال الفاتورة — واتساب</Text>
-              )}
-            </Pressable>
-          ) : invoiceAlreadySent && isCompleted ? (
-            <View style={styles.sentBadge}>
-              <Text style={styles.sentBadgeText}>تم إرسال الفاتورة</Text>
-            </View>
-          ) : null}
-        </View>
-      ) : isCompleted && (canSendInvoice || invoiceAlreadySent) ? (
-        <View style={styles.phoneRow}>
-          {canSendInvoice ? (
-            <Pressable
-              onPress={() => void openInvoiceWhatsApp()}
-              disabled={sendingWhatsApp != null}
-              style={({ pressed }) => [
-                styles.waInvoiceBtn,
-                (pressed || sendingWhatsApp === "invoice") && styles.waBtnPressed
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="إرسال نص الفاتورة للزبون عبر واتساب"
-            >
-              {sendingWhatsApp === "invoice" ? (
-                <ActivityIndicator color={theme.colors.textInverse} size="small" />
-              ) : (
-                <Text style={styles.waInvoiceBtnText}>إرسال الفاتورة — واتساب</Text>
-              )}
-            </Pressable>
-          ) : (
-            <View style={styles.sentBadge}>
-              <Text style={styles.sentBadgeText}>تم إرسال الفاتورة</Text>
-            </View>
-          )}
         </View>
       ) : null}
       <Text style={styles.route}>

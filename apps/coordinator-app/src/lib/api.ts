@@ -41,9 +41,9 @@ export function getSocketOrigin(): string {
 export type OrderBroadcastTarget = "ALL" | "NEAREST_THREE";
 
 /** متطلب نوع السيارة للطلب (افتراضي الخادم: ANY = غير مهم) */
-export type OrderVehicleRequirement = "ANY" | "PUBLIC" | "PRIVATE";
+export type OrderVehicleRequirement = "ANY" | "PUBLIC" | "PRIVATE" | "VIP";
 
-export type DriverVehicleKind = "PUBLIC" | "PRIVATE";
+export type DriverVehicleKind = "PUBLIC" | "PRIVATE" | "VIP";
 
 export interface CoordinatorLoginResponse {
   accessToken: string;

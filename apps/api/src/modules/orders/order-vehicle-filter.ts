@@ -1,13 +1,19 @@
 import { OrderVehicleRequirement, Prisma, VehicleKind } from "@prisma/client";
 
+const REQUIREMENT_TO_KIND: Partial<Record<OrderVehicleRequirement, VehicleKind>> = {
+  [OrderVehicleRequirement.PUBLIC]: VehicleKind.PUBLIC,
+  [OrderVehicleRequirement.PRIVATE]: VehicleKind.PRIVATE,
+  [OrderVehicleRequirement.VIP]: VehicleKind.VIP
+};
+
 export function driverWhereMatchesOrderVehicle(
   requirement: OrderVehicleRequirement
 ): Prisma.DriverWhereInput {
   if (requirement === OrderVehicleRequirement.ANY) {
     return {};
   }
-  const kind = requirement === OrderVehicleRequirement.PUBLIC ? VehicleKind.PUBLIC : VehicleKind.PRIVATE;
-  return { vehicleKind: kind };
+  const kind = REQUIREMENT_TO_KIND[requirement];
+  return kind ? { vehicleKind: kind } : {};
 }
 
 export function driverMatchesOrderVehicle(
@@ -16,6 +22,6 @@ export function driverMatchesOrderVehicle(
 ): boolean {
   if (requirement === OrderVehicleRequirement.ANY) return true;
   if (driverVehicleKind == null) return false;
-  if (requirement === OrderVehicleRequirement.PUBLIC) return driverVehicleKind === VehicleKind.PUBLIC;
-  return driverVehicleKind === VehicleKind.PRIVATE;
+  const expected = REQUIREMENT_TO_KIND[requirement];
+  return expected != null && driverVehicleKind === expected;
 }

@@ -21,7 +21,8 @@ const roleText: Record<Employee["role"], string> = {
 
 const vehicleKindText: Record<VehicleKind, string> = {
   PUBLIC: "عامة",
-  PRIVATE: "خاصة"
+  PRIVATE: "خاصة",
+  VIP: "VIP"
 };
 
 function formatDriverVehicleRow(item: Employee): string {
@@ -501,6 +502,7 @@ export default function EmployeesPage() {
                         <option value="">نوع السيارة (اختياري)</option>
                         <option value="PUBLIC">عامة</option>
                         <option value="PRIVATE">خاصة</option>
+                        <option value="VIP">VIP</option>
                       </select>
                       <span className="select-wrap__chevron" aria-hidden>
                         ▼
@@ -567,7 +569,7 @@ export default function EmployeesPage() {
 
             <div className="import-drivers">
               <p className="import-drivers__hint">
-                ارفع ملف Excel يحتوي الأعمدة: الاسم، الهاتف، براند السيارة، نوع السيارة (1 = خاصة، 2 = عامة)، لون
+                ارفع ملف Excel يحتوي الأعمدة: الاسم، الهاتف، براند السيارة، نوع السيارة (1 = خاصة، 2 = عامة، 3 = VIP)، لون
                 السيارة، رقم اللوحة، كلمة المرور.
               </p>
               <div className="import-drivers__actions">

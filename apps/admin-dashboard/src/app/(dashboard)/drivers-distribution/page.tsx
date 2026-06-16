@@ -36,7 +36,7 @@ function formatVehicle(driver: AdminLiveDriver): string {
   const pieces = [
     driver.vehicleBrand?.trim(),
     driver.vehicleColor?.trim(),
-    driver.vehicleKind === "PUBLIC" ? "عامة" : driver.vehicleKind === "PRIVATE" ? "خاصة" : null
+    driver.vehicleKind === "PUBLIC" ? "عامة" : driver.vehicleKind === "PRIVATE" ? "خاصة" : driver.vehicleKind === "VIP" ? "VIP" : null
   ].filter(Boolean);
   return pieces.length > 0 ? pieces.join(" - ") : "لا توجد بيانات سيارة";
 }

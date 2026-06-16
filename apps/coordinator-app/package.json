@@ -1,7 +1,7 @@
 {
   "name": "@taxi/coordinator-app",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.6",
   "main": "index.js",
   "scripts": {
     "dev": "expo start --offline",
@@ -27,6 +27,7 @@
     "expo-asset": "~12.0.13",
     "expo-audio": "~1.1.1",
     "expo-build-properties": "~0.14.6",
+    "expo-clipboard": "^56.0.4",
     "expo-constants": "~18.0.13",
     "expo-device": "~8.0.10",
     "expo-file-system": "~19.0.14",

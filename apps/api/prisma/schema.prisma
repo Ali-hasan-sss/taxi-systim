@@ -32,6 +32,7 @@ enum OrderBroadcastTarget {
 enum VehicleKind {
   PUBLIC
   PRIVATE
+  VIP
 }
 
 /** متطلب نوع السيارة للطلب (يحدده المنسق عند الإنشاء) */
@@ -39,6 +40,7 @@ enum OrderVehicleRequirement {
   ANY
   PUBLIC
   PRIVATE
+  VIP
 }
 
 enum CommissionType {

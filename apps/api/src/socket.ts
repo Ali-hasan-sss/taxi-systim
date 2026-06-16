@@ -20,6 +20,8 @@ export const ROOM_DRIVERS_ONLINE = "drivers-online";
 const ROOM_ORDER_VEHICLE_PUBLIC = "orders:vehicle:public";
 /** طلبات تتطلب سيارة خاصة فقط */
 const ROOM_ORDER_VEHICLE_PRIVATE = "orders:vehicle:private";
+/** طلبات تتطلب سيارة VIP فقط */
+const ROOM_ORDER_VEHICLE_VIP = "orders:vehicle:vip";
 /** غرفة تطبيقات المنسقين — لاستلام NEW_ORDER دون إرساله لكل السوكيتات */
 const ROOM_COORDINATORS = "coordinators";
 const DRIVER_LOCATION_MIN_INTERVAL_MS = Math.max(1_000, Number(process.env.DRIVER_LOCATION_MIN_INTERVAL_MS ?? 120_000));
@@ -81,8 +83,10 @@ function syncOrderVehicleRooms(
 ) {
   void socket.leave(ROOM_ORDER_VEHICLE_PUBLIC);
   void socket.leave(ROOM_ORDER_VEHICLE_PRIVATE);
+  void socket.leave(ROOM_ORDER_VEHICLE_VIP);
   if (vehicleKind === VehicleKind.PUBLIC) void socket.join(ROOM_ORDER_VEHICLE_PUBLIC);
   else if (vehicleKind === VehicleKind.PRIVATE) void socket.join(ROOM_ORDER_VEHICLE_PRIVATE);
+  else if (vehicleKind === VehicleKind.VIP) void socket.join(ROOM_ORDER_VEHICLE_VIP);
 }
 
 async function eligibleOnlineDriverDbIdsForOrderVehicle(order: Order): Promise<string[]> {
@@ -243,7 +247,14 @@ export async function broadcastNewOrder(io: Server, order: Order) {
       io.to(ROOM_ORDER_VEHICLE_PUBLIC).emit(socketEvents.NEW_ORDER, payload);
       return;
     }
-    io.to(ROOM_ORDER_VEHICLE_PRIVATE).emit(socketEvents.NEW_ORDER, payload);
+    if (order.vehicleRequirement === OrderVehicleRequirement.PRIVATE) {
+      io.to(ROOM_ORDER_VEHICLE_PRIVATE).emit(socketEvents.NEW_ORDER, payload);
+      return;
+    }
+    if (order.vehicleRequirement === OrderVehicleRequirement.VIP) {
+      io.to(ROOM_ORDER_VEHICLE_VIP).emit(socketEvents.NEW_ORDER, payload);
+      return;
+    }
     return;
   }
 
@@ -423,6 +434,7 @@ export const initSocket = (io: Server) => {
       void socket.leave(ROOM_DRIVERS_ONLINE);
       void socket.leave(ROOM_ORDER_VEHICLE_PUBLIC);
       void socket.leave(ROOM_ORDER_VEHICLE_PRIVATE);
+      void socket.leave(ROOM_ORDER_VEHICLE_VIP);
       await socketWrite(() => redis.hdel("drivers:online", driverId));
       try {
         if (typeof driverId === "string" && driverId) {

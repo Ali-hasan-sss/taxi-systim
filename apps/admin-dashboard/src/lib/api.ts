@@ -12,7 +12,7 @@ export interface AdminLoginResponse {
   };
 }
 
-export type VehicleKind = "PUBLIC" | "PRIVATE";
+export type VehicleKind = "PUBLIC" | "PRIVATE" | "VIP";
 
 export interface EmployeeDriverProfile {
   id?: string;

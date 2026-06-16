@@ -64,8 +64,10 @@ function parseVehicleKind(raw: string): VehicleKind | null {
   if (!v) return null;
   if (v === "1") return "PRIVATE";
   if (v === "2") return "PUBLIC";
+  if (v === "3") return "VIP";
   if (v === "public" || v === "عامة" || v === "عام") return "PUBLIC";
   if (v === "private" || v === "خاصة" || v === "خاص") return "PRIVATE";
+  if (v === "vip" || v === "VIP") return "VIP";
   return null;
 }
 
@@ -146,7 +148,7 @@ export function parseDriversExcelBuffer(buffer: ArrayBuffer): ParseDriversExcelR
       continue;
     }
     if (vehicleKindRaw && draft.vehicleKind == null) {
-      errors.push(`الصف ${rowNumber}: نوع السيارة غير صالح — استخدم 1 للخاصة أو 2 للعامة.`);
+      errors.push(`الصف ${rowNumber}: نوع السيارة غير صالح — استخدم 1 للخاصة أو 2 للعامة أو 3 لـ VIP.`);
       continue;
     }
 
