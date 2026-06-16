@@ -30,6 +30,7 @@ const HEADER_ALIASES: Record<string, keyof ParsedDriverImportRow | "vehicleKind"
   "vehicle kind": "vehicleKind",
   kind: "vehicleKind",
   "ماركة السيارة": "vehicleBrand",
+  "براند السيارة": "vehicleBrand",
   vehiclebrand: "vehicleBrand",
   brand: "vehicleBrand",
   "لون السيارة": "vehicleColor",
@@ -61,6 +62,8 @@ function cellText(value: unknown): string {
 function parseVehicleKind(raw: string): VehicleKind | null {
   const v = raw.trim().toLowerCase();
   if (!v) return null;
+  if (v === "1") return "PRIVATE";
+  if (v === "2") return "PUBLIC";
   if (v === "public" || v === "عامة" || v === "عام") return "PUBLIC";
   if (v === "private" || v === "خاصة" || v === "خاص") return "PRIVATE";
   return null;
@@ -110,11 +113,13 @@ export function parseDriversExcelBuffer(buffer: ArrayBuffer): ParseDriversExcelR
   for (let lineIndex = 1; lineIndex < matrix.length; lineIndex++) {
     const line = matrix[lineIndex] ?? [];
     const draft: Partial<ParsedDriverImportRow> & { vehicleKind?: VehicleKind | null } = {};
+    let vehicleKindRaw = "";
 
     headerMap.forEach((field, colIndex) => {
       const text = cellText(line[colIndex]);
       if (!text) return;
       if (field === "vehicleKind") {
+        vehicleKindRaw = text;
         draft.vehicleKind = parseVehicleKind(text);
         return;
       }
@@ -140,6 +145,10 @@ export function parseDriversExcelBuffer(buffer: ArrayBuffer): ParseDriversExcelR
       errors.push(`الصف ${rowNumber}: كلمة المرور مطلوبة (6 أحرف على الأقل).`);
       continue;
     }
+    if (vehicleKindRaw && draft.vehicleKind == null) {
+      errors.push(`الصف ${rowNumber}: نوع السيارة غير صالح — استخدم 1 للخاصة أو 2 للعامة.`);
+      continue;
+    }
 
     rows.push({
       fullName,
@@ -160,10 +169,18 @@ export function parseDriversExcelBuffer(buffer: ArrayBuffer): ParseDriversExcelR
 }
 
 export function downloadDriversImportTemplate() {
-  const headers = ["الاسم", "الهاتف", "نوع السيارة", "لون السيارة", "رقم اللوحة", "كلمة المرور"];
-  const sample = ["أحمد محمد", "0944123456", "عامة", "أبيض", "123456", "driver123"];
+  const headers = ["الاسم", "الهاتف", "براند السيارة", "نوع السيارة", "لون السيارة", "رقم اللوحة", "كلمة المرور"];
+  const sample = ["أحمد محمد", "0944123456", "تويوتا", "2", "أبيض", "123456", "driver123"];
   const sheet = XLSX.utils.aoa_to_sheet([headers, sample]);
-  sheet["!cols"] = [{ wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
+  sheet["!cols"] = [
+    { wch: 22 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 16 }
+  ];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "السائقون");
   XLSX.writeFile(workbook, "drivers-import-template.xlsx");

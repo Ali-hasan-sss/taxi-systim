@@ -567,8 +567,8 @@ export default function EmployeesPage() {
 
             <div className="import-drivers">
               <p className="import-drivers__hint">
-                ارفع ملف Excel يحتوي الأعمدة: الاسم، الهاتف، نوع السيارة (عامة/خاصة)، لون السيارة، رقم اللوحة، كلمة
-                المرور.
+                ارفع ملف Excel يحتوي الأعمدة: الاسم، الهاتف، براند السيارة، نوع السيارة (1 = خاصة، 2 = عامة)، لون
+                السيارة، رقم اللوحة، كلمة المرور.
               </p>
               <div className="import-drivers__actions">
                 <button type="button" className="btn btn-ghost" onClick={downloadDriversImportTemplate}>
@@ -602,6 +602,7 @@ export default function EmployeesPage() {
                         <tr>
                           <th>الاسم</th>
                           <th>الهاتف</th>
+                          <th>البراند</th>
                           <th>نوع السيارة</th>
                           <th>اللون</th>
                           <th>اللوحة</th>
@@ -612,6 +613,7 @@ export default function EmployeesPage() {
                           <tr key={`${row.phone}-${index}`}>
                             <td>{row.fullName}</td>
                             <td>{row.phone}</td>
+                            <td>{row.vehicleBrand || "—"}</td>
                             <td>{row.vehicleKind ? vehicleKindText[row.vehicleKind] : "—"}</td>
                             <td>{row.vehicleColor || "—"}</td>
                             <td>{row.plateNumber || "—"}</td>
