@@ -457,11 +457,30 @@
 
 .mapCardFullscreen {
   position: fixed;
-  inset: 18px;
+  inset: 0;
   z-index: 1000;
-  min-height: auto;
-  padding: 18px;
-  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.34);
+  width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.mapCardFullscreen .mapHeader {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--brand-card-border);
+}
+
+.mapCardFullscreen .mapBody {
+  flex: 1;
+  min-height: 0;
+  border-radius: 0;
 }
 
 .mapHeader {
@@ -540,7 +559,7 @@
   flex: 1;
   min-height: 0;
   border-radius: 24px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .mapLoading {
@@ -559,7 +578,7 @@
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: 2300;
   background: rgba(28, 25, 23, 0.5);
   display: grid;
   place-items: center;
@@ -968,7 +987,7 @@
   }
 
   .mapCardFullscreen {
-    inset: 10px;
-    padding: 14px;
+    inset: 0;
+    padding: 0;
   }
 }

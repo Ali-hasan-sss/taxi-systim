@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import type { AdminLiveDriver } from "../lib/api";
 import styles from "./drivers-distribution-map.module.css";
 
 const DEFAULT_CENTER: [number, number] = [34.8894, 35.8866];
 const DEFAULT_ZOOM = 10;
+const DRIVER_MARKER_ATTR = "data-driver-marker-id";
 
-function hasDriverLocation(driver: AdminLiveDriver): driver is AdminLiveDriver & { lat: number; lng: number } {
+type MapDriver = AdminLiveDriver & { lat: number; lng: number };
+
+function hasDriverLocation(driver: AdminLiveDriver): driver is MapDriver {
   return (
     typeof driver.lat === "number" &&
     Number.isFinite(driver.lat) &&
@@ -40,107 +43,147 @@ function statusLabel(driver: AdminLiveDriver): string {
   return driver.isBusy ? "مشغول الآن" : "متاح الآن";
 }
 
+function estimateMarkerWidth(label: string): number {
+  return Math.min(260, Math.max(96, label.length * 10 + 36));
+}
+
 function buildMarkerIcon(driver: AdminLiveDriver, selected: boolean) {
   const label = escapeHtml(driver.fullName?.trim() || "سائق");
   const toneClass = driver.status === "busy" ? styles.markerBusy : styles.markerOnline;
   const selectedClass = selected ? styles.markerSelected : "";
+  const width = estimateMarkerWidth(driver.fullName?.trim() || "سائق");
 
   return L.divIcon({
-    className: "",
-    html: `<div class="${styles.markerBubble} ${toneClass} ${selectedClass}">${label}</div>`,
-    iconSize: [86, 40],
-    iconAnchor: [43, 20],
-    popupAnchor: [0, -18]
+    className: `driver-distribution-marker ${styles.markerIcon}`,
+    html: `<button type="button" class="${styles.markerBubble} ${toneClass} ${selectedClass}" ${DRIVER_MARKER_ATTR}="${driver.driverId}" aria-label="${label}">${label}</button>`,
+    iconSize: [width, 44],
+    iconAnchor: [width / 2, 22]
   });
 }
 
-function createPopupContent(
-  driver: AdminLiveDriver,
-  onOpenWhatsApp: (driver: AdminLiveDriver) => void,
-  onAssignOrder: (driver: AdminLiveDriver) => void
-) {
-  const root = document.createElement("div");
-  root.className = styles.popupCard;
+function DriverMapPopup(props: {
+  driver: MapDriver;
+  map: L.Map;
+  onOpenWhatsApp: (driver: AdminLiveDriver) => void;
+  onAssignOrder: (driver: AdminLiveDriver) => void;
+  onClose: () => void;
+}) {
+  const { driver, map, onOpenWhatsApp, onAssignOrder, onClose } = props;
+  const [position, setPosition] = useState({ x: 0, y: 0, flipBelow: false });
 
-  const title = document.createElement("h3");
-  title.className = styles.popupTitle;
-  title.textContent = driver.fullName;
-  root.appendChild(title);
+  useEffect(() => {
+    const updatePosition = () => {
+      const point = map.latLngToContainerPoint([driver.lat, driver.lng]);
+      setPosition({
+        x: point.x,
+        y: point.y,
+        flipBelow: point.y < 190
+      });
+    };
 
-  const meta = document.createElement("div");
-  meta.className = styles.popupMeta;
+    updatePosition();
+    map.on("move", updatePosition);
+    map.on("zoom", updatePosition);
+    map.on("resize", updatePosition);
 
-  const rows: Array<[string, string]> = [
-    ["الهاتف", driver.phone || "لا يوجد رقم"],
-    ["السيارة", formatVehicle(driver)],
-    ["رقم اللوحة", driver.vehicleNumber || "غير مسجل"]
-  ];
+    return () => {
+      map.off("move", updatePosition);
+      map.off("zoom", updatePosition);
+      map.off("resize", updatePosition);
+    };
+  }, [driver.lat, driver.lng, map]);
 
-  for (const [labelText, valueText] of rows) {
-    const row = document.createElement("div");
-    row.className = styles.popupMetaRow;
+  return (
+    <div
+      className={`${styles.mapPopup} ${position.flipBelow ? styles.mapPopupBelow : ""}`}
+      style={{ left: position.x, top: position.y }}
+      role="dialog"
+      aria-label={`معلومات السائق ${driver.fullName}`}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button type="button" className={styles.mapPopupClose} onClick={onClose} aria-label="إغلاق">
+        ×
+      </button>
 
-    const label = document.createElement("span");
-    label.className = styles.popupLabel;
-    label.textContent = labelText;
+      <div className={styles.popupCard}>
+        <h3 className={styles.popupTitle}>{driver.fullName}</h3>
 
-    const value = document.createElement("span");
-    value.className = styles.popupValue;
-    value.textContent = valueText;
+        <div className={styles.popupMeta}>
+          <div className={styles.popupMetaRow}>
+            <span className={styles.popupLabel}>الهاتف</span>
+            <span className={styles.popupValue}>{driver.phone || "لا يوجد رقم"}</span>
+          </div>
+          <div className={styles.popupMetaRow}>
+            <span className={styles.popupLabel}>السيارة</span>
+            <span className={styles.popupValue}>{formatVehicle(driver)}</span>
+          </div>
+          <div className={styles.popupMetaRow}>
+            <span className={styles.popupLabel}>رقم اللوحة</span>
+            <span className={styles.popupValue}>{driver.vehicleNumber || "غير مسجل"}</span>
+          </div>
+        </div>
 
-    row.appendChild(label);
-    row.appendChild(value);
-    meta.appendChild(row);
-  }
+        <span
+          className={`${styles.popupStatus} ${
+            driver.status === "busy" ? styles.popupStatusBusy : styles.popupStatusOnline
+          }`}
+        >
+          {statusLabel(driver)}
+        </span>
 
-  root.appendChild(meta);
+        <div className={styles.popupActions}>
+          <button
+            type="button"
+            className={`${styles.popupActionButton} ${styles.popupActionSecondary}`}
+            onClick={() => onOpenWhatsApp(driver)}
+            disabled={!driver.phone}
+          >
+            واتساب
+          </button>
+          <button
+            type="button"
+            className={`${styles.popupActionButton} ${styles.popupActionPrimary}`}
+            onClick={() => {
+              onClose();
+              onAssignOrder(driver);
+            }}
+            disabled={!driver.isOnline || driver.isBusy}
+          >
+            إضافة طلب
+          </button>
+        </div>
+      </div>
 
-  const status = document.createElement("span");
-  status.className = `${styles.popupStatus} ${
-    driver.status === "busy" ? styles.popupStatusBusy : styles.popupStatusOnline
-  }`;
-  status.textContent = statusLabel(driver);
-  root.appendChild(status);
-
-  const actions = document.createElement("div");
-  actions.className = styles.popupActions;
-
-  const whatsAppButton = document.createElement("button");
-  whatsAppButton.type = "button";
-  whatsAppButton.className = `${styles.popupActionButton} ${styles.popupActionSecondary}`;
-  whatsAppButton.textContent = "واتساب";
-  whatsAppButton.disabled = !driver.phone;
-  whatsAppButton.addEventListener("click", () => onOpenWhatsApp(driver));
-
-  const assignButton = document.createElement("button");
-  assignButton.type = "button";
-  assignButton.className = `${styles.popupActionButton} ${styles.popupActionPrimary}`;
-  assignButton.textContent = "إضافة طلب";
-  assignButton.disabled = !driver.isOnline || driver.isBusy;
-  assignButton.addEventListener("click", () => onAssignOrder(driver));
-
-  actions.appendChild(whatsAppButton);
-  actions.appendChild(assignButton);
-  root.appendChild(actions);
-
-  return root;
+      <span className={styles.mapPopupTip} aria-hidden="true" />
+    </div>
+  );
 }
 
 export default function DriversDistributionMap(props: {
   drivers: AdminLiveDriver[];
   selectedDriverId: string | null;
   selectedDriverFocusKey: number;
-  onSelectDriver: (driverId: string) => void;
   onOpenWhatsApp: (driver: AdminLiveDriver) => void;
   onAssignOrder: (driver: AdminLiveDriver) => void;
   fullscreen: boolean;
 }) {
-  const { drivers, selectedDriverId, selectedDriverFocusKey, onSelectDriver, onOpenWhatsApp, onAssignOrder, fullscreen } = props;
+  const { drivers, selectedDriverId, selectedDriverFocusKey, onOpenWhatsApp, onAssignOrder, fullscreen } = props;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const lastFocusKeyRef = useRef(0);
+  const initialViewAppliedRef = useRef(false);
+  const setPopupDriverIdRef = useRef<(driverId: string | null) => void>(() => undefined);
+  const [popupDriverId, setPopupDriverId] = useState<string | null>(null);
   const mapDrivers = useMemo(() => drivers.filter(hasDriverLocation), [drivers]);
+  const popupDriver = useMemo(
+    () => mapDrivers.find((driver) => driver.driverId === popupDriverId) ?? null,
+    [mapDrivers, popupDriverId]
+  );
+
+  setPopupDriverIdRef.current = setPopupDriverId;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -167,11 +210,33 @@ export default function DriversDistributionMap(props: {
 
     L.control.zoom({ position: "topleft" }).addTo(map);
 
+    const handleContainerClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const markerButton = target?.closest(`[${DRIVER_MARKER_ATTR}]`);
+      if (markerButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const driverId = markerButton.getAttribute(DRIVER_MARKER_ATTR);
+        if (driverId) {
+          setPopupDriverIdRef.current(driverId);
+        }
+        return;
+      }
+
+      if (target?.closest(".leaflet-control")) return;
+      setPopupDriverIdRef.current(null);
+    };
+
+    container.addEventListener("click", handleContainerClick, true);
+
     return () => {
+      container.removeEventListener("click", handleContainerClick, true);
+      markersRef.current.clear();
       markersLayerRef.current?.clearLayers();
       markersLayerRef.current = null;
       map.remove();
       mapRef.current = null;
+      initialViewAppliedRef.current = false;
       safeContainer.innerHTML = "";
       delete safeContainer._leaflet_id;
     };
@@ -187,55 +252,89 @@ export default function DriversDistributionMap(props: {
 
   useEffect(() => {
     const map = mapRef.current;
-    const markersLayer = markersLayerRef.current;
-    if (!map || !markersLayer) return;
+    if (!map || initialViewAppliedRef.current || mapDrivers.length === 0) return;
 
-    markersLayer.clearLayers();
+    initialViewAppliedRef.current = true;
+    const bounds = L.latLngBounds(mapDrivers.map((driver) => [driver.lat, driver.lng] as [number, number]));
+    map.fitBounds(bounds, { padding: [42, 42], maxZoom: 13, animate: false });
+    if (mapDrivers.length === 1) {
+      map.setZoom(Math.max(map.getZoom(), 16));
+    }
+  }, [mapDrivers]);
+
+  useEffect(() => {
+    const markersLayer = markersLayerRef.current;
+    if (!markersLayer) return;
+
+    const activeIds = new Set(mapDrivers.map((driver) => driver.driverId));
+
+    for (const [driverId, marker] of markersRef.current) {
+      if (!activeIds.has(driverId)) {
+        markersLayer.removeLayer(marker);
+        markersRef.current.delete(driverId);
+      }
+    }
 
     for (const driver of mapDrivers) {
-      const marker = L.marker([driver.lat, driver.lng], {
-        icon: buildMarkerIcon(driver, driver.driverId === selectedDriverId)
-      });
+      const isSelected = driver.driverId === selectedDriverId;
+      let marker = markersRef.current.get(driver.driverId);
 
-      marker.on("click", () => {
-        onSelectDriver(driver.driverId);
-        marker.openPopup();
-      });
-      marker.bindPopup(createPopupContent(driver, onOpenWhatsApp, onAssignOrder));
-      marker.addTo(markersLayer);
+      if (!marker) {
+        marker = L.marker([driver.lat, driver.lng], {
+          icon: buildMarkerIcon(driver, isSelected),
+          interactive: true
+        });
+
+        marker.addTo(markersLayer);
+        markersRef.current.set(driver.driverId, marker);
+      } else {
+        marker.setLatLng([driver.lat, driver.lng]);
+        marker.setIcon(buildMarkerIcon(driver, isSelected));
+      }
     }
+  }, [mapDrivers, selectedDriverId]);
+
+  useEffect(() => {
+    if (!popupDriverId) return;
+    if (!mapDrivers.some((driver) => driver.driverId === popupDriverId)) {
+      setPopupDriverId(null);
+    }
+  }, [mapDrivers, popupDriverId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || selectedDriverFocusKey <= 0) return;
 
     const focusRequested = selectedDriverFocusKey > lastFocusKeyRef.current;
     lastFocusKeyRef.current = selectedDriverFocusKey;
+    if (!focusRequested || !selectedDriverId) return;
 
-    if (focusRequested && selectedDriverId) {
-      const selected = mapDrivers.find((driver) => driver.driverId === selectedDriverId);
-      if (selected) {
-        map.flyTo([selected.lat, selected.lng], Math.max(map.getZoom(), 16), {
-          animate: true,
-          duration: 0.55
-        });
-        return;
-      }
-    }
+    setPopupDriverId(null);
 
-    if (selectedDriverFocusKey === 0) {
-      if (mapDrivers.length === 0) {
-        map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-        return;
-      }
+    const selected = mapDrivers.find((driver) => driver.driverId === selectedDriverId);
+    if (!selected) return;
 
-      const bounds = L.latLngBounds(mapDrivers.map((driver) => [driver.lat, driver.lng] as [number, number]));
-      map.fitBounds(bounds, { padding: [42, 42], maxZoom: 13 });
-      if (mapDrivers.length === 1) {
-        map.setZoom(Math.max(map.getZoom(), 16));
-      }
-    }
-  }, [mapDrivers, onAssignOrder, onOpenWhatsApp, onSelectDriver, selectedDriverFocusKey, selectedDriverId]);
+    map.flyTo([selected.lat, selected.lng], Math.max(map.getZoom(), 16), {
+      animate: true,
+      duration: 0.55
+    });
+  }, [mapDrivers, selectedDriverFocusKey, selectedDriverId]);
 
   return (
-    <div className={styles.mapRoot}>
+    <div className={`${styles.mapRoot} ${fullscreen ? styles.mapRootFullscreen : ""}`}>
       <div ref={containerRef} className={styles.mapCanvas} />
+
+      <div className={styles.mapOverlay}>
+        {popupDriver && mapRef.current ? (
+          <DriverMapPopup
+            driver={popupDriver}
+            map={mapRef.current}
+            onOpenWhatsApp={onOpenWhatsApp}
+            onAssignOrder={onAssignOrder}
+            onClose={() => setPopupDriverId(null)}
+          />
+        ) : null}
+      </div>
 
       {mapDrivers.length === 0 ? (
         <div className={styles.emptyOverlay}>لا توجد مواقع مباشرة معروضة الآن. فعّل إظهار غير النشطين لمراجعة القائمة الكاملة.</div>

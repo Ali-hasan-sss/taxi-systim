@@ -197,6 +197,7 @@ export default function DriversDistributionPage() {
   );
 
   useEffect(() => {
+    setSelectedDriverId(null);
     setSelectedDriverFocusKey(0);
   }, [debouncedSearch, includeInactive]);
 
@@ -612,25 +613,6 @@ export default function DriversDistributionPage() {
                       </span>
                     </div>
                   </button>
-
-                  <div className={styles.driverActions}>
-                    <button
-                      type="button"
-                      className={`${styles.driverActionButton} ${styles.driverActionSecondary}`}
-                      onClick={() => openWhatsApp(driver)}
-                      disabled={!driver.phone}
-                    >
-                      واتساب
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.driverActionButton} ${styles.driverActionPrimary}`}
-                      onClick={() => openOrderModal(driver)}
-                      disabled={!driver.isOnline || driver.isBusy}
-                    >
-                      إضافة طلب
-                    </button>
-                  </div>
                 </article>
               );
             })
@@ -691,8 +673,8 @@ export default function DriversDistributionPage() {
               <div>
                 <h3 className={styles.mapTitle}>خريطة التوزع المباشر</h3>
                 <p className={styles.mapHint}>
-                  تُعرض جميع السائقين على الخريطة. انقر سائقًا من القائمة للتركيز على موقعه، أو انقر اسمه على الخريطة لعرض
-                  بياناته.
+                  تتحكم أنت بتحريك الخريطة. انقر سائقًا من القائمة الجانبية للتركيز على موقعه، أو انقر اسمه على
+                  الخريطة لعرض بياناته.
                 </p>
                 {selectedDriver ? (
                   <span className={styles.selectedBadge}>
@@ -727,7 +709,6 @@ export default function DriversDistributionPage() {
               drivers={drivers.filter((driver) => driver.isOnline)}
               selectedDriverId={selectedDriverId}
               selectedDriverFocusKey={selectedDriverFocusKey}
-              onSelectDriver={setSelectedDriverId}
               onOpenWhatsApp={openWhatsApp}
               onAssignOrder={openOrderModal}
               fullscreen={fullscreenMap}
