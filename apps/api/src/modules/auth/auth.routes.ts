@@ -29,6 +29,7 @@ authRouter.post("/refresh", authRefreshRateLimit, authController.refresh);
 authRouter.get("/me", requireAuth, authController.me);
 authRouter.get("/admin/me", requireAuth, requireRole("ADMIN"), authController.me);
 authRouter.get("/coordinator/me", requireAuth, requireRole("COORDINATOR"), authController.coordinatorMe);
+authRouter.patch("/profile", requireAuth, requireRole("ADMIN"), authController.updateProfile);
 authRouter.post("/change-password", requireAuth, requireRole("ADMIN"), authController.changePassword);
 authRouter.post("/coordinator/change-password", requireAuth, requireRole("COORDINATOR"), authController.changePassword);
 authRouter.post("/driver/change-password", requireAuth, requireRole("DRIVER"), authController.changePassword);

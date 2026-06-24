@@ -15,7 +15,10 @@ export const usersRouter = Router();
  *     summary: Create user
  */
 usersRouter.use(requireAuth, requireRole("ADMIN"));
+usersRouter.get("/export.xlsx", usersController.exportXlsx);
 usersRouter.get("/", usersController.list);
+usersRouter.get("/:userId/profile", usersController.getProfile);
+usersRouter.get("/:userId/coordinators", usersController.listDriverCoordinators);
 usersRouter.post("/bulk-drivers", usersController.bulkCreateDrivers);
 usersRouter.post("/", usersController.create);
 usersRouter.patch("/:userId", usersController.update);

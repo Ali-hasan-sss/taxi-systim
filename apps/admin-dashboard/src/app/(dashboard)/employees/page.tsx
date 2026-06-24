@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
@@ -36,6 +37,17 @@ function formatDriverVehicleRow(item: Employee): string {
   return parts.length ? parts.join(" · ") : "—";
 }
 
+function downloadBlobFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
 function PushTokenBell({ item }: { item: Employee }) {
   const registered = item.hasPushToken === true;
   const label = registered ? "إشعارات الجوال: مسجّل" : "إشعارات الجوال: غير مسجّل";
@@ -62,6 +74,7 @@ export default function EmployeesPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [importRows, setImportRows] = useState<ParsedDriverImportRow[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [importResult, setImportResult] = useState<{
@@ -261,6 +274,26 @@ export default function EmployeesPage() {
     }
   };
 
+  const onExportEmployees = async () => {
+    if (!token) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const file = await api.downloadEmployeesExport(token);
+      downloadBlobFile(file.blob, file.filename);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "فشل تصدير الموظفين";
+      if (message === "SESSION_EXPIRED") {
+        localStorage.removeItem("taxi_admin_session");
+        router.replace("/login");
+        return;
+      }
+      setError(message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const onSubmitImport = async () => {
     if (!token || !importRows.length) return;
     setImporting(true);
@@ -323,6 +356,9 @@ export default function EmployeesPage() {
           </div>
         </div>
         <div className="employees-toolbar__actions">
+          <button type="button" className="btn btn-ghost" disabled={exporting} onClick={() => void onExportEmployees()}>
+            {exporting ? "جاري التصدير…" : "تصدير الموظفين (Excel)"}
+          </button>
           <button
             type="button"
             className="btn btn-ghost"
@@ -424,6 +460,9 @@ export default function EmployeesPage() {
                       </label>
                     </td>
                     <td className="cell-actions">
+                      <Link href={`/employees/${item.id}`} className="btn btn-sm">
+                        عرض التفاصيل
+                      </Link>
                       <button type="button" className="btn btn-sm" onClick={() => startEdit(item)}>
                         تعديل
                       </button>

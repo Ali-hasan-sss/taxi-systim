@@ -159,6 +159,15 @@ export const authService = {
     return { ...user, coordinatorId: coordinator?.id ?? null };
   },
 
+  async updateProfile(userId: string, payload: { fullName: string }) {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { fullName: payload.fullName.trim() },
+      select: { id: true, email: true, phone: true, fullName: true, role: true, isActive: true }
+    });
+    return user;
+  },
+
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },

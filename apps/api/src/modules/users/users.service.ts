@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
-import { Role, VehicleKind } from "@prisma/client";
+import ExcelJS from "exceljs";
+import { OrderStatus, Role, VehicleKind } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
 import { normalizePhoneDigits } from "../../shared/phone";
@@ -10,6 +11,46 @@ export type DriverProfilePayload = {
   vehicleColor?: string | null;
   plateNumber?: string | null;
 };
+
+const IN_PROGRESS_ORDER_STATUSES: OrderStatus[] = [
+  OrderStatus.ACCEPTED,
+  OrderStatus.ARRIVED,
+  OrderStatus.EN_ROUTE_TO_CUSTOMER,
+  OrderStatus.STARTED,
+  OrderStatus.STUCK
+];
+
+const VEHICLE_KIND_LABELS: Record<VehicleKind, string> = {
+  PUBLIC: "عامة",
+  PRIVATE: "خاصة",
+  VIP: "VIP"
+};
+
+function syriaTodayYmd(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
+}
+
+function formatVehicleDetails(
+  driver: null | {
+    vehicleBrand: string | null;
+    vehicleKind: VehicleKind | null;
+    vehicleColor: string | null;
+    vehicleNumber: string | null;
+  }
+): string {
+  if (!driver) return "";
+  const parts: string[] = [];
+  if (driver.vehicleBrand?.trim()) parts.push(driver.vehicleBrand.trim());
+  if (driver.vehicleKind) parts.push(VEHICLE_KIND_LABELS[driver.vehicleKind]);
+  if (driver.vehicleColor?.trim()) parts.push(driver.vehicleColor.trim());
+  if (driver.vehicleNumber?.trim()) parts.push(`لوحة: ${driver.vehicleNumber.trim()}`);
+  return parts.join(" · ");
+}
 
 export const usersService = {
   async list(filters: { role?: Role; isActive?: boolean; q?: string }) {
@@ -50,6 +91,9 @@ export const usersService = {
             vehicleColor: true,
             vehicleNumber: true
           }
+        },
+        coordinator: {
+          select: { id: true }
         }
       },
       orderBy: { createdAt: "desc" }
@@ -301,5 +345,176 @@ export const usersService = {
       data: { isActive },
       select: { id: true, email: true, fullName: true, phone: true, role: true, isActive: true, createdAt: true }
     });
+  },
+
+  async getProfile(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phone: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        expoPushToken: true,
+        driver: {
+          select: {
+            id: true,
+            vehicleBrand: true,
+            vehicleKind: true,
+            vehicleColor: true,
+            vehicleNumber: true,
+            isOnline: true,
+            isBusy: true
+          }
+        },
+        coordinator: { select: { id: true } }
+      }
+    });
+    if (!user) throw new AppError("المستخدم غير موجود", 404);
+
+    let coordinator = user.coordinator;
+    if (user.role === Role.COORDINATOR && !coordinator) {
+      coordinator = await prisma.coordinator.upsert({
+        where: { userId },
+        update: {},
+        create: { userId },
+        select: { id: true }
+      });
+    }
+
+    const stats = {
+      completedOrders: 0,
+      pendingOrders: 0,
+      inProgressOrders: 0,
+      dueCommissionAmount: "0.00",
+      totalPaidCommissions: "0.00"
+    };
+
+    if (user.driver) {
+      const driverId = user.driver.id;
+      const [completedOrders, pendingOrders, inProgressOrders, balance] = await Promise.all([
+        prisma.order.count({ where: { driverId, status: OrderStatus.COMPLETED } }),
+        prisma.order.count({ where: { driverId, status: OrderStatus.PENDING } }),
+        prisma.order.count({ where: { driverId, status: { in: IN_PROGRESS_ORDER_STATUSES } } }),
+        prisma.driverBalance.findUnique({ where: { driverId } })
+      ]);
+      stats.completedOrders = completedOrders;
+      stats.pendingOrders = pendingOrders;
+      stats.inProgressOrders = inProgressOrders;
+      if (balance) {
+        stats.dueCommissionAmount = balance.remainingDebt.toString();
+        stats.totalPaidCommissions = balance.totalPaidCommissions.toString();
+      }
+    } else if (coordinator) {
+      const coordinatorId = coordinator.id;
+      const [completedOrders, pendingOrders, inProgressOrders] = await Promise.all([
+        prisma.order.count({ where: { coordinatorId, status: OrderStatus.COMPLETED } }),
+        prisma.order.count({ where: { coordinatorId, status: OrderStatus.PENDING } }),
+        prisma.order.count({ where: { coordinatorId, status: { in: IN_PROGRESS_ORDER_STATUSES } } })
+      ]);
+      stats.completedOrders = completedOrders;
+      stats.pendingOrders = pendingOrders;
+      stats.inProgressOrders = inProgressOrders;
+    }
+
+    const { expoPushToken, driver, createdAt, ...rest } = user;
+
+    return {
+      ...rest,
+      createdAt: createdAt.toISOString(),
+      hasPushToken: Boolean(expoPushToken?.trim()),
+      driver: driver
+        ? {
+            id: driver.id,
+            vehicleBrand: driver.vehicleBrand,
+            vehicleKind: driver.vehicleKind,
+            vehicleColor: driver.vehicleColor,
+            vehicleNumber: driver.vehicleNumber,
+            isOnline: driver.isOnline,
+            isBusy: driver.isBusy
+          }
+        : null,
+      coordinator: coordinator ? { id: coordinator.id } : null,
+      stats
+    };
+  },
+
+  async listCoordinatorsForDriverUser(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, driver: { select: { id: true } } }
+    });
+    if (!user) throw new AppError("المستخدم غير موجود", 404);
+    if (user.role !== Role.DRIVER || !user.driver) {
+      throw new AppError("هذا المستخدم ليس سائقًا", 400);
+    }
+
+    const coordinators = await prisma.coordinator.findMany({
+      where: {
+        orders: { some: { driverId: user.driver.id } }
+      },
+      include: {
+        user: { select: { fullName: true, phone: true } }
+      },
+      orderBy: { user: { fullName: "asc" } }
+    });
+
+    return coordinators.map((row) => ({
+      id: row.id,
+      fullName: row.user.fullName?.trim() || "—",
+      phone: row.user.phone
+    }));
+  },
+
+  async buildEmployeesExportXlsx() {
+    const users = await prisma.user.findMany({
+      select: {
+        fullName: true,
+        phone: true,
+        driver: {
+          select: {
+            vehicleBrand: true,
+            vehicleKind: true,
+            vehicleColor: true,
+            vehicleNumber: true
+          }
+        }
+      },
+      orderBy: [{ fullName: "asc" }]
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Taxi Office Admin";
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet("الموظفين", {
+      views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }]
+    });
+
+    sheet.columns = [
+      { header: "الاسم", key: "fullName", width: 28 },
+      { header: "رقم الهاتف", key: "phone", width: 18 },
+      { header: "تفاصيل السيارة", key: "vehicleDetails", width: 42 }
+    ];
+
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.alignment = { horizontal: "center", vertical: "middle" };
+    headerRow.height = 22;
+
+    for (const user of users) {
+      sheet.addRow({
+        fullName: user.fullName?.trim() || "—",
+        phone: user.phone?.trim() || "—",
+        vehicleDetails: formatVehicleDetails(user.driver)
+      });
+    }
+
+    const filename = `الموظفين-${syriaTodayYmd()}.xlsx`;
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    return { buffer, filename };
   }
 };

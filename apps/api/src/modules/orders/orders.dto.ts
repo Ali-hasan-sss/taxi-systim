@@ -46,3 +46,17 @@ export const updateCompletedOrderAmountDto = z.object({
 });
 
 export type UpdateCompletedOrderAmountDto = z.infer<typeof updateCompletedOrderAmountDto>;
+
+export const updateOrderDetailsDto = z
+  .object({
+    customerName: z.string().trim().min(2).optional(),
+    customerPhone: z.string().trim().min(3).optional(),
+    pickupAddress: z.string().trim().min(2).optional(),
+    dropoffAddress: z.string().trim().min(2).optional(),
+    notes: z.string().trim().max(2000).optional()
+  })
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: "أدخل حقلًا واحدًا على الأقل للتعديل"
+  });
+
+export type UpdateOrderDetailsDto = z.infer<typeof updateOrderDetailsDto>;

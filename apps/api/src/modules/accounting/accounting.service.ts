@@ -161,13 +161,19 @@ function syriaDayRangeUtc(fromYmd: string, toYmd: string): { from: Date; toExclu
   };
 }
 
-function buildOrderRangeWhere(opts?: { from?: string | null; to?: string | null; driverId?: string | null }) {
+function buildOrderRangeWhere(opts?: {
+  from?: string | null;
+  to?: string | null;
+  driverId?: string | null;
+  coordinatorId?: string | null;
+}) {
   const from = opts?.from?.trim() || todaySyriaYmd();
   const to = opts?.to?.trim() || from;
   const { from: fromUtc, toExclusive } = syriaDayRangeUtc(from, to);
   const baseWhere: Prisma.OrderWhereInput = {
     createdAt: { gte: fromUtc, lt: toExclusive },
-    ...(opts?.driverId ? { driverId: opts.driverId } : {})
+    ...(opts?.driverId ? { driverId: opts.driverId } : {}),
+    ...(opts?.coordinatorId ? { coordinatorId: opts.coordinatorId } : {})
   };
   return { from, to, fromUtc, toExclusive, baseWhere };
 }
@@ -282,6 +288,7 @@ export const accountingService = {
     from?: string | null;
     to?: string | null;
     driverId?: string | null;
+    coordinatorId?: string | null;
     cursor?: string | null;
     limit?: number;
   }) {
@@ -305,13 +312,16 @@ export const accountingService = {
       status: OrderStatus.COMPLETED
     };
 
-    const compensationWhere = driverCompensationWhere({
-      fromUtc,
-      toExclusive,
-      driverId: opts?.driverId ?? null
-    });
+    const compensationWhere = opts?.driverId
+      ? driverCompensationWhere({
+          fromUtc,
+          toExclusive,
+          driverId: opts.driverId
+        })
+      : null;
 
-    const [completedOrdersAggregate, totalCommissionAggregate, dueCommissionAggregate, compensationAggregate, rows] = await Promise.all([
+    const [completedOrdersAggregate, totalCommissionAggregate, dueCommissionAggregate, compensationAggregate, rows] =
+      await Promise.all([
       prisma.order.aggregate({
         where: completedWhere,
         _count: { _all: true },
@@ -329,16 +339,23 @@ export const accountingService = {
         },
         _sum: { remainingAmount: true }
       }),
-      prisma.financialTransaction.aggregate({
-        where: compensationWhere,
-        _sum: { amount: true }
-      }),
+      compensationWhere
+        ? prisma.financialTransaction.aggregate({
+            where: compensationWhere,
+            _sum: { amount: true }
+          })
+        : Promise.resolve({ _sum: { amount: new Prisma.Decimal(0) } }),
       prisma.order.findMany({
         where,
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit + 1,
         include: {
           driver: {
+            include: {
+              user: { select: { fullName: true, phone: true } }
+            }
+          },
+          coordinator: {
             include: {
               user: { select: { fullName: true, phone: true } }
             }
@@ -382,6 +399,13 @@ export const accountingService = {
               phone: row.driver.user.phone ?? null
             }
           : null,
+        coordinator: row.coordinator
+          ? {
+              id: row.coordinator.id,
+              fullName: row.coordinator.user.fullName ?? "",
+              phone: row.coordinator.user.phone ?? null
+            }
+          : null,
         commission: row.commission
           ? {
               id: row.commission.id,
@@ -407,17 +431,30 @@ export const accountingService = {
     };
   },
 
-  async buildFinanceExportXlsx(opts?: { from?: string | null; to?: string | null; driverId?: string | null }) {
+  async buildFinanceExportXlsx(opts?: {
+    from?: string | null;
+    to?: string | null;
+    driverId?: string | null;
+    coordinatorId?: string | null;
+  }) {
     const { from, to, fromUtc, toExclusive, baseWhere } = buildOrderRangeWhere(opts);
     const completedWhere: Prisma.OrderWhereInput = {
       ...baseWhere,
       status: OrderStatus.COMPLETED
     };
 
-    const [driverInfo, rows] = await Promise.all([
+    const [driverInfo, coordinatorInfo, rows] = await Promise.all([
       opts?.driverId
         ? prisma.driver.findUnique({
             where: { id: opts.driverId },
+            include: {
+              user: { select: { fullName: true } }
+            }
+          })
+        : null,
+      opts?.coordinatorId
+        ? prisma.coordinator.findUnique({
+            where: { id: opts.coordinatorId },
             include: {
               user: { select: { fullName: true } }
             }
@@ -458,7 +495,9 @@ export const accountingService = {
 
     const reportTitle = driverInfo?.user.fullName
       ? `تقرير الطلبات المكتملة للسائق: ${driverInfo.user.fullName}`
-      : "تقرير الطلبات المكتملة";
+      : coordinatorInfo?.user.fullName
+        ? `تقرير الطلبات المكتملة للمنسق: ${coordinatorInfo.user.fullName}`
+        : "تقرير الطلبات المكتملة";
     const periodTitle = `الفترة من ${from} إلى ${to}`;
     const totalAmount = rows.reduce((sum, row) => sum + toNum(row.amount), 0);
     const totalCommission = rows.reduce((sum, row) => sum + (row.commission ? toNum(row.commission.calculatedCommission) : 0), 0);
@@ -639,7 +678,9 @@ export const accountingService = {
 
     const filenameBase = driverInfo?.user.fullName
       ? `تقرير-السائق-${sanitizeFileNameSegment(driverInfo.user.fullName)}-${from}-الى-${to}`
-      : `تقرير-الطلبات-المكتملة-${from}-الى-${to}`;
+      : coordinatorInfo?.user.fullName
+        ? `تقرير-المنسق-${sanitizeFileNameSegment(coordinatorInfo.user.fullName)}-${from}-الى-${to}`
+        : `تقرير-الطلبات-المكتملة-${from}-الى-${to}`;
 
     const buffer = await workbook.xlsx.writeBuffer();
     return {
@@ -672,7 +713,7 @@ export const accountingService = {
 
   async settleFilteredCommissions(
     adminUserId: string,
-    opts?: { from?: string | null; to?: string | null; driverId?: string | null; notes?: string }
+    opts?: { from?: string | null; to?: string | null; driverId?: string | null; coordinatorId?: string | null; notes?: string }
   ) {
     const { baseWhere } = buildOrderRangeWhere(opts);
     return prisma.$transaction(async (tx) => {

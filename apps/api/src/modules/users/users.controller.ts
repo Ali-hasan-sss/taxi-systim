@@ -6,6 +6,17 @@ import { prisma } from "../../shared/prisma";
 import { createUserDto, bulkCreateDriversDto, listUsersQueryDto, setStatusDto, updateUserDto } from "./users.dto";
 import { usersService } from "./users.service";
 
+function buildSafeContentDisposition(filename: string): string {
+  const asciiFallback = filename
+    .replace(/[^\x20-\x7E]+/g, "-")
+    .replace(/["\\]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  const fallback = asciiFallback || "employees-export.xlsx";
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 export const usersController = {
   async list(req: Request, res: Response) {
     const query = listUsersQueryDto.parse(req.query);
@@ -52,5 +63,23 @@ export const usersController = {
     const dto = setStatusDto.parse(req.body);
     const user = await usersService.setStatus(req.params.userId, dto.isActive);
     res.json(user);
+  },
+
+  async getProfile(req: Request, res: Response) {
+    const profile = await usersService.getProfile(req.params.userId);
+    res.json(profile);
+  },
+
+  async listDriverCoordinators(req: Request, res: Response) {
+    const rows = await usersService.listCoordinatorsForDriverUser(req.params.userId);
+    res.json(rows);
+  },
+
+  async exportXlsx(_req: Request, res: Response) {
+    const file = await usersService.buildEmployeesExportXlsx();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", buildSafeContentDisposition(file.filename));
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).end(file.buffer);
   }
 };

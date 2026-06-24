@@ -2,7 +2,7 @@
   "expo": {
     "name": "منسق برو",
     "slug": "taxi-coordinator",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
     "scheme": "taxi-coordinator",
     "userInterfaceStyle": "dark",
@@ -120,7 +120,7 @@
     "android": {
       "package": "com.taxioffice.coordinator",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 6,
+      "versionCode": 7,
       "usesCleartextTraffic": true,
       "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",

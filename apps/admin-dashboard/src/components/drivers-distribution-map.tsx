@@ -139,6 +139,7 @@ export default function DriversDistributionMap(props: {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const lastFocusKeyRef = useRef(0);
   const mapDrivers = useMemo(() => drivers.filter(hasDriverLocation), [drivers]);
 
   useEffect(() => {
@@ -196,33 +197,39 @@ export default function DriversDistributionMap(props: {
         icon: buildMarkerIcon(driver, driver.driverId === selectedDriverId)
       });
 
-      marker.on("click", () => onSelectDriver(driver.driverId));
+      marker.on("click", () => {
+        onSelectDriver(driver.driverId);
+        marker.openPopup();
+      });
       marker.bindPopup(createPopupContent(driver, onOpenWhatsApp, onAssignOrder));
       marker.addTo(markersLayer);
+    }
 
-      if (driver.driverId === selectedDriverId) {
-        marker.openPopup();
+    const focusRequested = selectedDriverFocusKey > lastFocusKeyRef.current;
+    lastFocusKeyRef.current = selectedDriverFocusKey;
+
+    if (focusRequested && selectedDriverId) {
+      const selected = mapDrivers.find((driver) => driver.driverId === selectedDriverId);
+      if (selected) {
+        map.flyTo([selected.lat, selected.lng], Math.max(map.getZoom(), 16), {
+          animate: true,
+          duration: 0.55
+        });
+        return;
       }
     }
 
-    const selected = mapDrivers.find((driver) => driver.driverId === selectedDriverId);
-    if (selected) {
-      map.flyTo([selected.lat, selected.lng], Math.max(map.getZoom(), 16), {
-        animate: true,
-        duration: 0.55
-      });
-      return;
-    }
+    if (selectedDriverFocusKey === 0) {
+      if (mapDrivers.length === 0) {
+        map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+        return;
+      }
 
-    if (mapDrivers.length === 0) {
-      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-      return;
-    }
-
-    const bounds = L.latLngBounds(mapDrivers.map((driver) => [driver.lat, driver.lng] as [number, number]));
-    map.fitBounds(bounds, { padding: [42, 42], maxZoom: 13 });
-    if (mapDrivers.length === 1) {
-      map.setZoom(Math.max(map.getZoom(), 16));
+      const bounds = L.latLngBounds(mapDrivers.map((driver) => [driver.lat, driver.lng] as [number, number]));
+      map.fitBounds(bounds, { padding: [42, 42], maxZoom: 13 });
+      if (mapDrivers.length === 1) {
+        map.setZoom(Math.max(map.getZoom(), 16));
+      }
     }
   }, [mapDrivers, onAssignOrder, onOpenWhatsApp, onSelectDriver, selectedDriverFocusKey, selectedDriverId]);
 

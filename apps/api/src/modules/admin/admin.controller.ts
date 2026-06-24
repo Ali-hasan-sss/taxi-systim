@@ -2,7 +2,7 @@ import { OrderStatus } from "@prisma/client";
 import type { NextFunction, Response } from "express";
 import type { Server } from "socket.io";
 import type { AuthRequest } from "../../shared/auth";
-import { updateCompletedOrderAmountDto } from "../orders/orders.dto";
+import { updateCompletedOrderAmountDto, updateOrderDetailsDto } from "../orders/orders.dto";
 import {
   ADMIN_ORDERS_PAGE_DEFAULT,
   ADMIN_ORDERS_PAGE_MAX,
@@ -21,8 +21,7 @@ function parseAdminOrdersSegment(raw: unknown): CoordinatorOrdersListSegment | u
     segStr === "in_progress" ||
     segStr === "stuck" ||
     segStr === "needs_info" ||
-    segStr === "needs_invoice" ||
-    segStr === "completed"
+    segStr === "needs_invoice"
   ) {
     return segStr;
   }
@@ -145,6 +144,25 @@ export const adminController = {
         return;
       }
       const updated = await ordersService.updateOrderAmountByAdmin(orderId, parsed.data.amount);
+      res.json(ordersService.serializeAdminOrderRow(updated));
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async updateOrderDetails(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const orderId = req.params.orderId;
+      if (!orderId) {
+        res.status(400).json({ message: "معرّف الطلب مطلوب" });
+        return;
+      }
+      const parsed = updateOrderDetailsDto.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.issues[0]?.message ?? "بيانات غير صالحة" });
+        return;
+      }
+      const updated = await ordersService.updateOrderDetailsByAdmin(orderId, parsed.data);
       res.json(ordersService.serializeAdminOrderRow(updated));
     } catch (err) {
       next(err);

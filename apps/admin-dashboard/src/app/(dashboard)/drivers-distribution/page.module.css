@@ -687,6 +687,146 @@
   color: var(--brand-text);
 }
 
+.modalIntro {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--brand-text-muted);
+}
+
+.modeChoices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.modeChoiceCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  text-align: right;
+  border: 1px solid var(--brand-card-border);
+  border-radius: 18px;
+  padding: 16px;
+  background: var(--brand-bg-muted);
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.modeChoiceCard:hover {
+  transform: translateY(-1px);
+  border-color: var(--brand-primary);
+  box-shadow: 0 12px 24px rgba(234, 88, 12, 0.12);
+}
+
+.modeChoiceTitle {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--brand-text);
+}
+
+.modeChoiceHint {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--brand-text-muted);
+}
+
+.pendingToolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.pendingHint {
+  margin: 0;
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--brand-text-muted);
+}
+
+.pendingList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  padding-inline-end: 2px;
+}
+
+.pendingItem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--brand-card-border);
+  border-radius: 16px;
+  padding: 14px;
+  background: #ffffff;
+  text-align: right;
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.pendingItem:hover:not(:disabled) {
+  border-color: var(--brand-primary);
+  transform: translateY(-1px);
+}
+
+.pendingItemSelected {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+}
+
+.pendingItemDisabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pendingItemHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.pendingItemCustomer {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--brand-text);
+}
+
+.pendingItemAmount {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--brand-primary-dark);
+}
+
+.pendingItemRoute {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--brand-text-muted);
+}
+
+.pendingItemMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--brand-text-muted);
+}
+
+.pendingItemWarning {
+  font-size: 12px;
+  font-weight: 800;
+  color: #c2410c;
+}
+
 @media (max-width: 1100px) {
   .layoutGrid {
     grid-template-columns: 1fr;
@@ -810,6 +950,10 @@
   }
 
   .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .modeChoices {
     grid-template-columns: 1fr;
   }
 

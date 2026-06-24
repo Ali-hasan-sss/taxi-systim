@@ -14,8 +14,12 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [commissionSaving, setCommissionSaving] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const [adminName, setAdminName] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
 
   const [commissionType, setCommissionType] = useState<CommissionType>("PERCENTAGE");
   const [commissionValue, setCommissionValue] = useState("0");
@@ -48,11 +52,13 @@ export default function SettingsPage() {
       setLoading(true);
       setError(null);
       try {
-        const setting = await api.getCommissionSettings(token);
+        const [setting, me] = await Promise.all([api.getCommissionSettings(token), api.me(token)]);
         if (setting) {
           setCommissionType(setting.commissionType);
           setCommissionValue(String(setting.commissionValue ?? "0"));
         }
+        setAdminName(me.fullName);
+        setAdminEmail(me.email ?? "");
       } catch (err) {
         const message = err instanceof Error ? err.message : "تعذر تحميل الإعدادات";
         if (message === "SESSION_EXPIRED") {
@@ -66,6 +72,34 @@ export default function SettingsPage() {
     };
     void load();
   }, [router, token]);
+
+  const submitProfile = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    const trimmedName = adminName.trim();
+    if (trimmedName.length < 2) {
+      setError("الاسم يجب أن يكون حرفين على الأقل.");
+      return;
+    }
+
+    setProfileSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await api.updateAdminProfile(token, { fullName: trimmedName });
+      setAdminName(updated.fullName);
+      setNotice("تم تحديث اسم حساب الأدمن بنجاح.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "فشل تحديث الاسم";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const submitCommission = async (e: FormEvent) => {
     e.preventDefault();
@@ -145,7 +179,7 @@ export default function SettingsPage() {
       <section className="card settings-hero">
         <h2 className="settings-hero__title">إعدادات النظام</h2>
         <p className="settings-hero__text">
-          من هنا يمكن للأدمن تعديل نوع العمولة وقيمتها، وتغيير كلمة مرور حسابه الحالي بشكل آمن.
+          من هنا يمكن للأدمن تعديل اسم حسابه، إعدادات العمولة، وتغيير كلمة المرور بشكل آمن.
         </p>
       </section>
 
@@ -153,6 +187,36 @@ export default function SettingsPage() {
       {notice ? <p className="settings-notice">{notice}</p> : null}
 
       <section className="settings-grid">
+        <article className="card settings-card">
+          <h3 className="settings-card__title">حساب الأدمن</h3>
+          <p className="settings-card__hint">يظهر هذا الاسم في لوحة التحكم وعند تسجيل الدخول.</p>
+
+          <form className="settings-form" onSubmit={submitProfile}>
+            <label className="settings-field">
+              <span>البريد الإلكتروني</span>
+              <input className="input-styled" type="email" value={adminEmail} disabled />
+            </label>
+
+            <label className="settings-field">
+              <span>الاسم الكامل</span>
+              <input
+                className="input-styled"
+                value={adminName}
+                onChange={(e) => setAdminName(e.target.value)}
+                placeholder="اسم الأدمن"
+                required
+                minLength={2}
+              />
+            </label>
+
+            <div className="settings-actions">
+              <button type="submit" className="btn btn-primary" disabled={profileSaving}>
+                {profileSaving ? "جارٍ الحفظ..." : "حفظ الاسم"}
+              </button>
+            </div>
+          </form>
+        </article>
+
         <article className="card settings-card">
           <h3 className="settings-card__title">إعدادات العمولة</h3>
           <p className="settings-card__hint">

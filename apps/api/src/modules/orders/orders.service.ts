@@ -495,6 +495,30 @@ export const ordersService = {
     throw new AppError("يمكن إلغاء الطلب المعلق قبل الإسناد، أو الطلب المتعثر فقط", 400);
   },
 
+  async cancelByAdmin(orderId: string) {
+    const order = await prisma.order.findFirst({ where: { id: orderId } });
+    if (!order) throw new AppError("الطلب غير موجود", 404);
+
+    if (order.status === OrderStatus.PENDING) {
+      if (order.driverId) {
+        throw new AppError("الطلب مُسندًا بالفعل", 400);
+      }
+      return prisma.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
+      });
+    }
+
+    if (order.status === OrderStatus.STUCK) {
+      return prisma.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
+      });
+    }
+
+    throw new AppError("يمكن إلغاء الطلب المعلق قبل الإسناد، أو الطلب المتعثر فقط", 400);
+  },
+
   /** إعادة طلب متعثر لنفس السائق: «في الطريق إلى الزبون» وتعيين السائق مشغولًا. */
   async resumeStuckOrderByCoordinator(coordinatorUserId: string, orderId: string) {
     return prisma.$transaction(async (tx) => {
@@ -503,6 +527,38 @@ export const ordersService = {
 
       const order = await tx.order.findFirst({
         where: { id: orderId, coordinatorId: coordinator.id, status: OrderStatus.STUCK }
+      });
+      if (!order) throw new AppError("الطلب غير موجود أو ليس في حالة متعثرة", 404);
+      if (!order.driverId) throw new AppError("لا يوجد سائق مرتبط بهذا الطلب", 400);
+
+      const otherActive = await tx.order.findFirst({
+        where: {
+          driverId: order.driverId,
+          id: { not: orderId },
+          status: { in: DRIVER_BUSY_STATUSES }
+        }
+      });
+      if (otherActive) {
+        throw new AppError("السائق منشغل بطلب آخر قيد التنفيذ. أنهِه أولًا.", 400);
+      }
+
+      await tx.driver.update({
+        where: { id: order.driverId },
+        data: { isBusy: true }
+      });
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.EN_ROUTE_TO_CUSTOMER },
+        include: orderIncludeDriverUser
+      });
+    });
+  },
+
+  async resumeStuckByAdmin(orderId: string) {
+    return prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({
+        where: { id: orderId, status: OrderStatus.STUCK }
       });
       if (!order) throw new AppError("الطلب غير موجود أو ليس في حالة متعثرة", 404);
       if (!order.driverId) throw new AppError("لا يوجد سائق مرتبط بهذا الطلب", 400);
@@ -556,6 +612,49 @@ export const ordersService = {
       if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
       if (!driverMatchesOrderVehicle(order.vehicleRequirement, driver.vehicleKind)) {
         throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة)", 400);
+      }
+
+      await tx.driver.update({
+        where: { id: driverId },
+        data: { isBusy: true }
+      });
+
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          driverId,
+          status: OrderStatus.EN_ROUTE_TO_CUSTOMER,
+          acceptedAt: new Date()
+        },
+        include: {
+          driver: { include: { user: { select: { fullName: true, phone: true } } } }
+        }
+      });
+
+      return updated;
+    });
+  },
+
+  async assignByAdmin(orderId: string, driverId: string) {
+    return prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({ where: { id: orderId } });
+      if (!order) throw new AppError("الطلب غير موجود", 404);
+      if (order.status !== OrderStatus.PENDING) {
+        throw new AppError("يمكن الإسناد للطلب المعلق فقط", 400);
+      }
+      if (order.driverId) throw new AppError("الطلب مُسندًا بالفعل", 400);
+
+      const driver = await tx.driver.findFirst({
+        where: {
+          id: driverId,
+          user: { role: Role.DRIVER, isActive: true }
+        },
+        include: { user: { select: { fullName: true } } }
+      });
+      if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
+      if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
+      if (!driverMatchesOrderVehicle(order.vehicleRequirement, driver.vehicleKind)) {
+        throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة/VIP)", 400);
       }
 
       await tx.driver.update({
@@ -688,11 +787,9 @@ export const ordersService = {
             ? { status: OrderStatus.STUCK }
             : seg === "needs_info"
               ? coordinatorNeedsInfoWhere()
-              : seg === "needs_invoice"
-                ? coordinatorNeedsInvoiceWhere()
-                : seg === "completed"
-                  ? { status: OrderStatus.COMPLETED }
-                  : { status: { not: OrderStatus.CANCELLED } };
+                : seg === "needs_invoice"
+                  ? coordinatorNeedsInvoiceWhere()
+                  : { status: { notIn: [OrderStatus.CANCELLED, OrderStatus.COMPLETED] } };
 
     const orderAsc = seg === "pending";
     const decoded = opts?.cursor ? decodeOrderCursor(opts.cursor) : null;
@@ -758,7 +855,11 @@ export const ordersService = {
       const restCursor = decoded?.phase === "rest" ? descOrderCursorWhere(decoded) : undefined;
       const restWhere = mergeOrderWhere(
         {
-          AND: [{ status: { not: OrderStatus.CANCELLED } }, { status: { not: OrderStatus.PENDING } }]
+          AND: [
+            { status: { not: OrderStatus.CANCELLED } },
+            { status: { not: OrderStatus.PENDING } },
+            { status: { not: OrderStatus.COMPLETED } }
+          ]
         },
         restCursor
       );
@@ -790,12 +891,12 @@ export const ordersService = {
   },
 
   async orderStatsForAdmin() {
-    const [filterAll, filterPending, filterStuck, filterCompleted, filterNeedsInfo, filterNeedsInvoice, filterInProgress] =
+    const activeRoomWhere = { status: { notIn: [OrderStatus.CANCELLED, OrderStatus.COMPLETED] } };
+    const [filterAll, filterPending, filterStuck, filterNeedsInfo, filterNeedsInvoice, filterInProgress] =
       await Promise.all([
-        prisma.order.count({ where: { status: { not: OrderStatus.CANCELLED } } }),
+        prisma.order.count({ where: activeRoomWhere }),
         prisma.order.count({ where: { status: OrderStatus.PENDING } }),
         prisma.order.count({ where: { status: OrderStatus.STUCK } }),
-        prisma.order.count({ where: { status: OrderStatus.COMPLETED } }),
         prisma.order.count({ where: coordinatorNeedsInfoWhere() }),
         prisma.order.count({ where: coordinatorNeedsInvoiceWhere() }),
         prisma.order.count({
@@ -819,7 +920,6 @@ export const ordersService = {
         needs_invoice: filterNeedsInvoice,
         stuck: filterStuck,
         pending: filterPending,
-        completed: filterCompleted,
         in_progress: filterInProgress
       }
     };
@@ -1703,6 +1803,36 @@ export const ordersService = {
     await this.updateOrderAmountByCoordinator(order.coordinator.userId, orderId, newAmount);
     return prisma.order.findFirstOrThrow({
       where: { id: orderId },
+      include: orderIncludeAdmin
+    });
+  },
+
+  async updateOrderDetailsByAdmin(
+    orderId: string,
+    payload: {
+      customerName?: string;
+      customerPhone?: string;
+      pickupAddress?: string;
+      dropoffAddress?: string;
+      notes?: string;
+    }
+  ) {
+    const order = await prisma.order.findFirst({ where: { id: orderId } });
+    if (!order) throw new AppError("الطلب غير موجود", 404);
+    if (order.status !== OrderStatus.STUCK && order.status !== OrderStatus.PENDING) {
+      throw new AppError("يمكن تعديل تفاصيل الطلب المعلق أو المتعثر فقط", 400);
+    }
+
+    const data: Prisma.OrderUpdateInput = {};
+    if (payload.customerName !== undefined) data.customerName = payload.customerName.trim();
+    if (payload.customerPhone !== undefined) data.customerPhone = payload.customerPhone.trim();
+    if (payload.pickupAddress !== undefined) data.pickupAddress = payload.pickupAddress.trim();
+    if (payload.dropoffAddress !== undefined) data.dropoffAddress = payload.dropoffAddress.trim();
+    if (payload.notes !== undefined) data.notes = payload.notes.trim() || null;
+
+    return prisma.order.update({
+      where: { id: orderId },
+      data,
       include: orderIncludeAdmin
     });
   },

@@ -1849,6 +1849,119 @@ body {
   display: block;
 }
 
+.order-room-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--brand-card-border);
+  overflow-x: auto;
+}
+
+.order-room-card__iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--brand-border);
+  border-radius: 10px;
+  background: #f8fafc;
+  color: var(--brand-primary-dark);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.order-room-card__iconBtn:hover:not(:disabled) {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  transform: translateY(-1px);
+}
+
+.order-room-card__iconBtn--danger {
+  color: #b91c1c;
+  background: #fff5f5;
+  border-color: #fecaca;
+}
+
+.order-room-card__iconBtn--danger:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+.order-room-card__iconBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.order-room-card__softBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.order-room-card__softBtn--danger {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
+.order-room-card__softBtn--danger:hover:not(:disabled) {
+  background: #ffe4e6;
+}
+
+.order-room-card__softBtn--primary {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.order-room-card__softBtn--primary:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+.order-room-card__softBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.orders-room-alarm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #fff1f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 800;
+  animation: orderPendingPulse 1.4s ease-in-out infinite;
+}
+
+.orders-room-alarm__btn {
+  border: none;
+  background: #fff;
+  color: #b91c1c;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .login-page {
   min-height: 100vh;
   min-height: 100dvh;

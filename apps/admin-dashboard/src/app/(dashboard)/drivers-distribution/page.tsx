@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
 import { PanelRightOpen, Search, X } from "lucide-react";
-import { api, getSocketOrigin, type AdminLiveDriver, type LiveDriverSummary } from "../../../lib/api";
+import { api, getSocketOrigin, type AdminLiveDriver, type AdminOrderRoomRow, type LiveDriverSummary } from "../../../lib/api";
 import styles from "./page.module.css";
 
 const DriversDistributionMap = dynamic(() => import("../../../components/drivers-distribution-map"), {
@@ -17,6 +17,8 @@ const DRIVER_PAGE_LIMIT = 120;
 
 type SocketStatus = "connected" | "connecting" | "disconnected";
 type SessionSnapshot = { accessToken: string; user?: { id?: string } };
+type OrderModalMode = "choose" | "new" | "pending";
+
 type OrderFormState = {
   customerName: string;
   customerPhone: string;
@@ -68,6 +70,26 @@ function hasDriverLocation(driver: AdminLiveDriver): driver is AdminLiveDriver &
   );
 }
 
+function formatOrderAmount(amount: string): string {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return amount;
+  return `${new Intl.NumberFormat("ar-SY", { maximumFractionDigits: 0 }).format(n)} ل.س`;
+}
+
+function vehicleRequirementLabel(requirement?: string | null): string {
+  if (requirement === "PUBLIC") return "عامة";
+  if (requirement === "PRIVATE") return "خاصة";
+  if (requirement === "VIP") return "VIP";
+  return "أي نوع";
+}
+
+function orderMatchesDriver(order: AdminOrderRoomRow, driver: AdminLiveDriver): boolean {
+  const requirement = order.vehicleRequirement ?? "ANY";
+  if (requirement === "ANY") return true;
+  if (!driver.vehicleKind) return false;
+  return driver.vehicleKind === requirement;
+}
+
 export default function DriversDistributionPage() {
   const router = useRouter();
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -89,6 +111,10 @@ export default function DriversDistributionPage() {
   const [fullscreenMap, setFullscreenMap] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [modalDriver, setModalDriver] = useState<AdminLiveDriver | null>(null);
+  const [orderModalMode, setOrderModalMode] = useState<OrderModalMode>("choose");
+  const [pendingOrders, setPendingOrders] = useState<AdminOrderRoomRow[]>([]);
+  const [loadingPendingOrders, setLoadingPendingOrders] = useState(false);
+  const [selectedPendingOrderId, setSelectedPendingOrderId] = useState<string | null>(null);
   const [form, setForm] = useState<OrderFormState>({
     customerName: "",
     customerPhone: "",
@@ -153,7 +179,7 @@ export default function DriversDistributionPage() {
         setDrivers(page.drivers);
         setSummary(page.summary);
         setSelectedDriverId((current) =>
-          current && page.drivers.some((driver) => driver.driverId === current) ? current : page.drivers[0]?.driverId ?? null
+          current && page.drivers.some((driver) => driver.driverId === current) ? current : null
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : "تعذر تحميل مواقع السائقين";
@@ -169,6 +195,10 @@ export default function DriversDistributionPage() {
     },
     [accessToken, debouncedSearch, handleSessionExpired, includeInactive]
   );
+
+  useEffect(() => {
+    setSelectedDriverFocusKey(0);
+  }, [debouncedSearch, includeInactive]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -348,6 +378,9 @@ export default function DriversDistributionPage() {
 
     setNotice(null);
     setModalDriver(driver);
+    setOrderModalMode("choose");
+    setPendingOrders([]);
+    setSelectedPendingOrderId(null);
     setForm({
       customerName: "",
       customerPhone: "",
@@ -361,6 +394,84 @@ export default function DriversDistributionPage() {
   const closeOrderModal = () => {
     if (submittingOrder) return;
     setModalDriver(null);
+    setOrderModalMode("choose");
+    setPendingOrders([]);
+    setSelectedPendingOrderId(null);
+  };
+
+  const openNewOrderForm = () => {
+    setOrderModalMode("new");
+    setSelectedPendingOrderId(null);
+    setForm({
+      customerName: "",
+      customerPhone: "",
+      pickupAddress: "",
+      dropoffAddress: "",
+      amount: "",
+      notes: ""
+    });
+  };
+
+  const loadPendingOrders = useCallback(async () => {
+    if (!accessToken) return;
+    setLoadingPendingOrders(true);
+    setError(null);
+    try {
+      const result = await api.listOrdersRoom(accessToken, "pending", { limit: 80 });
+      setPendingOrders(result.orders);
+      setSelectedPendingOrderId(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر تحميل الطلبات المعلقة";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setLoadingPendingOrders(false);
+    }
+  }, [accessToken, handleSessionExpired]);
+
+  const openPendingOrdersForm = () => {
+    setOrderModalMode("pending");
+    void loadPendingOrders();
+  };
+
+  const assignPendingOrder = async () => {
+    if (!accessToken || !modalDriver || !selectedPendingOrderId) return;
+
+    const order = pendingOrders.find((item) => item.id === selectedPendingOrderId);
+    if (!order) {
+      setError("اختر طلبًا معلقًا أولًا.");
+      return;
+    }
+    if (!orderMatchesDriver(order, modalDriver)) {
+      setError("نوع سيارة السائق لا يطابق متطلب هذا الطلب.");
+      return;
+    }
+
+    setSubmittingOrder(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      await api.assignOrder(accessToken, selectedPendingOrderId, modalDriver.driverId);
+      setNotice(`تم إسناد الطلب المعلق إلى ${modalDriver.fullName}.`);
+      setModalDriver(null);
+      setOrderModalMode("choose");
+      setPendingOrders([]);
+      setSelectedPendingOrderId(null);
+      await loadDrivers("refresh");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر إسناد الطلب المعلق";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setSubmittingOrder(false);
+    }
   };
 
   const submitOrder = async (event: FormEvent<HTMLFormElement>) => {
@@ -399,6 +510,9 @@ export default function DriversDistributionPage() {
       await api.assignOrder(accessToken, created.id, modalDriver.driverId);
       setNotice(`تم إنشاء الطلب وإسناده إلى ${modalDriver.fullName}.`);
       setModalDriver(null);
+      setOrderModalMode("choose");
+      setPendingOrders([]);
+      setSelectedPendingOrderId(null);
       await loadDrivers("refresh");
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر إنشاء الطلب وإسناده";
@@ -576,7 +690,10 @@ export default function DriversDistributionPage() {
               </button>
               <div>
                 <h3 className={styles.mapTitle}>خريطة التوزع المباشر</h3>
-                <p className={styles.mapHint}>اختر سائقًا من القائمة أو اضغط اسمه على الخريطة لمراجعة بياناته الحالية.</p>
+                <p className={styles.mapHint}>
+                  تُعرض جميع السائقين على الخريطة. انقر سائقًا من القائمة للتركيز على موقعه، أو انقر اسمه على الخريطة لعرض
+                  بياناته.
+                </p>
                 {selectedDriver ? (
                   <span className={styles.selectedBadge}>
                     المحدد الآن: {selectedDriver.fullName}{" "}
@@ -635,7 +752,13 @@ export default function DriversDistributionPage() {
           <div className={styles.modalCard} onClick={(event) => event.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div>
-                <h3 className={styles.modalTitle}>إضافة طلب وإسناده مباشرة</h3>
+                <h3 className={styles.modalTitle}>
+                  {orderModalMode === "choose"
+                    ? "إسناد طلب للسائق"
+                    : orderModalMode === "new"
+                      ? "طلب جديد وإسناده مباشرة"
+                      : "إسناد طلب معلق"}
+                </h3>
                 <p className={styles.modalSubtitle}>
                   السائق المحدد: {modalDriver.fullName} — {formatVehicle(modalDriver)}
                 </p>
@@ -645,82 +768,183 @@ export default function DriversDistributionPage() {
               </button>
             </div>
 
-            <form onSubmit={submitOrder}>
-              <div className={styles.formGrid}>
-                <label className={styles.field}>
-                  <span className={styles.label}>اسم الزبون</span>
-                  <input
-                    className={styles.input}
-                    value={form.customerName}
-                    onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))}
-                    placeholder="اختياري إذا كان رقم الهاتف موجودًا"
-                  />
-                </label>
+            {orderModalMode === "choose" ? (
+              <>
+                <p className={styles.modalIntro}>اختر نوع الإسناد قبل المتابعة:</p>
+                <div className={styles.modeChoices}>
+                  <button type="button" className={styles.modeChoiceCard} onClick={openNewOrderForm}>
+                    <span className={styles.modeChoiceTitle}>طلب جديد</span>
+                    <span className={styles.modeChoiceHint}>إنشاء طلب جديد وإسناده مباشرة لهذا السائق.</span>
+                  </button>
+                  <button type="button" className={styles.modeChoiceCard} onClick={openPendingOrdersForm}>
+                    <span className={styles.modeChoiceTitle}>طلب معلق</span>
+                    <span className={styles.modeChoiceHint}>اختيار طلب معلق من غرفة الطلبات وإسناده للسائق.</span>
+                  </button>
+                </div>
+                <div className={styles.modalActions}>
+                  <button type="button" className={styles.cancelButton} onClick={closeOrderModal}>
+                    إلغاء
+                  </button>
+                </div>
+              </>
+            ) : orderModalMode === "new" ? (
+              <form onSubmit={submitOrder}>
+                <div className={styles.formGrid}>
+                  <label className={styles.field}>
+                    <span className={styles.label}>اسم الزبون</span>
+                    <input
+                      className={styles.input}
+                      value={form.customerName}
+                      onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))}
+                      placeholder="اختياري إذا كان رقم الهاتف موجودًا"
+                    />
+                  </label>
 
-                <label className={styles.field}>
-                  <span className={styles.label}>هاتف الزبون</span>
-                  <input
-                    className={styles.input}
-                    value={form.customerPhone}
-                    onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))}
-                    placeholder="مثال: 0944xxxxxx"
-                  />
-                </label>
+                  <label className={styles.field}>
+                    <span className={styles.label}>هاتف الزبون</span>
+                    <input
+                      className={styles.input}
+                      value={form.customerPhone}
+                      onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))}
+                      placeholder="مثال: 0944xxxxxx"
+                    />
+                  </label>
 
-                <label className={styles.fieldWide}>
-                  <span className={styles.label}>عنوان الانطلاق</span>
-                  <input
-                    className={styles.input}
-                    required
-                    value={form.pickupAddress}
-                    onChange={(event) => setForm((current) => ({ ...current, pickupAddress: event.target.value }))}
-                    placeholder="أدخل موقع الانطلاق"
-                  />
-                </label>
+                  <label className={styles.fieldWide}>
+                    <span className={styles.label}>عنوان الانطلاق</span>
+                    <input
+                      className={styles.input}
+                      required
+                      value={form.pickupAddress}
+                      onChange={(event) => setForm((current) => ({ ...current, pickupAddress: event.target.value }))}
+                      placeholder="أدخل موقع الانطلاق"
+                    />
+                  </label>
 
-                <label className={styles.fieldWide}>
-                  <span className={styles.label}>الوجهة</span>
-                  <input
-                    className={styles.input}
-                    required
-                    value={form.dropoffAddress}
-                    onChange={(event) => setForm((current) => ({ ...current, dropoffAddress: event.target.value }))}
-                    placeholder="أدخل الوجهة"
-                  />
-                </label>
+                  <label className={styles.fieldWide}>
+                    <span className={styles.label}>الوجهة</span>
+                    <input
+                      className={styles.input}
+                      required
+                      value={form.dropoffAddress}
+                      onChange={(event) => setForm((current) => ({ ...current, dropoffAddress: event.target.value }))}
+                      placeholder="أدخل الوجهة"
+                    />
+                  </label>
 
-                <label className={styles.field}>
-                  <span className={styles.label}>الأجرة</span>
-                  <input
-                    className={styles.input}
-                    required
-                    inputMode="decimal"
-                    value={form.amount}
-                    onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
-                    placeholder="0"
-                  />
-                </label>
+                  <label className={styles.field}>
+                    <span className={styles.label}>الأجرة</span>
+                    <input
+                      className={styles.input}
+                      required
+                      inputMode="decimal"
+                      value={form.amount}
+                      onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
+                      placeholder="0"
+                    />
+                  </label>
 
-                <label className={styles.fieldWide}>
-                  <span className={styles.label}>ملاحظات</span>
-                  <textarea
-                    className={styles.textarea}
-                    value={form.notes}
-                    onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                    placeholder="ملاحظات إضافية للسائق أو للطلب"
-                  />
-                </label>
-              </div>
+                  <label className={styles.fieldWide}>
+                    <span className={styles.label}>ملاحظات</span>
+                    <textarea
+                      className={styles.textarea}
+                      value={form.notes}
+                      onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                      placeholder="ملاحظات إضافية للسائق أو للطلب"
+                    />
+                  </label>
+                </div>
 
-              <div className={styles.modalActions}>
-                <button type="button" className={styles.cancelButton} onClick={closeOrderModal}>
-                  إلغاء
-                </button>
-                <button type="submit" className={styles.submitButton} disabled={submittingOrder}>
-                  {submittingOrder ? "جاري الإنشاء والإسناد..." : "إنشاء الطلب وإسناده"}
-                </button>
-              </div>
-            </form>
+                <div className={styles.modalActions}>
+                  <button type="button" className={styles.cancelButton} onClick={() => setOrderModalMode("choose")}>
+                    رجوع
+                  </button>
+                  <button type="button" className={styles.cancelButton} onClick={closeOrderModal}>
+                    إلغاء
+                  </button>
+                  <button type="submit" className={styles.submitButton} disabled={submittingOrder}>
+                    {submittingOrder ? "جاري الإنشاء والإسناد..." : "إنشاء الطلب وإسناده"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div className={styles.pendingToolbar}>
+                  <p className={styles.pendingHint}>اختر طلبًا معلقًا من القائمة لإسناده إلى السائق المحدد.</p>
+                  <button
+                    type="button"
+                    className={`${styles.mapButton} ${styles.mapButtonSecondary}`}
+                    onClick={() => void loadPendingOrders()}
+                    disabled={loadingPendingOrders}
+                  >
+                    {loadingPendingOrders ? "جاري التحديث..." : "تحديث القائمة"}
+                  </button>
+                </div>
+
+                <div className={styles.pendingList}>
+                  {loadingPendingOrders ? (
+                    <p className={styles.emptyState}>جاري تحميل الطلبات المعلقة…</p>
+                  ) : pendingOrders.length === 0 ? (
+                    <p className={styles.emptyState}>لا توجد طلبات معلقة حاليًا.</p>
+                  ) : (
+                    pendingOrders.map((order) => {
+                      const compatible = orderMatchesDriver(order, modalDriver);
+                      const selected = order.id === selectedPendingOrderId;
+                      return (
+                        <button
+                          key={order.id}
+                          type="button"
+                          className={`${styles.pendingItem} ${selected ? styles.pendingItemSelected : ""} ${
+                            !compatible ? styles.pendingItemDisabled : ""
+                          }`}
+                          onClick={() => {
+                            if (!compatible) return;
+                            setSelectedPendingOrderId(order.id);
+                          }}
+                          disabled={!compatible || submittingOrder}
+                        >
+                          <div className={styles.pendingItemHead}>
+                            <span className={styles.pendingItemCustomer}>
+                              {order.customerName?.trim() || "زبون"}
+                            </span>
+                            <span className={styles.pendingItemAmount}>{formatOrderAmount(order.amount)}</span>
+                          </div>
+                          <p className={styles.pendingItemRoute}>
+                            من: {order.pickupAddress}
+                            <br />
+                            إلى: {order.dropoffAddress}
+                          </p>
+                          <div className={styles.pendingItemMeta}>
+                            <span>المنسق: {order.coordinatorName}</span>
+                            <span>السيارة: {vehicleRequirementLabel(order.vehicleRequirement)}</span>
+                          </div>
+                          {!compatible ? (
+                            <span className={styles.pendingItemWarning}>لا يطابق نوع سيارة السائق</span>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className={styles.modalActions}>
+                  <button type="button" className={styles.cancelButton} onClick={() => setOrderModalMode("choose")}>
+                    رجوع
+                  </button>
+                  <button type="button" className={styles.cancelButton} onClick={closeOrderModal}>
+                    إلغاء
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.submitButton}
+                    disabled={submittingOrder || !selectedPendingOrderId}
+                    onClick={() => void assignPendingOrder()}
+                  >
+                    {submittingOrder ? "جاري الإسناد..." : "إسناد الطلب المحدد"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}

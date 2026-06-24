@@ -18,6 +18,7 @@ export const financeReportQueryDto = z.object({
   from: ymdField.optional(),
   to: ymdField.optional(),
   driverId: z.string().cuid().optional(),
+  coordinatorId: z.string().cuid().optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().positive().optional()
 });
@@ -25,7 +26,8 @@ export const financeReportQueryDto = z.object({
 export const financeExportQueryDto = z.object({
   from: ymdField.optional(),
   to: ymdField.optional(),
-  driverId: z.string().cuid().optional()
+  driverId: z.string().cuid().optional(),
+  coordinatorId: z.string().cuid().optional()
 });
 
 export const settleOrderCommissionDto = z.object({
@@ -37,5 +39,6 @@ export const settleFilteredCommissionsDto = z.object({
   from: ymdField.optional(),
   to: ymdField.optional(),
   driverId: z.string().cuid().optional(),
+  coordinatorId: z.string().cuid().optional(),
   notes: z.string().optional()
 });

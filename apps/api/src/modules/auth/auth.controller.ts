@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { authService } from "./auth.service";
-import { adminLoginDto, changePasswordDto, coordinatorLoginDto, expoPushTokenDto, loginDto, refreshDto } from "./auth.dto";
+import { adminLoginDto, changePasswordDto, coordinatorLoginDto, expoPushTokenDto, loginDto, refreshDto, updateAdminProfileDto } from "./auth.dto";
 import type { AuthRequest } from "../../shared/auth";
 
 export const authController = {
@@ -67,6 +67,16 @@ export const authController = {
       const body = changePasswordDto.parse(req.body);
       await authService.changePassword(req.auth!.userId, body.currentPassword, body.newPassword);
       res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async updateProfile(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const body = updateAdminProfileDto.parse(req.body);
+      const user = await authService.updateProfile(req.auth!.userId, body);
+      res.json(user);
     } catch (err) {
       next(err);
     }

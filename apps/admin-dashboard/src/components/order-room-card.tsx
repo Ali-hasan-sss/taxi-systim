@@ -1,7 +1,9 @@
 "use client";
 
+import { Banknote, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { AdminOrderRoomRow } from "../lib/api";
+import { ORDERS_ROOM_DELAY_MS } from "../lib/use-orders-room-alarm";
 
 const STATUS_AR: Record<string, string> = {
   PENDING: "معلق",
@@ -13,8 +15,6 @@ const STATUS_AR: Record<string, string> = {
   COMPLETED: "مكتمل",
   CANCELLED: "ملغى"
 };
-
-const PENDING_DELAY_MS = 5 * 60 * 1000;
 
 function statusBorderClass(status: string): string {
   switch (status) {
@@ -58,7 +58,7 @@ function PendingTimer({ createdAt }: { createdAt: string }) {
 
   const createdMs = useMemo(() => new Date(createdAt).getTime(), [createdAt]);
   const elapsed = now - createdMs;
-  const delayed = elapsed >= PENDING_DELAY_MS;
+  const delayed = elapsed >= ORDERS_ROOM_DELAY_MS;
 
   return (
     <span className={`order-room-card__timer${delayed ? " order-room-card__timer--late" : ""}`}>
@@ -68,9 +68,33 @@ function PendingTimer({ createdAt }: { createdAt: string }) {
   );
 }
 
-export function OrderRoomCard({ order }: { order: AdminOrderRoomRow }) {
+export type OrderRoomCardActions = {
+  onEditDetails: (order: AdminOrderRoomRow) => void;
+  onEditAmount: (order: AdminOrderRoomRow) => void;
+  onDelete: (order: AdminOrderRoomRow) => void;
+  onCancel: (order: AdminOrderRoomRow) => void;
+  onResume: (order: AdminOrderRoomRow) => void;
+};
+
+export function OrderRoomCard({
+  order,
+  actionLoadingId,
+  actions
+}: {
+  order: AdminOrderRoomRow;
+  actionLoadingId?: string | null;
+  actions?: OrderRoomCardActions;
+}) {
   const driverName = order.driver?.user.fullName?.trim() || "غير معيّن";
   const statusLabel = STATUS_AR[order.status] ?? order.status;
+  const busy = actionLoadingId === order.id;
+  const status = order.status;
+  const showActions = Boolean(actions) && status !== "CANCELLED";
+  const isStuck = status === "STUCK";
+  const isPending = status === "PENDING";
+  const canEditDetails = isStuck || isPending;
+  const canCancel = isStuck || isPending;
+  const canResume = isStuck;
 
   return (
     <article className={`order-room-card ${statusBorderClass(order.status)}`}>
@@ -97,6 +121,63 @@ export function OrderRoomCard({ order }: { order: AdminOrderRoomRow }) {
         <span className="order-room-card__driver">السائق: {driverName}</span>
         <span className="order-room-card__coordinator">المنسق: {order.coordinatorName}</span>
       </footer>
+
+      {showActions && actions ? (
+        <div className="order-room-card__actions">
+          {canEditDetails ? (
+            <button
+              type="button"
+              className="order-room-card__iconBtn"
+              title="تعديل التفاصيل"
+              aria-label="تعديل التفاصيل"
+              disabled={busy}
+              onClick={() => actions.onEditDetails(order)}
+            >
+              <Pencil size={16} aria-hidden />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="order-room-card__iconBtn"
+            title="تعديل الأجرة"
+            aria-label="تعديل الأجرة"
+            disabled={busy}
+            onClick={() => actions.onEditAmount(order)}
+          >
+            <Banknote size={16} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="order-room-card__iconBtn order-room-card__iconBtn--danger"
+            title="حذف"
+            aria-label="حذف"
+            disabled={busy}
+            onClick={() => actions.onDelete(order)}
+          >
+            <Trash2 size={16} aria-hidden />
+          </button>
+          {canCancel ? (
+            <button
+              type="button"
+              className="order-room-card__softBtn order-room-card__softBtn--danger"
+              disabled={busy}
+              onClick={() => actions.onCancel(order)}
+            >
+              إلغاء
+            </button>
+          ) : null}
+          {canResume ? (
+            <button
+              type="button"
+              className="order-room-card__softBtn order-room-card__softBtn--primary"
+              disabled={busy}
+              onClick={() => actions.onResume(order)}
+            >
+              {busy ? "جارٍ..." : "إعادة للسائق"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }

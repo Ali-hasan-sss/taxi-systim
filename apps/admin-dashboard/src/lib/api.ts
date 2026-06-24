@@ -35,6 +35,36 @@ export interface Employee {
   driver?: EmployeeDriverProfile | null;
 }
 
+export interface EmployeeCoordinatorProfile {
+  id: string;
+}
+
+export interface EmployeeDriverDetail extends EmployeeDriverProfile {
+  id: string;
+  isOnline?: boolean;
+  isBusy?: boolean;
+}
+
+export interface EmployeeProfileStats {
+  completedOrders: number;
+  pendingOrders: number;
+  inProgressOrders: number;
+  dueCommissionAmount: string;
+  totalPaidCommissions: string;
+}
+
+export interface EmployeeProfile extends Omit<Employee, "driver"> {
+  driver: EmployeeDriverDetail | null;
+  coordinator: EmployeeCoordinatorProfile | null;
+  stats: EmployeeProfileStats;
+}
+
+export interface DriverCoordinatorOption {
+  id: string;
+  fullName: string;
+  phone: string | null;
+}
+
 export type CommissionType = "PERCENTAGE" | "FIXED";
 
 export interface CommissionSetting {
@@ -68,6 +98,11 @@ export interface FinanceOrderRow {
   createdAt: string;
   completedAt: string | null;
   driver: null | {
+    id: string;
+    fullName: string;
+    phone: string | null;
+  };
+  coordinator: null | {
     id: string;
     fullName: string;
     phone: string | null;
@@ -126,8 +161,16 @@ export type AdminOrdersRoomSegment =
   | "in_progress"
   | "stuck"
   | "needs_info"
-  | "needs_invoice"
-  | "completed";
+  | "needs_invoice";
+
+export interface AdminOrdersRoomFilterCounts {
+  all: number;
+  needs_info: number;
+  needs_invoice: number;
+  stuck: number;
+  pending: number;
+  in_progress: number;
+}
 
 export interface AdminOrderRoomRow {
   id: string;
@@ -151,16 +194,6 @@ export interface AdminOrderRoomRow {
     vehicleNumber?: string | null;
     vehicleKind?: string | null;
   };
-}
-
-export interface AdminOrdersRoomFilterCounts {
-  all: number;
-  needs_info: number;
-  needs_invoice: number;
-  stuck: number;
-  pending: number;
-  completed: number;
-  in_progress: number;
 }
 
 export type AdminOrderStatus =
@@ -191,6 +224,8 @@ export interface AdminOrdersTableResponse {
 export type DriverLiveStatus = "online" | "busy" | "offline";
 
 export type OrderBroadcastTarget = "ALL" | "NEAREST_THREE";
+
+export type OrderVehicleRequirement = "ANY" | "PUBLIC" | "PRIVATE" | "VIP";
 
 export interface LiveDriverSummary {
   totalDrivers: number;
@@ -346,6 +381,31 @@ export const api = {
     return res.json() as Promise<{ id: string; email: string; fullName: string; role: "ADMIN" }>;
   },
 
+  async updateAdminProfile(accessToken: string, payload: { fullName: string }) {
+    const res = await authorizedFetch(
+      "/auth/profile",
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث اسم الحساب"));
+    const user = (await res.json()) as { id: string; email: string | null; fullName: string; role: "ADMIN" };
+    const session = getSession();
+    if (session) {
+      setSession({
+        ...session,
+        user: {
+          ...session.user,
+          fullName: user.fullName,
+          email: user.email ?? session.user.email
+        }
+      });
+    }
+    return user;
+  },
+
   async getDashboardStats(accessToken: string) {
     const res = await authorizedFetch("/admin/dashboard-stats", { method: "GET", cache: "no-store" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل الإحصائيات"));
@@ -380,7 +440,6 @@ export const api = {
       needs_invoice: 0,
       stuck: 0,
       pending: 0,
-      completed: 0,
       in_progress: 0
     };
   },
@@ -430,6 +489,42 @@ export const api = {
     return res.json() as Promise<{ id: string }>;
   },
 
+  async cancelAdminOrder(accessToken: string, orderId: string) {
+    const res = await authorizedFetch(`/orders/${encodeURIComponent(orderId)}/cancel`, { method: "PATCH" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر إلغاء الطلب"));
+    return res.json() as Promise<AdminOrderRoomRow>;
+  },
+
+  async resumeStuckAdminOrder(accessToken: string, orderId: string) {
+    const res = await authorizedFetch(
+      `/orders/${encodeURIComponent(orderId)}/resume-stuck`,
+      { method: "PATCH" },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر إعادة الطلب للسائق"));
+    return res.json() as Promise<AdminOrderRoomRow>;
+  },
+
+  async updateAdminOrderDetails(
+    accessToken: string,
+    orderId: string,
+    payload: {
+      customerName?: string;
+      customerPhone?: string;
+      pickupAddress?: string;
+      dropoffAddress?: string;
+      notes?: string;
+    }
+  ) {
+    const res = await authorizedFetch(
+      `/admin/orders/${encodeURIComponent(orderId)}/details`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تعديل تفاصيل الطلب"));
+    return res.json() as Promise<AdminOrderRoomRow>;
+  },
+
   async listEmployees(accessToken: string, params?: { role?: Employee["role"]; q?: string }) {
     const query = new URLSearchParams();
     if (params?.role) query.set("role", params.role);
@@ -438,6 +533,27 @@ export const api = {
     const res = await authorizedFetch(`/users${qs ? `?${qs}` : ""}`, { method: "GET" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب الموظفين"));
     return res.json() as Promise<Employee[]>;
+  },
+
+  async downloadEmployeesExport(accessToken: string): Promise<FinanceExportFile> {
+    const res = await authorizedFetch("/users/export.xlsx", { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تصدير الموظفين"));
+    return {
+      blob: await res.blob(),
+      filename: parseDownloadFilename(res, "employees-export.xlsx")
+    };
+  },
+
+  async getEmployeeProfile(accessToken: string, userId: string) {
+    const res = await authorizedFetch(`/users/${encodeURIComponent(userId)}/profile`, { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل تفاصيل الموظف"));
+    return res.json() as Promise<EmployeeProfile>;
+  },
+
+  async listDriverCoordinators(accessToken: string, userId: string) {
+    const res = await authorizedFetch(`/users/${encodeURIComponent(userId)}/coordinators`, { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل قائمة المنسقين"));
+    return res.json() as Promise<DriverCoordinatorOption[]>;
   },
 
   async createEmployee(
@@ -587,6 +703,7 @@ export const api = {
       from?: string;
       to?: string;
       driverId?: string | null;
+      coordinatorId?: string | null;
       cursor?: string | null;
       limit?: number;
     }
@@ -595,6 +712,7 @@ export const api = {
     if (opts?.from) params.set("from", opts.from);
     if (opts?.to) params.set("to", opts.to);
     if (opts?.driverId) params.set("driverId", opts.driverId);
+    if (opts?.coordinatorId) params.set("coordinatorId", opts.coordinatorId);
     if (opts?.cursor) params.set("cursor", opts.cursor);
     params.set("limit", String(opts?.limit ?? 25));
 
@@ -625,12 +743,14 @@ export const api = {
       from?: string;
       to?: string;
       driverId?: string | null;
+      coordinatorId?: string | null;
     }
   ): Promise<FinanceExportFile> {
     const params = new URLSearchParams();
     if (opts?.from) params.set("from", opts.from);
     if (opts?.to) params.set("to", opts.to);
     if (opts?.driverId) params.set("driverId", opts.driverId);
+    if (opts?.coordinatorId) params.set("coordinatorId", opts.coordinatorId);
 
     const query = params.toString();
     const path = query ? `/accounting/report/export.xlsx?${query}` : "/accounting/report/export.xlsx";
@@ -683,6 +803,7 @@ export const api = {
       amount: number;
       notes?: string;
       broadcastTarget?: OrderBroadcastTarget;
+      vehicleRequirement?: OrderVehicleRequirement;
     }
   ) {
     const res = await authorizedFetch(
@@ -691,7 +812,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify({
           ...payload,
-          broadcastTarget: payload.broadcastTarget ?? "ALL"
+          broadcastTarget: payload.broadcastTarget ?? "ALL",
+          vehicleRequirement: payload.vehicleRequirement ?? "ANY"
         })
       },
       accessToken
@@ -728,7 +850,7 @@ export const api = {
 
   async settleFilteredCommissions(
     accessToken: string,
-    payload: { from?: string; to?: string; driverId?: string | null; notes?: string }
+    payload: { from?: string; to?: string; driverId?: string | null; coordinatorId?: string | null; notes?: string }
   ) {
     const res = await authorizedFetch(
       "/accounting/payments/settle-filtered",

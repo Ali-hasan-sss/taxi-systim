@@ -12,7 +12,7 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
   "/employees": { title: "الموظفون", subtitle: "إدارة المستخدمين والأدوار" },
   "/drivers-distribution": { title: "توزع السائقين", subtitle: "خريطة مباشرة لمواقع السائقين وإجراءات سريعة" },
   "/finance": { title: "المالية", subtitle: "الطلبات والعمولات والتسديدات" },
-  "/settings": { title: "الإعدادات", subtitle: "العمولة وكلمة مرور الأدمن" }
+  "/settings": { title: "الإعدادات", subtitle: "حساب الأدمن والعمولة وكلمة المرور" }
 };
 
 export const DashboardShell = ({ children }: { children: React.ReactNode }) => {

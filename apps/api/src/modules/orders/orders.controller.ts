@@ -1,6 +1,6 @@
 import type { NextFunction, Response } from "express";
 import type { Server } from "socket.io";
-import { OrderStatus } from "@prisma/client";
+import { OrderStatus, Role } from "@prisma/client";
 import {
   notifyCoordinatorNeedsInfoPush,
   notifyCoordinatorOrderCompletedPush,
@@ -9,7 +9,7 @@ import {
   notifyDriverOrderResumedPush,
   notifyDriversNewOrderPush
 } from "../../shared/expo-push";
-import { assignOrderDto, createOrderDto, updateCompletedOrderAmountDto } from "./orders.dto";
+import { assignOrderDto, createOrderDto, updateCompletedOrderAmountDto, updateOrderDetailsDto } from "./orders.dto";
 import {
   COORDINATOR_ORDERS_PAGE_DEFAULT,
   COORDINATOR_ORDERS_PAGE_MAX,
@@ -329,7 +329,10 @@ export const ordersController = {
 
   async cancel(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const order = await ordersService.cancelByCoordinator(req.auth!.userId, req.params.orderId);
+      const order =
+        req.auth!.role === Role.ADMIN
+          ? await ordersService.cancelByAdmin(req.params.orderId)
+          : await ordersService.cancelByCoordinator(req.auth!.userId, req.params.orderId);
       const io = req.app.get("io") as Server | undefined;
       if (io) {
         if (order.driverId) {
@@ -346,7 +349,10 @@ export const ordersController = {
 
   async resumeStuck(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const order = await ordersService.resumeStuckOrderByCoordinator(req.auth!.userId, req.params.orderId);
+      const order =
+        req.auth!.role === Role.ADMIN
+          ? await ordersService.resumeStuckByAdmin(req.params.orderId)
+          : await ordersService.resumeStuckOrderByCoordinator(req.auth!.userId, req.params.orderId);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderStatusUpdated(io, order);
       void notifyDriverOrderResumedPush(order);
@@ -360,7 +366,10 @@ export const ordersController = {
   async assign(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const body = assignOrderDto.parse(req.body);
-      const order = await ordersService.assignByCoordinator(req.auth!.userId, req.params.orderId, body.driverId);
+      const order =
+        req.auth!.role === Role.ADMIN
+          ? await ordersService.assignByAdmin(req.params.orderId, body.driverId)
+          : await ordersService.assignByCoordinator(req.auth!.userId, req.params.orderId, body.driverId);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderAssigned(io, order);
       void notifyDriverOrderAssignedPush(order);

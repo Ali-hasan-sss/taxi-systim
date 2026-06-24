@@ -10,4 +10,5 @@ adminRouter.get("/orders-room/stats", requireAuth, requireRole("ADMIN"), adminCo
 adminRouter.get("/orders", requireAuth, requireRole("ADMIN"), adminController.ordersTable);
 adminRouter.get("/orders/stats", requireAuth, requireRole("ADMIN"), adminController.ordersTableStats);
 adminRouter.patch("/orders/:orderId/amount", requireAuth, requireRole("ADMIN"), adminController.updateOrderAmount);
+adminRouter.patch("/orders/:orderId/details", requireAuth, requireRole("ADMIN"), adminController.updateOrderDetails);
 adminRouter.delete("/orders/:orderId", requireAuth, requireRole("ADMIN"), adminController.deleteOrder);

@@ -40,3 +40,7 @@ export const changePasswordDto = z
     message: "كلمة المرور الجديدة يجب أن تختلف عن الحالية",
     path: ["newPassword"]
   });
+
+export const updateAdminProfileDto = z.object({
+  fullName: z.string().trim().min(2, "الاسم قصير جدًا").max(120, "الاسم طويل جدًا")
+});
