@@ -23,7 +23,8 @@ import { openSmsWithText } from "../lib/sms";
 import {
   formatSyrianPhoneForDisplay,
   normalizeSyriaPhoneForWaMe,
-  openWhatsAppChatWithText
+  openWhatsAppBusinessOnlyWithText,
+  WHATSAPP_BUSINESS_REQUIRED_MESSAGE
 } from "../lib/whatsapp";
 import { rtlRow, rtlText } from "../lib/rtl-text";
 
@@ -472,11 +473,12 @@ export function CoordinatorOrderCard({
     }
     setSendingWhatsApp("info");
     try {
-      const opened = await openWhatsAppChatWithText(contactPhone, buildCustomerTaxiBroMessage(item), {
-        preferBusiness: true
-      });
+      const opened = await openWhatsAppBusinessOnlyWithText(
+        contactPhone,
+        buildCustomerTaxiBroMessage(item)
+      );
       if (!opened) {
-        feedback.warning("تعذر فتح واتساب. تحقق من تثبيت واتساب أو واتساب أعمال.");
+        feedback.warning(WHATSAPP_BUSINESS_REQUIRED_MESSAGE);
         return;
       }
       const updated = await coordinatorMarkCustomerInfoSent(session.accessToken, item.id);
@@ -530,13 +532,12 @@ export function CoordinatorOrderCard({
     }
     setSendingWhatsApp("invoice");
     try {
-      const opened = await openWhatsAppChatWithText(
+      const opened = await openWhatsAppBusinessOnlyWithText(
         contactPhone,
-        buildInvoiceWhatsAppMessage(item, coordinatorFullName),
-        { preferBusiness: true }
+        buildInvoiceWhatsAppMessage(item, coordinatorFullName)
       );
       if (!opened) {
-        feedback.warning("تعذر فتح واتساب. تحقق من تثبيت واتساب أو واتساب أعمال.");
+        feedback.warning(WHATSAPP_BUSINESS_REQUIRED_MESSAGE);
         return;
       }
       const updated = await coordinatorMarkInvoiceSent(session.accessToken, item.id);

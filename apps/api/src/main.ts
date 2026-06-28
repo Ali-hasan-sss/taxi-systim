@@ -13,6 +13,7 @@ import { initSocket } from "./socket";
 import { generalApiRateLimit } from "./shared/rate-limit";
 import { startChatImageCleanupJob } from "./modules/chat/chat-cleanup";
 import { chatService } from "./modules/chat/chat.service";
+import { authService } from "./modules/auth/auth.service";
 
 const app = express();
 /** يمنع ETag وبالتالي 304 بدون جسم — عملاء الجوال (OkHttp) يكسرون JSON على 304 */
@@ -46,4 +47,8 @@ server.listen(port, () => {
   console.log(`API running on ${port}`);
   void chatService.ensureGlobalRoom();
   startChatImageCleanupJob();
+  void authService.extendExistingRefreshTokensForPermanentSessions().catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error("Failed to extend refresh tokens for permanent sessions", error);
+  });
 });

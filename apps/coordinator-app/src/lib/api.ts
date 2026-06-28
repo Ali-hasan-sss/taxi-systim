@@ -596,3 +596,53 @@ export async function registerExpoPushToken(accessToken: string, expoToken: stri
 export async function clearExpoPushToken(accessToken: string): Promise<void> {
   await coordinatorFetchWithRefresh("/auth/push-token", { method: "DELETE" }, accessToken);
 }
+
+export type WebInquiryRow = {
+  id: string;
+  customerName: string;
+  customerPhone: string | null;
+  pickupAddress: string;
+  dropoffAddress: string;
+  notes: string | null;
+  amount: string;
+  status: string;
+  source: string;
+  driversNotifiedAt: string | null;
+  createdAt: string;
+};
+
+export async function listWebInquiries(accessToken: string): Promise<WebInquiryRow[]> {
+  const res = await coordinatorFetchWithRefresh("/public/web-inquiries", { method: "GET" }, accessToken);
+  const body = (await res.json().catch(() => ({}))) as { inquiries?: WebInquiryRow[]; message?: string };
+  if (!res.ok) throw new Error(body.message ?? "تعذر تحميل طلبات الويب");
+  return body.inquiries ?? [];
+}
+
+export async function publishWebInquiry(
+  accessToken: string,
+  orderId: string,
+  payload: { amount: number; vehicleRequirement?: OrderVehicleRequirement; broadcastTarget?: OrderBroadcastTarget }
+): Promise<void> {
+  const res = await coordinatorFetchWithRefresh(
+    `/public/web-inquiries/${encodeURIComponent(orderId)}/publish`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+  const body = (await res.json().catch(() => ({}))) as { message?: string };
+  if (!res.ok) throw new Error(body.message ?? "تعذر إرسال الطلب إلى السائقين");
+}
+
+export async function dismissWebInquiry(accessToken: string, orderId: string): Promise<void> {
+  const res = await coordinatorFetchWithRefresh(
+    `/public/web-inquiries/${encodeURIComponent(orderId)}/dismiss`,
+    { method: "PATCH" },
+    accessToken
+  );
+  const body = (await res.json().catch(() => ({}))) as { message?: string };
+  if (!res.ok) throw new Error(body.message ?? "تعذر رفض الطلب");
+}
+

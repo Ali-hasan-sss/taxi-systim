@@ -9,13 +9,15 @@ export type CoordinatorOrderPushType =
   | "ORDER_ACCEPTED"
   | "ORDER_STUCK"
   | "ORDER_COMPLETED"
-  | "ORDER_NEEDS_INVOICE";
+  | "ORDER_NEEDS_INVOICE"
+  | "WEB_ORDER_REQUEST";
 
 export async function playCoordinatorOrderPushSound(type: string | undefined): Promise<void> {
   switch (type) {
     case "ORDER_STUCK":
       await playOrderStuckSound();
       break;
+    case "WEB_ORDER_REQUEST":
     case "ORDER_NEEDS_INFO":
     case "ORDER_ACCEPTED":
       await playBundledAlertSound(NEEDS_INFO_SOURCE);

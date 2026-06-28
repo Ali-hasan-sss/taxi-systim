@@ -1,4 +1,4 @@
-import type { OrderBroadcastTarget, OrderStatus, OrderVehicleRequirement, Prisma } from "@prisma/client";
+import type { OrderBroadcastTarget, OrderSource, OrderStatus, OrderVehicleRequirement, Prisma } from "@prisma/client";
 
 const toNum = (d: Prisma.Decimal | number) => Number(d);
 
@@ -16,6 +16,8 @@ export function orderToSocketPayload(order: {
   status: OrderStatus;
   broadcastTarget: OrderBroadcastTarget;
   vehicleRequirement: OrderVehicleRequirement;
+  source?: OrderSource;
+  driversNotifiedAt?: Date | null;
   notes: string | null;
   createdAt: Date;
 }) {
@@ -33,6 +35,8 @@ export function orderToSocketPayload(order: {
     status: order.status,
     broadcastTarget: order.broadcastTarget,
     vehicleRequirement: order.vehicleRequirement,
+    source: order.source,
+    driversNotifiedAt: order.driversNotifiedAt?.toISOString() ?? null,
     notes: order.notes,
     createdAt: order.createdAt.toISOString()
   };

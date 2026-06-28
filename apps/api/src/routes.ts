@@ -7,10 +7,12 @@ import { usersRouter } from "./modules/users/users.routes";
 import { driversRouter } from "./modules/drivers/drivers.routes";
 import { chatRouter } from "./modules/chat/chat.routes";
 import { adminRouter } from "./modules/admin/admin.routes";
+import { publicRouter } from "./modules/public/public.routes";
 
 export const apiRouter = Router();
 
 apiRouter.use("/auth", authRouter);
+apiRouter.use("/public", publicRouter);
 apiRouter.use("/drivers", driversRouter);
 apiRouter.use("/orders", ordersRouter);
 apiRouter.use("/accounting", accountingRouter);

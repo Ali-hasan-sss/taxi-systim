@@ -1,7 +1,6 @@
 import { create } from "zustand";
 
 interface CoordinatorUiState {
-  /** عدد الطلبات المتعثرة (STUCK) في قائمة الطلبات النشطة — لبادج التاب */
   stuckOrdersCount: number;
   setStuckOrdersCount: (n: number) => void;
   unreadChatCount: number;
@@ -10,7 +9,9 @@ interface CoordinatorUiState {
   setActiveChatRoomId: (roomId: string | null) => void;
   incrementUnreadChat: (roomId: string) => void;
   markChatRoomRead: (roomId: string) => void;
-  /** يزداد بعد إنشاء طلب — لتحديث الرئيسية والطلبات */
+  webInquiryCount: number;
+  setWebInquiryCount: (n: number) => void;
+  incrementWebInquiryCount: () => void;
   orderRefreshTick: number;
   bumpOrderRefresh: () => void;
 }
@@ -37,6 +38,9 @@ export const useCoordinatorStore = create<CoordinatorUiState>((set, get) => ({
     delete next[roomId];
     set({ unreadByRoom: next, unreadChatCount: sumUnread(next) });
   },
+  webInquiryCount: 0,
+  setWebInquiryCount: (n) => set({ webInquiryCount: Math.max(0, n) }),
+  incrementWebInquiryCount: () => set((s) => ({ webInquiryCount: s.webInquiryCount + 1 })),
   orderRefreshTick: 0,
   bumpOrderRefresh: () => set((s) => ({ orderRefreshTick: s.orderRefreshTick + 1 }))
 }));

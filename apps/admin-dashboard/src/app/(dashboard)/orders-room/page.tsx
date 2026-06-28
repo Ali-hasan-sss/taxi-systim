@@ -34,7 +34,8 @@ const FILTER_ROWS: FilterDef[][] = [
     { key: "stuck", label: "متعثرة", countKey: "stuck" },
     { key: "pending", label: "معلقة", countKey: "pending" },
     { key: "in_progress", label: "في الطريق", countKey: "in_progress" }
-  ]
+  ],
+  [{ key: "web_inquiries", label: "طلبات الويب", countKey: "web_inquiries" }]
 ];
 
 const EMPTY_MESSAGES: Record<AdminOrdersRoomSegment | "all", string> = {
@@ -43,7 +44,8 @@ const EMPTY_MESSAGES: Record<AdminOrdersRoomSegment | "all", string> = {
   needs_invoice: "لا توجد طلبات بحاجة لإرسال فاتورة.",
   stuck: "لا توجد طلبات متعثرة.",
   pending: "لا توجد طلبات معلقة.",
-  in_progress: "لا توجد طلبات في الطريق."
+  in_progress: "لا توجد طلبات في الطريق.",
+  web_inquiries: "لا توجد طلبات ويب جديدة."
 };
 
 function isActiveRoomOrder(order: AdminOrderRoomRow): boolean {
@@ -70,7 +72,8 @@ export default function OrdersRoomPage() {
     needs_invoice: 0,
     stuck: 0,
     pending: 0,
-    in_progress: 0
+    in_progress: 0,
+    web_inquiries: 0
   });
   const [segment, setSegment] = useState<AdminOrdersRoomSegment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -179,6 +182,7 @@ export default function OrdersRoomPage() {
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on(socketEvents.NEW_ORDER, reload);
+    socket.on(socketEvents.WEB_ORDER_REQUEST, reload);
     socket.on(socketEvents.ORDER_ASSIGNED, reload);
     socket.on(socketEvents.ORDER_STATUS_UPDATED, reload);
     socket.on(socketEvents.ORDER_PENDING_CANCELLED, reload);
@@ -187,6 +191,7 @@ export default function OrdersRoomPage() {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off(socketEvents.NEW_ORDER, reload);
+      socket.off(socketEvents.WEB_ORDER_REQUEST, reload);
       socket.off(socketEvents.ORDER_ASSIGNED, reload);
       socket.off(socketEvents.ORDER_STATUS_UPDATED, reload);
       socket.off(socketEvents.ORDER_PENDING_CANCELLED, reload);

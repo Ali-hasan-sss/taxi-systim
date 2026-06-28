@@ -19,7 +19,8 @@ export type OrderPushType =
   | "ORDER_ACCEPTED"
   | "ORDER_STUCK"
   | "ORDER_COMPLETED"
-  | "ORDER_NEEDS_INVOICE";
+  | "ORDER_NEEDS_INVOICE"
+  | "WEB_ORDER_REQUEST";
 
 export type ChatPushType = "CHAT_MESSAGE";
 
@@ -253,5 +254,28 @@ export async function notifyChatMessagePush(
     });
   } catch (e) {
     console.error("[expo-push] notifyChatMessagePush", e);
+  }
+}
+
+/** طلب تكسي جديد من صفحة الويب العامة — لكل المنسقين والأدمن */
+export async function notifyCoordinatorsWebOrderRequestPush(order: Order): Promise<void> {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        role: { in: ["COORDINATOR", "ADMIN"] },
+        isActive: true,
+        expoPushToken: { not: null }
+      },
+      select: { expoPushToken: true }
+    });
+    const tokens = users.map((u) => u.expoPushToken!).filter(Boolean);
+    const phone = order.customerPhone?.trim() || order.customerName;
+    await sendExpoPush(tokens, {
+      title: "طلب تكسي من الويب",
+      body: `${phone} — ${pickupLine(order)}`,
+      data: { type: "WEB_ORDER_REQUEST" satisfies OrderPushType, orderId: order.id }
+    });
+  } catch (e) {
+    console.error("[expo-push] notifyCoordinatorsWebOrderRequestPush", e);
   }
 }

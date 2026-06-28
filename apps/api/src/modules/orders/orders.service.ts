@@ -2,6 +2,7 @@ import {
   CommissionType,
   FinancialTransactionType,
   OrderBroadcastTarget,
+  OrderSource,
   OrderStatus,
   Prisma,
   Role
@@ -35,7 +36,8 @@ export type CoordinatorOrdersListSegment =
   | "stuck"
   | "needs_info"
   | "needs_invoice"
-  | "completed";
+  | "completed"
+  | "web_inquiries";
 
 function coordinatorCustomerPhoneWhere(): Prisma.OrderWhereInput {
   return {
@@ -71,6 +73,12 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * c;
 }
 
+function driversPublishedWhere(): Prisma.OrderWhereInput {
+  return {
+    OR: [{ source: OrderSource.APP }, { driversNotifiedAt: { not: null } }]
+  };
+}
+
 async function listPendingVisibleToDriver(driverDbId: string) {
   const driverRow = await prisma.driver.findUnique({
     where: { id: driverDbId },
@@ -79,7 +87,7 @@ async function listPendingVisibleToDriver(driverDbId: string) {
   const driverKind = driverRow?.vehicleKind ?? null;
 
   const all = await prisma.order.findMany({
-    where: { status: OrderStatus.PENDING, driverId: null },
+    where: { status: OrderStatus.PENDING, driverId: null, ...driversPublishedWhere() },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: 100,
     include: orderIncludeDriverUser
@@ -406,6 +414,8 @@ export const ordersService = {
       status: row.status,
       broadcastTarget: row.broadcastTarget,
       vehicleRequirement: row.vehicleRequirement,
+      source: row.source,
+      driversNotifiedAt: row.driversNotifiedAt?.toISOString() ?? null,
       notes: row.notes,
       createdAt: row.createdAt.toISOString(),
       customerInfoSentAt: row.customerInfoSentAt?.toISOString() ?? null,
@@ -461,7 +471,9 @@ export const ordersService = {
         broadcastTarget: payload.broadcastTarget,
         pickupLat: payload.pickupLat,
         pickupLng: payload.pickupLng,
-        coordinatorId: coordinator.id
+        coordinatorId: coordinator.id,
+        source: OrderSource.APP,
+        driversNotifiedAt: new Date()
       }
     });
   },
@@ -779,7 +791,14 @@ export const ordersService = {
     ] as const;
 
     const statusWhere: Prisma.OrderWhereInput =
-      seg === "pending"
+      seg === "web_inquiries"
+        ? {
+            source: OrderSource.WEB_PUBLIC,
+            driversNotifiedAt: null,
+            status: OrderStatus.PENDING,
+            driverId: null
+          }
+        : seg === "pending"
         ? { status: OrderStatus.PENDING }
         : seg === "in_progress"
           ? { status: { in: [...inProgressStatuses] } }
@@ -791,7 +810,7 @@ export const ordersService = {
                   ? coordinatorNeedsInvoiceWhere()
                   : { status: { notIn: [OrderStatus.CANCELLED, OrderStatus.COMPLETED] } };
 
-    const orderAsc = seg === "pending";
+    const orderAsc = seg === "pending" || seg === "web_inquiries";
     const decoded = opts?.cursor ? decodeOrderCursor(opts.cursor) : null;
     const cursorWhere = orderAsc ? ascOrderCursorWhere(decoded) : descOrderCursorWhere(decoded);
     const where = mergeOrderWhere(statusWhere, cursorWhere);
@@ -892,7 +911,7 @@ export const ordersService = {
 
   async orderStatsForAdmin() {
     const activeRoomWhere = { status: { notIn: [OrderStatus.CANCELLED, OrderStatus.COMPLETED] } };
-    const [filterAll, filterPending, filterStuck, filterNeedsInfo, filterNeedsInvoice, filterInProgress] =
+    const [filterAll, filterPending, filterStuck, filterNeedsInfo, filterNeedsInvoice, filterInProgress, filterWebInquiries] =
       await Promise.all([
         prisma.order.count({ where: activeRoomWhere }),
         prisma.order.count({ where: { status: OrderStatus.PENDING } }),
@@ -910,6 +929,14 @@ export const ordersService = {
               ]
             }
           }
+        }),
+        prisma.order.count({
+          where: {
+            source: OrderSource.WEB_PUBLIC,
+            driversNotifiedAt: null,
+            status: OrderStatus.PENDING,
+            driverId: null
+          }
         })
       ]);
 
@@ -920,7 +947,8 @@ export const ordersService = {
         needs_invoice: filterNeedsInvoice,
         stuck: filterStuck,
         pending: filterPending,
-        in_progress: filterInProgress
+        in_progress: filterInProgress,
+        web_inquiries: filterWebInquiries
       }
     };
   },

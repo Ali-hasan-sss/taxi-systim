@@ -78,10 +78,50 @@ async function tryOpenUrl(url: string): Promise<boolean> {
   }
 }
 
+export const WHATSAPP_BUSINESS_REQUIRED_MESSAGE = "ليس لديك واتساب بزنس";
+
 export type WhatsAppOpenOptions = {
-  /** يفتح واتساب أعمال أولًا ثم العادي (لإرسال الفاتورة) */
+  /** يفتح واتساب أعمال أولًا ثم العادي */
   preferBusiness?: boolean;
 };
+
+/** روابط واتساب بزنس فقط — بدون واتساب العادي أو wa.me (لتجنب نافذة اختيار التطبيق). */
+export function buildWhatsAppBusinessOnlyCandidates(
+  phone: string | null | undefined,
+  text: string
+): string[] {
+  const n = waMePhonePart(phone);
+  if (!n) return [];
+
+  const encodedText = encodeURIComponent(text);
+  const query = `phone=${n}&text=${encodedText}`;
+
+  if (Platform.OS === "android") {
+    return [
+      `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`,
+      `whatsapp-business://send?${query}`
+    ];
+  }
+
+  return [`whatsapp-business://send?${query}`];
+}
+
+/**
+ * يفتح واتساب بزنس حصرًا مع نص جاهز (معلومات السائق / الفاتورة للزبون).
+ * لا يجرّب واتساب العادي ولا روابط wa.me.
+ */
+export async function openWhatsAppBusinessOnlyWithText(
+  phone: string | null | undefined,
+  text: string
+): Promise<boolean> {
+  const urls = buildWhatsAppBusinessOnlyCandidates(phone, text);
+  for (const url of urls) {
+    if (await tryOpenUrl(url)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * روابط محتملة لفتح واتساب مع نص جاهز.

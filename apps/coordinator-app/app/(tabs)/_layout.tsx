@@ -58,6 +58,54 @@ function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
   );
 }
 
+function ChatTabIcon({ color, size }: { color: string; size?: number }) {
+  const pathname = usePathname();
+  const unreadChatCount = useCoordinatorStore((s) => s.unreadChatCount);
+  const onChatTab = pathname.includes("/chat");
+  const showBadge = !onChatTab && unreadChatCount > 0;
+  const s = size ?? 22;
+  const styles = useThemedStyles((t) => ({
+    iconWrap: {
+      position: "relative" as const,
+      width: 28,
+      height: 24,
+      alignItems: "center" as const,
+      justifyContent: "center" as const
+    },
+    badgeDot: {
+      position: "absolute" as const,
+      top: -4,
+      end: -10,
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 4,
+      borderRadius: 9,
+      backgroundColor: t.colors.badge,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      borderWidth: 2,
+      borderColor: t.colors.badgeBorder
+    },
+    badgeText: {
+      color: t.colors.badgeText,
+      fontSize: 10,
+      fontWeight: "800" as const,
+      textAlign: "center" as const
+    }
+  }));
+
+  return (
+    <View style={styles.iconWrap}>
+      <Ionicons name="chatbubbles-outline" size={s} color={color} />
+      {showBadge ? (
+        <View style={styles.badgeDot}>
+          <Text style={styles.badgeText}>{unreadChatCount > 9 ? "9+" : String(unreadChatCount)}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
@@ -131,15 +179,16 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <OrdersTabIcon color={color} size={size} />
         }}
       />
-      <Tabs.Screen name="chat" options={{ href: null }} />
       <Tabs.Screen
-        name="archive"
+        name="chat"
         options={{
-          title: "الأرشيف",
-          tabBarLabel: "الأرشيف",
-          tabBarIcon: ({ color, size }) => <Ionicons name="archive-outline" size={size ?? 22} color={color} />
+          title: "الدردشات",
+          tabBarLabel: "الدردشات",
+          tabBarIcon: ({ color, size }) => <ChatTabIcon color={color} size={size} />
         }}
       />
+      <Tabs.Screen name="archive" options={{ href: null }} />
+      <Tabs.Screen name="web-inquiries" options={{ href: null }} />
       <Tabs.Screen name="reports" options={{ href: null }} />
     </Tabs>
     <CoordinatorCreateOrderModal

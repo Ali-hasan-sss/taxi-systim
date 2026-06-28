@@ -1,0 +1,126 @@
+.page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background:
+    radial-gradient(circle at top right, rgba(251, 191, 36, 0.22), transparent 42%),
+    radial-gradient(circle at bottom left, rgba(234, 88, 12, 0.14), transparent 38%),
+    var(--brand-bg-muted, #fef9ee);
+}
+
+.card {
+  width: min(520px, 100%);
+  background: #fff;
+  border-radius: 28px;
+  padding: 28px 24px 32px;
+  box-shadow: 0 24px 48px rgba(28, 25, 23, 0.12);
+  border: 1px solid var(--brand-card-border, #fde68a);
+}
+
+.logoWrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.logo {
+  width: 180px;
+  height: auto;
+  object-fit: contain;
+}
+
+.title {
+  margin: 0 0 8px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--brand-text, #292524);
+}
+
+.subtitle {
+  margin: 0 0 24px;
+  text-align: center;
+  color: var(--brand-text-muted, #78716c);
+  line-height: 1.7;
+  font-size: 15px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--brand-text-secondary, #57534e);
+}
+
+.input,
+.textarea {
+  border: 1px solid var(--brand-card-border, #fde68a);
+  border-radius: 16px;
+  padding: 14px 16px;
+  font: inherit;
+  background: var(--brand-bg-muted, #fffbeb);
+  color: var(--brand-text, #292524);
+}
+
+.input:focus,
+.textarea:focus {
+  outline: 2px solid rgba(234, 88, 12, 0.35);
+  border-color: var(--brand-primary, #ea580c);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.submit {
+  margin-top: 8px;
+  border: none;
+  border-radius: 18px;
+  padding: 16px 18px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  cursor: pointer;
+  background: var(--gradient-brand, linear-gradient(135deg, #c2410c 0%, #ea580c 45%, #fbbf24 100%));
+  box-shadow: 0 14px 28px rgba(234, 88, 12, 0.24);
+}
+
+.submit:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.success {
+  text-align: center;
+  padding: 18px 8px 6px;
+}
+
+.success h2 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  color: var(--brand-primary-dark, #c2410c);
+}
+
+.success p {
+  margin: 0;
+  color: var(--brand-text-muted, #78716c);
+  line-height: 1.8;
+}

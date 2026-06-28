@@ -9,7 +9,6 @@ import { shouldLoadExpoPushModule } from "../lib/push-environment";
 import { rtlText } from "../lib/rtl-text";
 import { clearDriverSession, getDriverSession } from "../lib/session";
 import { useDriverStore } from "../store";
-import { ChatNavButton } from "./ChatNavButton";
 
 export function DriverAppHeader() {
   const router = useRouter();
@@ -258,7 +257,6 @@ export function DriverAppHeader() {
           />
         </View>
         <View style={styles.topBarActions}>
-          <ChatNavButton />
           <View ref={avatarAnchorRef} collapsable={false} style={styles.avatarAnchor}>
             <Pressable
               onPress={openUserMenu}
@@ -345,6 +343,19 @@ export function DriverAppHeader() {
                 >
                   <Text style={styles.dropdownActionText}>تغيير كلمة المرور</Text>
                   <Ionicons name="key-outline" size={22} color={theme.colors.text} />
+                </Pressable>
+                <View style={styles.dropdownDivider} />
+                <Pressable
+                  style={styles.dropdownRow}
+                  onPress={() => {
+                    closeMenu();
+                    router.push("/(tabs)/archive");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="الأرشيف"
+                >
+                  <Text style={styles.dropdownActionText}>الأرشيف</Text>
+                  <Ionicons name="archive-outline" size={22} color={theme.colors.text} />
                 </Pressable>
                 <View style={styles.dropdownDivider} />
                 <Pressable

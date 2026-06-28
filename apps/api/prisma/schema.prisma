@@ -43,6 +43,11 @@ enum OrderVehicleRequirement {
   VIP
 }
 
+enum OrderSource {
+  APP
+  WEB_PUBLIC
+}
+
 enum CommissionType {
   PERCENTAGE
   FIXED
@@ -127,6 +132,9 @@ model Order {
   dropoffLng       Float?
   notes            String?
   vehicleRequirement OrderVehicleRequirement @default(ANY)
+  source           OrderSource    @default(APP)
+  /** null للطلبات الواردة من الويب قبل بثها لغرفة السائقين */
+  driversNotifiedAt DateTime?
   amount           Decimal      @db.Decimal(10, 2)
   broadcastTarget  OrderBroadcastTarget @default(ALL)
   status           OrderStatus  @default(PENDING)

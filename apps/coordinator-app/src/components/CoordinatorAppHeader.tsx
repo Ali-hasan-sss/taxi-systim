@@ -8,9 +8,11 @@ import { coordinatorMe } from "../lib/api";
 import { shouldLoadExpoPushModule } from "../lib/push-environment";
 import { clearSession, getSession } from "../lib/session";
 import { rtlText } from "../lib/rtl-text";
-import { ChatNavButton } from "./ChatNavButton";
+import { useWebInquiryRealtime } from "../lib/use-web-inquiry-realtime";
+import { WebInquiriesNavButton } from "./WebInquiriesNavButton";
 
 export function CoordinatorAppHeader() {
+  useWebInquiryRealtime();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
@@ -162,7 +164,7 @@ export function CoordinatorAppHeader() {
           />
         </View>
         <View style={styles.topBarActions}>
-          <ChatNavButton />
+          <WebInquiriesNavButton />
           <View ref={avatarAnchorRef} collapsable={false} style={styles.avatarAnchor}>
             <Pressable onPress={openUserMenu} style={styles.avatarBtn} accessibilityRole="button" accessibilityLabel="قائمة الحساب" hitSlop={8}>
               <View style={styles.avatarCircle}>
@@ -191,6 +193,17 @@ export function CoordinatorAppHeader() {
                 >
                   <Text style={styles.dropdownActionText}>تغيير كلمة المرور</Text>
                   <Ionicons name="key-outline" size={22} color={theme.colors.text} />
+                </Pressable>
+                <View style={styles.dropdownDivider} />
+                <Pressable
+                  style={styles.dropdownRow}
+                  onPress={() => {
+                    closeMenu();
+                    router.push("/(tabs)/archive");
+                  }}
+                >
+                  <Text style={styles.dropdownActionText}>الأرشيف</Text>
+                  <Ionicons name="archive-outline" size={22} color={theme.colors.text} />
                 </Pressable>
                 <View style={styles.dropdownDivider} />
                 <Pressable

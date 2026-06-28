@@ -7,23 +7,45 @@ import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
 import { normalizePhoneDigits } from "../../shared/phone";
 
+const FAR_FUTURE = new Date("2099-12-31T23:59:59.999Z");
+
 const parseExpiresIn = (value: string | undefined, fallback: SignOptions["expiresIn"]): SignOptions["expiresIn"] => {
   if (!value) return fallback;
   return /^\d+$/.test(value) ? Number(value) : (value as SignOptions["expiresIn"]);
 };
 
-const signAccess = (userId: string, role: string) =>
-  jwt.sign({ sub: userId, role }, process.env.JWT_ACCESS_SECRET ?? "change-me", {
-    expiresIn: parseExpiresIn(process.env.JWT_ACCESS_EXPIRES, "15m")
-  });
+/** الجلسات الدائمة مفعّلة افتراضيًا — عيّن JWT_PERMANENT_SESSIONS=false لإعادة انتهاء الصلاحية. */
+const isPermanentSessions = (): boolean => {
+  const flag = process.env.JWT_PERMANENT_SESSIONS?.trim().toLowerCase();
+  if (flag === "false" || flag === "0" || flag === "no") return false;
+  return true;
+};
 
-const signRefresh = (userId: string, role: string) =>
-  jwt.sign({ sub: userId, role }, process.env.JWT_REFRESH_SECRET ?? "change-me", {
-    expiresIn: parseExpiresIn(
+const refreshTokenDbExpiresAt = (): Date => {
+  if (isPermanentSessions()) return FAR_FUTURE;
+  const days = Number(process.env.JWT_REFRESH_EXPIRES_DAYS ?? "30");
+  const safeDays = Number.isFinite(days) && days > 0 ? days : 30;
+  return new Date(Date.now() + safeDays * 24 * 60 * 60 * 1000);
+};
+
+const signAccess = (userId: string, role: string) => {
+  const options: SignOptions = {};
+  if (!isPermanentSessions()) {
+    options.expiresIn = parseExpiresIn(process.env.JWT_ACCESS_EXPIRES, "15m");
+  }
+  return jwt.sign({ sub: userId, role }, process.env.JWT_ACCESS_SECRET ?? "change-me", options);
+};
+
+const signRefresh = (userId: string, role: string) => {
+  const options: SignOptions = {};
+  if (!isPermanentSessions()) {
+    options.expiresIn = parseExpiresIn(
       process.env.JWT_REFRESH_EXPIRES_DAYS ? `${process.env.JWT_REFRESH_EXPIRES_DAYS}d` : undefined,
       "30d"
-    )
-  });
+    );
+  }
+  return jwt.sign({ sub: userId, role }, process.env.JWT_REFRESH_SECRET ?? "change-me", options);
+};
 
 async function issueTokens(userId: string, role: Role) {
   const accessToken = signAccess(userId, role);
@@ -33,7 +55,7 @@ async function issueTokens(userId: string, role: Role) {
     data: {
       userId,
       tokenHash,
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      expiresAt: refreshTokenDbExpiresAt()
     }
   });
   return { accessToken, refreshToken };
@@ -119,19 +141,30 @@ export const authService = {
       role: Role;
     };
     const tokens = await prisma.refreshToken.findMany({
-      where: { userId: payload.sub, revokedAt: null, expiresAt: { gt: new Date() } }
+      where: {
+        userId: payload.sub,
+        revokedAt: null,
+        ...(isPermanentSessions() ? {} : { expiresAt: { gt: new Date() } })
+      }
     });
 
-    let matched = false;
+    let matchedTokenId: string | null = null;
     for (const token of tokens) {
       // eslint-disable-next-line no-await-in-loop
       const ok = await bcrypt.compare(refreshToken, token.tokenHash);
       if (ok) {
-        matched = true;
+        matchedTokenId = token.id;
         break;
       }
     }
-    if (!matched) throw new AppError("Invalid refresh token", 401);
+    if (!matchedTokenId) throw new AppError("Invalid refresh token", 401);
+
+    if (isPermanentSessions()) {
+      await prisma.refreshToken.update({
+        where: { id: matchedTokenId },
+        data: { expiresAt: FAR_FUTURE }
+      });
+    }
 
     const accessToken = signAccess(payload.sub, payload.role);
     return { accessToken };
@@ -199,5 +232,14 @@ export const authService = {
 
   async clearExpoPushToken(userId: string) {
     await prisma.user.update({ where: { id: userId }, data: { expoPushToken: null } });
+  },
+
+  /** يمدّد صلاحية refresh tokens الحالية في DB عند تفعيل الجلسات الدائمة. */
+  async extendExistingRefreshTokensForPermanentSessions() {
+    if (!isPermanentSessions()) return;
+    await prisma.refreshToken.updateMany({
+      where: { revokedAt: null },
+      data: { expiresAt: FAR_FUTURE }
+    });
   }
 };

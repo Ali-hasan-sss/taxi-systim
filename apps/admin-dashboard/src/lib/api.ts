@@ -161,7 +161,8 @@ export type AdminOrdersRoomSegment =
   | "in_progress"
   | "stuck"
   | "needs_info"
-  | "needs_invoice";
+  | "needs_invoice"
+  | "web_inquiries";
 
 export interface AdminOrdersRoomFilterCounts {
   all: number;
@@ -170,6 +171,7 @@ export interface AdminOrdersRoomFilterCounts {
   stuck: number;
   pending: number;
   in_progress: number;
+  web_inquiries: number;
 }
 
 export interface AdminOrderRoomRow {
@@ -183,6 +185,8 @@ export interface AdminOrderRoomRow {
   status: string;
   broadcastTarget: string;
   vehicleRequirement?: string;
+  source?: string;
+  driversNotifiedAt?: string | null;
   notes?: string | null;
   createdAt: string;
   coordinatorName: string;
@@ -434,13 +438,15 @@ export const api = {
     const res = await authorizedFetch("/admin/orders-room/stats", { method: "GET", cache: "no-store" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل إحصائيات الطلبات"));
     const body = (await res.json()) as { filterCounts?: AdminOrdersRoomFilterCounts };
-    return body.filterCounts ?? {
+    return {
       all: 0,
       needs_info: 0,
       needs_invoice: 0,
       stuck: 0,
       pending: 0,
-      in_progress: 0
+      in_progress: 0,
+      web_inquiries: 0,
+      ...(body.filterCounts ?? {})
     };
   },
 
@@ -918,6 +924,34 @@ export const api = {
     if (!res.ok) return null;
     const blob = await res.blob();
     return URL.createObjectURL(blob);
+  },
+
+  async listWebInquiries(accessToken: string) {
+    const res = await authorizedFetch("/public/web-inquiries", { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل طلبات الويب"));
+    return res.json() as Promise<{ inquiries: AdminOrderRoomRow[]; count: number }>;
+  },
+
+  async publishWebInquiry(accessToken: string, orderId: string, amount: number) {
+    const res = await authorizedFetch(
+      `/public/web-inquiries/${encodeURIComponent(orderId)}/publish`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, broadcastTarget: "ALL" })
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر إرسال الطلب إلى السائقين"));
+  },
+
+  async dismissWebInquiry(accessToken: string, orderId: string) {
+    const res = await authorizedFetch(
+      `/public/web-inquiries/${encodeURIComponent(orderId)}/dismiss`,
+      { method: "PATCH" },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر رفض الطلب"));
   }
 };
 

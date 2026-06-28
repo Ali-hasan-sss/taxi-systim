@@ -38,6 +38,12 @@ export function setupCoordinatorOrderPushHandlers(): () => void {
       return;
     }
 
+    if (type === "WEB_ORDER_REQUEST") {
+      useCoordinatorStore.getState().incrementWebInquiryCount();
+      void playCoordinatorOrderPushSound(type);
+      return;
+    }
+
     void playCoordinatorOrderPushSound(type);
     bump();
   });
@@ -52,6 +58,12 @@ export function setupCoordinatorOrderPushHandlers(): () => void {
         router.push(path as `/chat/${string}`);
         return;
       }
+    }
+
+    if (type === "WEB_ORDER_REQUEST") {
+      bump();
+      router.push("/(tabs)/web-inquiries");
+      return;
     }
 
     bump();
