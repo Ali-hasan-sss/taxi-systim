@@ -6,8 +6,7 @@ import {
   notifyCoordinatorOrderCompletedPush,
   notifyCoordinatorOrderStuckPush,
   notifyDriverOrderAssignedPush,
-  notifyDriverOrderResumedPush,
-  notifyDriversNewOrderPush
+  notifyDriverOrderResumedPush
 } from "../../shared/expo-push";
 import { assignOrderDto, createOrderDto, updateCompletedOrderAmountDto, updateOrderDetailsDto } from "./orders.dto";
 import {
@@ -20,6 +19,7 @@ import {
 import type { AuthRequest } from "../../shared/auth";
 import {
   broadcastNewOrder,
+  dispatchNewPendingOrderToDrivers,
   emitDriverClaimedOrder,
   emitOrderAssigned,
   emitOrderStatusUpdated,
@@ -285,8 +285,7 @@ export const ordersController = {
       const dto = createOrderDto.parse(req.body);
       const order = await ordersService.createOrder(req.auth!.userId, dto);
       const io = req.app.get("io") as Server | undefined;
-      if (io) await broadcastNewOrder(io, order);
-      void notifyDriversNewOrderPush(order);
+      if (io) await dispatchNewPendingOrderToDrivers(io, order);
       res.status(201).json(order);
     } catch (e) {
       next(e);

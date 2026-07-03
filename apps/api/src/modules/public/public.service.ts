@@ -120,6 +120,7 @@ export const publicBookingService = {
         broadcastTarget: payload.broadcastTarget ?? order.broadcastTarget,
         pickupLat: payload.pickupLat ?? order.pickupLat,
         pickupLng: payload.pickupLng ?? order.pickupLng,
+        source: OrderSource.APP,
         driversNotifiedAt: new Date()
       }
     });

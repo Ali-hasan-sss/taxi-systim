@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
 import * as Location from "expo-location";
+import { socketEvents } from "@taxi/config";
 import { io, type Socket } from "socket.io-client";
 import { fetchDriverProfile, getSocketOrigin } from "./lib/api";
 import { getDriverLocationAccessState, isDriverLocationReady } from "./lib/location-access";
+import { playNewPendingOrderSound } from "./lib/pending-order-sound";
 import { getDriverSession } from "./lib/session";
 import { useDriverStore } from "./store";
 
@@ -108,7 +110,26 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
     }
 
     s.emit("driver:online", id);
-  }, [isOnline, myDriverId, socket]);
+  }, [isOnline, setOnline, socket]);
+
+  useEffect(() => {
+    const s = socket;
+    if (!s || !myDriverId) return;
+
+    const onNewOrder = (raw: unknown) => {
+      if (!isOnlineRef.current) return;
+      const p = raw as { orderId?: string };
+      if (!p?.orderId) return;
+      if (AppState.currentState === "active") {
+        void playNewPendingOrderSound();
+      }
+    };
+
+    s.on(socketEvents.NEW_ORDER, onNewOrder);
+    return () => {
+      s.off(socketEvents.NEW_ORDER, onNewOrder);
+    };
+  }, [socket, myDriverId]);
 
   useEffect(() => {
     if (!isOnline || !myDriverId || !socket) return;

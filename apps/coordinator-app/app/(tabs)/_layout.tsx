@@ -61,8 +61,8 @@ function OrdersTabIcon({ color, size }: { color: string; size?: number }) {
 function ChatTabIcon({ color, size }: { color: string; size?: number }) {
   const pathname = usePathname();
   const unreadChatCount = useCoordinatorStore((s) => s.unreadChatCount);
-  const onChatTab = pathname.includes("/chat");
-  const showBadge = !onChatTab && unreadChatCount > 0;
+  const viewingChatRoom = /\/chat\/[^/]+/.test(pathname);
+  const showBadge = !viewingChatRoom && unreadChatCount > 0;
   const s = size ?? 22;
   const styles = useThemedStyles((t) => ({
     iconWrap: {

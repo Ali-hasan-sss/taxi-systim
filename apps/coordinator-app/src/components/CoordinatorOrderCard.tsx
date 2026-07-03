@@ -1,6 +1,7 @@
 import { coordinatorOrderStatusPill, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
+import * as Linking from "expo-linking";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import {
@@ -23,8 +24,10 @@ import { openSmsWithText } from "../lib/sms";
 import {
   formatSyrianPhoneForDisplay,
   normalizeSyriaPhoneForWaMe,
-  openWhatsAppBusinessOnlyWithText,
-  WHATSAPP_BUSINESS_REQUIRED_MESSAGE
+  openWhatsAppChat,
+  openWhatsAppChatWithText,
+  WHATSAPP_NO_PHONE_MESSAGE,
+  WHATSAPP_OPEN_FAILED_MESSAGE
 } from "../lib/whatsapp";
 import { rtlRow, rtlText } from "../lib/rtl-text";
 
@@ -245,6 +248,29 @@ export function CoordinatorOrderCard({
       gap: 8,
       justifyContent: "flex-start" as const
     },
+    phoneContactRow: {
+      ...rtlRow,
+      alignItems: "center" as const,
+      gap: 8,
+      marginBottom: 6
+    },
+    phoneContactText: {
+      color: t.colors.textMuted,
+      ...rtlText,
+      flex: 1,
+      fontSize: 15,
+      fontWeight: "700" as const
+    },
+    contactIconBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      backgroundColor: t.colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: t.colors.border
+    },
     actionBtnGroup: {
       ...rtlRow,
       gap: 8,
@@ -464,6 +490,27 @@ export function CoordinatorOrderCard({
   const canSendInvoice =
     isCompleted && Boolean(contactPhone) && Boolean(waE164) && !invoiceAlreadySent;
 
+  const isStuck = statusKey === "STUCK";
+  const canContactStuckCustomer = isStuck && Boolean(contactPhone) && Boolean(waE164);
+
+  const callCustomer = () => {
+    if (!contactPhone) {
+      feedback.warning(WHATSAPP_NO_PHONE_MESSAGE);
+      return;
+    }
+    const dial = waE164 ? `+${waE164}` : contactPhone.trim();
+    void Linking.openURL(`tel:${dial}`);
+  };
+
+  const openStuckCustomerWhatsApp = async () => {
+    if (!contactPhone) {
+      feedback.warning(WHATSAPP_NO_PHONE_MESSAGE);
+      return;
+    }
+    const opened = await openWhatsAppChat(contactPhone, { preferBusiness: true });
+    if (!opened) feedback.warning(WHATSAPP_OPEN_FAILED_MESSAGE);
+  };
+
   const openCustomerWhatsApp = async () => {
     if (!canSendCustomerInfo || !contactPhone) return;
     const session = await getSession();
@@ -473,12 +520,13 @@ export function CoordinatorOrderCard({
     }
     setSendingWhatsApp("info");
     try {
-      const opened = await openWhatsAppBusinessOnlyWithText(
+      const opened = await openWhatsAppChatWithText(
         contactPhone,
-        buildCustomerTaxiBroMessage(item)
+        buildCustomerTaxiBroMessage(item),
+        { preferBusiness: true }
       );
       if (!opened) {
-        feedback.warning(WHATSAPP_BUSINESS_REQUIRED_MESSAGE);
+        feedback.warning(WHATSAPP_OPEN_FAILED_MESSAGE);
         return;
       }
       const updated = await coordinatorMarkCustomerInfoSent(session.accessToken, item.id);
@@ -532,12 +580,13 @@ export function CoordinatorOrderCard({
     }
     setSendingWhatsApp("invoice");
     try {
-      const opened = await openWhatsAppBusinessOnlyWithText(
+      const opened = await openWhatsAppChatWithText(
         contactPhone,
-        buildInvoiceWhatsAppMessage(item, coordinatorFullName)
+        buildInvoiceWhatsAppMessage(item, coordinatorFullName),
+        { preferBusiness: true }
       );
       if (!opened) {
-        feedback.warning(WHATSAPP_BUSINESS_REQUIRED_MESSAGE);
+        feedback.warning(WHATSAPP_OPEN_FAILED_MESSAGE);
         return;
       }
       const updated = await coordinatorMarkInvoiceSent(session.accessToken, item.id);
@@ -628,9 +677,36 @@ export function CoordinatorOrderCard({
         </Text>
       </View>
       <Text style={styles.customer}>{item.customerName}</Text>
-      {displayPhone || canSendCustomerInfo || canSendInvoice || (infoAlreadySent && WHATSAPP_TO_CUSTOMER_STATUSES.has(statusKey)) || (invoiceAlreadySent && isCompleted) ? (
+      {displayPhone ||
+      canContactStuckCustomer ||
+      canSendCustomerInfo ||
+      canSendInvoice ||
+      (infoAlreadySent && WHATSAPP_TO_CUSTOMER_STATUSES.has(statusKey)) ||
+      (invoiceAlreadySent && isCompleted) ? (
         <View style={styles.phoneBlock}>
-          {displayPhone ? (
+          {canContactStuckCustomer ? (
+            <View style={styles.phoneContactRow}>
+              <Text style={styles.phoneContactText} selectable>
+                {displayPhone}
+              </Text>
+              <Pressable
+                onPress={callCustomer}
+                style={({ pressed }) => [styles.contactIconBtn, pressed && styles.waBtnPressed]}
+                accessibilityRole="button"
+                accessibilityLabel="الاتصال بالزبون"
+              >
+                <Ionicons name="call-outline" size={20} color={theme.colors.success} />
+              </Pressable>
+              <Pressable
+                onPress={() => void openStuckCustomerWhatsApp()}
+                style={({ pressed }) => [styles.contactIconBtn, pressed && styles.waBtnPressed]}
+                accessibilityRole="button"
+                accessibilityLabel="فتح واتساب مع الزبون"
+              >
+                <Ionicons name="logo-whatsapp" size={20} color={theme.colors.whatsapp} />
+              </Pressable>
+            </View>
+          ) : displayPhone ? (
             <Text style={styles.phone} selectable>
               {displayPhone}
             </Text>

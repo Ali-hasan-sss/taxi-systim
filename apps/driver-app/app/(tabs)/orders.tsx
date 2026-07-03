@@ -33,7 +33,6 @@ import { rtlText } from "../../src/lib/rtl-text";
 import { driverTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { playDriverOrderPushSound } from "../../src/lib/order-push-sound";
 import { playOrderResumedSound } from "../../src/lib/order-resumed-sound";
-import { playNewPendingOrderSound } from "../../src/lib/pending-order-sound";
 import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
 
 function authFailureMessage(msg: string): boolean {
@@ -60,6 +59,7 @@ export default function DriverOrdersTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
+  const [expandedPendingIds, setExpandedPendingIds] = useState<Set<string>>(() => new Set());
   const { socket, myDriverId, socketConnected } = useDriverSocket();
 
   const inProgressRef = useRef<DriverOrderRow | null>(null);
@@ -132,7 +132,6 @@ export default function DriverOrdersTab() {
       const row = socketPayloadToDriverOrderRow(p);
       setPending((prev) => {
         if (prev.some((o) => o.id === row.id)) return prev;
-        void playNewPendingOrderSound();
         return [row, ...prev];
       });
     };
@@ -175,6 +174,15 @@ export default function DriverOrdersTab() {
       socket.off(SOCKET_EVENTS.ORDER_STATUS_UPDATED, onOrderStatusUpdated);
     };
   }, [socket, myDriverId]);
+
+  const togglePendingExpanded = (orderId: string) => {
+    setExpandedPendingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
 
   const onAccept = async (orderId: string) => {
     const session = await getDriverSession();
@@ -484,18 +492,48 @@ export default function DriverOrdersTab() {
       fontSize: 15,
       ...rtlText
     },
+    pendingActionsRow: {
+      flexDirection: "row-reverse" as const,
+      gap: 8,
+      marginTop: 0,
+      alignItems: "stretch" as const
+    },
+    btnPendingAction: {
+      flex: 1,
+      minHeight: 46,
+      paddingVertical: 12,
+      paddingHorizontal: 10,
+      borderRadius: 10,
+      alignItems: "center" as const,
+      justifyContent: "center" as const
+    },
     btnAccept: {
+      backgroundColor: t.colors.primary
+    },
+    btnAcceptFull: {
       marginTop: 12,
-      backgroundColor: t.colors.primary,
       paddingVertical: 14,
       borderRadius: 12,
-      alignItems: "center" as const
+      minHeight: 48
     },
     btnAcceptText: {
       color: t.colors.textInverse,
       fontWeight: "800" as const,
-      fontSize: 16,
-      ...rtlText
+      fontSize: 15,
+      ...rtlText,
+      textAlign: "center" as const
+    },
+    btnToggleDetails: {
+      backgroundColor: t.colors.buttonSecondaryBg,
+      borderWidth: 1,
+      borderColor: t.colors.borderStrong
+    },
+    btnToggleDetailsText: {
+      color: t.colors.buttonSecondaryText,
+      fontWeight: "800" as const,
+      fontSize: 15,
+      ...rtlText,
+      textAlign: "center" as const
     },
     btnDisabled: {
       opacity: 0.6
@@ -591,9 +629,10 @@ export default function DriverOrdersTab() {
         <FlatList
           data={data}
           keyExtractor={(item) => item.id}
-          extraData={{ inProgress: !!inProgress, actionOrderId }}
+          extraData={{ inProgress: !!inProgress, actionOrderId, expandedPendingIds }}
           renderItem={({ item }) => {
           const busy = actionOrderId === item.id;
+          const pendingExpanded = expandedPendingIds.has(item.id);
           if (inProgress) {
             if (isEnRouteToCustomer(item.status)) {
               return (
@@ -654,21 +693,57 @@ export default function DriverOrdersTab() {
             }
             return <DriverOrderCard item={item} />;
           }
+          const acceptBtn = (
+            <Pressable
+              style={[
+                styles.btnPendingAction,
+                styles.btnAccept,
+                pendingExpanded && styles.btnAcceptFull,
+                busy && styles.btnDisabled
+              ]}
+              disabled={!!busy}
+              onPress={() => void onAccept(item.id)}
+            >
+              {busy ? (
+                <ActivityIndicator color={theme.colors.textInverse} />
+              ) : (
+                <Text style={styles.btnAcceptText}>استلام الطلب</Text>
+              )}
+            </Pressable>
+          );
+
+          const toggleDetailsBtn = (
+            <Pressable
+              style={({ pressed }) => [
+                styles.btnPendingAction,
+                styles.btnToggleDetails,
+                pendingExpanded && styles.btnAcceptFull,
+                pressed && styles.refreshBtnPressed
+              ]}
+              onPress={() => togglePendingExpanded(item.id)}
+              accessibilityRole="button"
+              accessibilityLabel={pendingExpanded ? "عرض أقل" : "عرض المزيد"}
+            >
+              <Text style={styles.btnToggleDetailsText}>{pendingExpanded ? "عرض أقل" : "عرض المزيد"}</Text>
+            </Pressable>
+          );
+
           return (
             <DriverOrderCard
               item={item}
+              layout={pendingExpanded ? "full" : "compact"}
               footer={
-                <Pressable
-                  style={[styles.btnAccept, busy && styles.btnDisabled]}
-                  disabled={!!busy}
-                  onPress={() => void onAccept(item.id)}
-                >
-                  {busy ? (
-                    <ActivityIndicator color={theme.colors.textInverse} />
-                  ) : (
-                    <Text style={styles.btnAcceptText}>استلام الطلب</Text>
-                  )}
-                </Pressable>
+                pendingExpanded ? (
+                  <View style={styles.pendingActionsRow}>
+                    {toggleDetailsBtn}
+                    {acceptBtn}
+                  </View>
+                ) : (
+                  <View style={styles.pendingActionsRow}>
+                    {acceptBtn}
+                    {toggleDetailsBtn}
+                  </View>
+                )
               }
             />
           );

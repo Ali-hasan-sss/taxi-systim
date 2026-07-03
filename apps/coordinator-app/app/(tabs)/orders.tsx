@@ -37,6 +37,8 @@ import { feedback } from "../../src/lib/feedback";
 import { playCoordinatorOrderPushSound } from "../../src/lib/order-push-sound";
 import { playOrderStuckSound } from "../../src/lib/order-stuck-sound";
 import { clearSession, getSession } from "../../src/lib/session";
+import { isCoordinatorAuthFailureMessage } from "../../src/lib/coordinator-auth";
+import { debounce } from "../../src/lib/debounce";
 import { useCoordinatorStore } from "../../src/store";
 import { rtlText } from "../../src/lib/rtl-text";
 import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
@@ -415,6 +417,10 @@ export default function OrdersTab() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [listSegment, setListSegment] = useState<CoordinatorActiveOrdersSegment | null>(null);
   const loadMoreLock = useRef(false);
+  const myCoordinatorIdRef = useRef<string | null>(null);
+  myCoordinatorIdRef.current = myCoordinatorId;
+  const coordinatorFullNameRef = useRef(coordinatorFullName);
+  coordinatorFullNameRef.current = coordinatorFullName;
 
   const load = useCallback(async (isRefresh = false) => {
     const session = await getSession();
@@ -428,8 +434,14 @@ export default function OrdersTab() {
     try {
       const listOpts =
         listSegment != null ? { segment: listSegment } : undefined;
+      const skipMe = isRefresh && myCoordinatorIdRef.current != null;
       const [me, page, stats] = await Promise.all([
-        coordinatorMe(session.accessToken),
+        skipMe
+          ? Promise.resolve({
+              coordinatorId: myCoordinatorIdRef.current!,
+              fullName: coordinatorFullNameRef.current
+            })
+          : coordinatorMe(session.accessToken),
         coordinatorListOrders(session.accessToken, "active", listOpts),
         coordinatorOrderStats(session.accessToken)
       ]);
@@ -442,7 +454,7 @@ export default function OrdersTab() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "حدث خطأ";
       setError(msg);
-      if (msg.includes("Unauthorized") || msg.includes("غير مصرح")) {
+      if (isCoordinatorAuthFailureMessage(msg)) {
         await clearSession();
         router.replace("/login");
       }
@@ -450,7 +462,7 @@ export default function OrdersTab() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [router, listSegment]);
+  }, [router, listSegment, setStuckOrdersCount]);
 
   const loadMore = useCallback(async () => {
     if (nextCursor == null || loadMoreLock.current || loading || refreshing) {
@@ -485,7 +497,7 @@ export default function OrdersTab() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "حدث خطأ";
       setError(msg);
-      if (msg.includes("Unauthorized") || msg.includes("غير مصرح")) {
+      if (isCoordinatorAuthFailureMessage(msg)) {
         await clearSession();
         router.replace("/login");
       }
@@ -495,10 +507,41 @@ export default function OrdersTab() {
     }
   }, [nextCursor, loading, refreshing, router, listSegment]);
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const loadBusyRef = useRef(false);
+  const loadQueuedRefreshRef = useRef(false);
+
+  const coalescedLoad = useCallback(async (isRefresh: boolean) => {
+    if (loadBusyRef.current) {
+      if (isRefresh) loadQueuedRefreshRef.current = true;
+      return;
+    }
+    loadBusyRef.current = true;
+    try {
+      await loadRef.current(isRefresh);
+    } finally {
+      loadBusyRef.current = false;
+      if (loadQueuedRefreshRef.current) {
+        loadQueuedRefreshRef.current = false;
+        void coalescedLoad(true);
+      }
+    }
+  }, []);
+
+  const debouncedRefreshRef = useRef(
+    debounce(() => {
+      void coalescedLoad(true);
+    }, 450)
+  );
+  const scheduleRefresh = useCallback(() => {
+    debouncedRefreshRef.current();
+  }, [coalescedLoad]);
+
   useFocusEffect(
     useCallback(() => {
-      void load(false);
-    }, [load])
+      void coalescedLoad(false);
+    }, [coalescedLoad])
   );
 
   const listSegmentChangedRef = useRef(false);
@@ -507,18 +550,16 @@ export default function OrdersTab() {
       listSegmentChangedRef.current = true;
       return;
     }
-    void load(false);
-  }, [listSegment]);
+    void coalescedLoad(false);
+  }, [listSegment, coalescedLoad]);
 
   const orderRefreshTickRef = useRef(orderRefreshTick);
   useEffect(() => {
     if (orderRefreshTickRef.current === orderRefreshTick) return;
     orderRefreshTickRef.current = orderRefreshTick;
-    void load(true);
-  }, [orderRefreshTick, load]);
+    scheduleRefresh();
+  }, [orderRefreshTick, scheduleRefresh]);
 
-  const myCoordinatorIdRef = useRef<string | null>(null);
-  myCoordinatorIdRef.current = myCoordinatorId;
   const coordinatorSocketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -538,11 +579,11 @@ export default function OrdersTab() {
       const maybeReload = (payload: { coordinatorId?: string }) => {
         const cid = myCoordinatorIdRef.current;
         if (!cid) {
-          void load(true);
+          scheduleRefresh();
           return;
         }
         if (payload?.coordinatorId === cid) {
-          void load(true);
+          scheduleRefresh();
         }
       };
       const onStatusUpdated = (raw: unknown) => {
@@ -571,7 +612,7 @@ export default function OrdersTab() {
       coordinatorSocketRef.current = null;
       socket?.disconnect();
     };
-  }, [load]);
+  }, [scheduleRefresh]);
 
   useEffect(() => {
     const id = myCoordinatorIdRef.current;
@@ -658,7 +699,7 @@ export default function OrdersTab() {
     setActionOrderId(orderId);
     try {
       await coordinatorCancelOrder(session.accessToken, orderId);
-      await load(true);
+      void coalescedLoad(true);
       feedback.success("تم تحديث حالة الطلب إلى ملغى.", "تم الإلغاء");
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر إلغاء الطلب.");
@@ -676,7 +717,7 @@ export default function OrdersTab() {
     setActionOrderId(orderId);
     try {
       await coordinatorResumeStuckOrder(session.accessToken, orderId);
-      await load(true);
+      void coalescedLoad(true);
       feedback.success("أُعيد الطلب للسائق نفسه — في الطريق إلى الزبون.", "تمت الإعادة");
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر إعادة الطلب للسائق.");
@@ -700,7 +741,7 @@ export default function OrdersTab() {
       await coordinatorAssignOrder(session.accessToken, assignOrderId, driver.id);
       setAssignModalOpen(false);
       setAssignOrderId(null);
-      await load(true);
+      void coalescedLoad(true);
       feedback.success(`تم إسناد الطلب إلى السائق ${driver.fullName}.`, "تم الإسناد");
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر إسناد الطلب.");
@@ -797,7 +838,7 @@ export default function OrdersTab() {
         coordinatorFullName={coordinatorFullName}
         onOrderUpdated={(row) => {
           setOrders((prev) => prev.map((o) => (o.id === row.id ? row : o)));
-          void load(true);
+          scheduleRefresh();
         }}
       />
     );
@@ -865,7 +906,7 @@ export default function OrdersTab() {
             ? [styles.emptyList, { paddingBottom: listBottomPad }]
             : [styles.list, { paddingBottom: listBottomPad }]
         }
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={theme.colors.accent} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void coalescedLoad(true)} tintColor={theme.colors.accent} />}
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.35}
         ListFooterComponent={

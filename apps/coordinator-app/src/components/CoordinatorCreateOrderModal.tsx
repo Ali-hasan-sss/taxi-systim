@@ -1,8 +1,10 @@
 import { useTheme, useThemedStyles, KeyboardAvoidingView } from "@taxi/expo-theme";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  Keyboard,
+  LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
@@ -24,6 +26,8 @@ import { rtlText } from "../lib/rtl-text";
 
 const modalSheetMaxHeight = Math.round(Dimensions.get("window").height * 0.88);
 
+type OrderFieldKey = "from" | "to" | "phone" | "amount" | "notes";
+
 function resetOrderForm(setters: {
   setFromAddr: (v: string) => void;
   setToAddr: (v: string) => void;
@@ -38,10 +42,6 @@ function resetOrderForm(setters: {
   setters.setAmountText("");
   setters.setOrderNotes("");
   setters.setVehicleRequirement("ANY");
-}
-
-function focusNext(ref?: RefObject<TextInputRef | null>) {
-  ref?.current?.focus();
 }
 
 export function CoordinatorCreateOrderModal({
@@ -195,6 +195,39 @@ export function CoordinatorCreateOrderModal({
   const orderPhoneRef = useRef<TextInputRef>(null);
   const orderAmountRef = useRef<TextInputRef>(null);
   const orderNotesRef = useRef<TextInputRef>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldTopsRef = useRef<Partial<Record<OrderFieldKey, number>>>({});
+  const [androidKeyboardPad, setAndroidKeyboardPad] = useState(0);
+
+  const scrollToField = useCallback((key: OrderFieldKey) => {
+    const y = fieldTopsRef.current[key];
+    if (y == null) return;
+    const run = () => scrollRef.current?.scrollTo({ y: Math.max(0, y - 40), animated: true });
+    run();
+    setTimeout(run, Platform.OS === "android" ? 280 : 120);
+  }, []);
+
+  const trackFieldLayout = useCallback(
+    (key: OrderFieldKey) => (event: LayoutChangeEvent) => {
+      fieldTopsRef.current[key] = event.nativeEvent.layout.y;
+    },
+    []
+  );
+
+  const handleFieldFocus = useCallback(
+    (key: OrderFieldKey) => () => {
+      scrollToField(key);
+    },
+    [scrollToField]
+  );
+
+  const focusField = useCallback(
+    (ref: RefObject<TextInputRef | null>, key: OrderFieldKey) => {
+      ref.current?.focus();
+      scrollToField(key);
+    },
+    [scrollToField]
+  );
 
   useEffect(() => {
     if (!visible) {
@@ -207,7 +240,22 @@ export function CoordinatorCreateOrderModal({
         setVehicleRequirement
       });
       setSubmitting(false);
+      setAndroidKeyboardPad(0);
     }
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible || Platform.OS !== "android") return;
+    const onShow = Keyboard.addListener("keyboardDidShow", (event) => {
+      setAndroidKeyboardPad(event.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener("keyboardDidHide", () => {
+      setAndroidKeyboardPad(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
   }, [visible]);
 
   const submitOrder = async () => {
@@ -247,7 +295,7 @@ export function CoordinatorCreateOrderModal({
         "تم إنشاء الطلب"
       );
       onClose();
-      await onCreated?.();
+      void onCreated?.();
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر إنشاء الطلب. حاول مرة أخرى.");
     } finally {
@@ -280,14 +328,15 @@ export function CoordinatorCreateOrderModal({
           ]}
         >
           <ScrollView
+            ref={scrollRef}
             style={{ flex: 1 }}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
             automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[
               styles.modalScrollContent,
-              { paddingBottom: Math.max(insets.bottom, 16) + 24 }
+              { paddingBottom: Math.max(insets.bottom, 16) + 24 + androidKeyboardPad }
             ]}
           >
             <View style={styles.modalHeader}>
@@ -330,66 +379,78 @@ export function CoordinatorCreateOrderModal({
             </View>
             <View style={styles.scrollGap} />
 
-            <Text style={styles.label}>من (الانطلاق)</Text>
-            <TextInput
-              ref={orderFromRef}
-              value={fromAddr}
-              onChangeText={setFromAddr}
-              placeholder="عنوان أو وصف نقطة الانطلاق"
-              placeholderTextColor={theme.colors.placeholder}
-              style={styles.input}
-              returnKeyType="next"
-              blurOnSubmit={false}
-              onSubmitEditing={() => focusNext(orderToRef)}
-            />
+            <View onLayout={trackFieldLayout("from")}>
+              <Text style={styles.label}>من (الانطلاق)</Text>
+              <TextInput
+                ref={orderFromRef}
+                value={fromAddr}
+                onChangeText={setFromAddr}
+                placeholder="عنوان أو وصف نقطة الانطلاق"
+                placeholderTextColor={theme.colors.placeholder}
+                style={styles.input}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onFocus={handleFieldFocus("from")}
+                onSubmitEditing={() => focusField(orderToRef, "to")}
+              />
+            </View>
             <View style={styles.scrollGap} />
 
-            <Text style={styles.label}>إلى (الوجهة)</Text>
-            <TextInput
-              ref={orderToRef}
-              value={toAddr}
-              onChangeText={setToAddr}
-              placeholder="عنوان أو وصف الوجهة"
-              placeholderTextColor={theme.colors.placeholder}
-              style={styles.input}
-              returnKeyType="next"
-              blurOnSubmit={false}
-              onSubmitEditing={() => focusNext(orderPhoneRef)}
-            />
+            <View onLayout={trackFieldLayout("to")}>
+              <Text style={styles.label}>إلى (الوجهة)</Text>
+              <TextInput
+                ref={orderToRef}
+                value={toAddr}
+                onChangeText={setToAddr}
+                placeholder="عنوان أو وصف الوجهة"
+                placeholderTextColor={theme.colors.placeholder}
+                style={styles.input}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onFocus={handleFieldFocus("to")}
+                onSubmitEditing={() => focusField(orderPhoneRef, "phone")}
+              />
+            </View>
             <View style={styles.scrollGap} />
 
-            <Text style={styles.label}>رقم الزبون</Text>
-            <TextInput
-              ref={orderPhoneRef}
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="07xxxxxxxx"
-              placeholderTextColor={theme.colors.placeholder}
-              style={styles.input}
-              keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "phone-pad"}
-              returnKeyType="next"
-              blurOnSubmit={false}
-              onSubmitEditing={() => focusNext(orderAmountRef)}
-            />
+            <View onLayout={trackFieldLayout("phone")}>
+              <Text style={styles.label}>رقم الزبون</Text>
+              <TextInput
+                ref={orderPhoneRef}
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="07xxxxxxxx"
+                placeholderTextColor={theme.colors.placeholder}
+                style={styles.input}
+                keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "phone-pad"}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onFocus={handleFieldFocus("phone")}
+                onSubmitEditing={() => focusField(orderAmountRef, "amount")}
+              />
+            </View>
             <View style={styles.scrollGap} />
 
-            <Text style={styles.label}>تكلفة الطلب</Text>
-            <TextInput
-              ref={orderAmountRef}
-              value={amountText}
-              onChangeText={setAmountText}
-              placeholder="مثال: 25 أو 25.5"
-              placeholderTextColor={theme.colors.placeholder}
-              style={styles.input}
-              keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "decimal-pad"}
-              returnKeyType="next"
-              blurOnSubmit={false}
-              onSubmitEditing={() => focusNext(orderNotesRef)}
-            />
+            <View onLayout={trackFieldLayout("amount")}>
+              <Text style={styles.label}>تكلفة الطلب</Text>
+              <TextInput
+                ref={orderAmountRef}
+                value={amountText}
+                onChangeText={setAmountText}
+                placeholder="مثال: 25 أو 25.5"
+                placeholderTextColor={theme.colors.placeholder}
+                style={styles.input}
+                keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "decimal-pad"}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onFocus={handleFieldFocus("amount")}
+                onSubmitEditing={() => focusField(orderNotesRef, "notes")}
+              />
+            </View>
             <View style={styles.scrollGap} />
 
-            <Text style={styles.label}>ملاحظات إضافية (اختياري)</Text>
-            <View collapsable={false}>
+            <View onLayout={trackFieldLayout("notes")} collapsable={false}>
+              <Text style={styles.label}>ملاحظات إضافية (اختياري)</Text>
               <TextInput
                 ref={orderNotesRef}
                 value={orderNotes}
@@ -400,6 +461,7 @@ export function CoordinatorCreateOrderModal({
                 multiline
                 scrollEnabled={false}
                 textAlignVertical="top"
+                onFocus={handleFieldFocus("notes")}
               />
             </View>
             <View style={styles.scrollGap} />

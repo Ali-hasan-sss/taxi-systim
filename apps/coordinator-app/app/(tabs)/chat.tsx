@@ -22,6 +22,7 @@ export default function ChatTab() {
   const [loading, setLoading] = useState(true);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const unreadByRoom = useCoordinatorStore((s) => s.unreadByRoom);
+  const chatPreviewByRoom = useCoordinatorStore((s) => s.chatPreviewByRoom);
 
   const styles = useThemedStyles((t) => ({
     root: { flex: 1, backgroundColor: t.colors.background, direction: "rtl" as const },
@@ -168,7 +169,17 @@ export default function ChatTab() {
       <FlatList
         data={rooms}
         keyExtractor={(r) => r.id}
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const livePreview = chatPreviewByRoom[item.id];
+          const previewMessage = livePreview
+            ? {
+                sender: { fullName: livePreview.senderName },
+                body: livePreview.body,
+                imageUrl: livePreview.imageUrl === "push" ? "push" : livePreview.imageUrl
+              }
+            : item.lastMessage;
+
+          return (
           <View style={[styles.row, item.type === "GLOBAL" && styles.rowGlobal]}>
             <Pressable
               style={styles.rowTap}
@@ -190,11 +201,11 @@ export default function ChatTab() {
                     {chatRoomListTitle(item)}
                   </Text>
                   {item.orderLabel ? <Text style={styles.rowPreview}>{item.orderLabel}</Text> : null}
-                  {item.lastMessage?.body ? (
+                  {previewMessage?.body ? (
                     <Text style={styles.rowPreview} numberOfLines={1}>
-                      {item.lastMessage.sender.fullName}: {item.lastMessage.body}
+                      {previewMessage.sender.fullName}: {previewMessage.body}
                     </Text>
-                  ) : item.lastMessage?.imageUrl ? (
+                  ) : previewMessage?.imageUrl ? (
                     <Text style={styles.rowPreview}>📷 صورة</Text>
                   ) : null}
                   {unreadByRoom[item.id] ? (
@@ -219,7 +230,8 @@ export default function ChatTab() {
               </Pressable>
             ) : null}
           </View>
-        )}
+          );
+        }}
         ListEmptyComponent={
           <View style={styles.centered}>
             <Ionicons name="chatbubbles-outline" size={48} color={theme.colors.textMuted} />

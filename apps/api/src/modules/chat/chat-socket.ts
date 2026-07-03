@@ -101,6 +101,7 @@ export async function emitChatMessage(
   }
 
   void notifyChatMessagePush(recipients, {
+    messageId: message.id,
     roomId: message.roomId,
     orderId: room.orderId,
     roomTitle: roomTitleForPush(room),

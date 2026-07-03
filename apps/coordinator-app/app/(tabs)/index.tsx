@@ -1,5 +1,5 @@
 import { useTheme, useThemedStyles } from "@taxi/expo-theme";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,6 +9,8 @@ import {
   coordinatorOrderStats
 } from "../../src/lib/api";
 import { clearSession, getSession } from "../../src/lib/session";
+import { isCoordinatorAuthFailureMessage } from "../../src/lib/coordinator-auth";
+import { debounce } from "../../src/lib/debounce";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { rtlText } from "../../src/lib/rtl-text";
 import { useCoordinatorStore } from "../../src/store";
@@ -174,8 +176,9 @@ export default function HomeTab() {
       (async () => {
         try {
           await loadDashboard();
-        } catch {
-          if (ok) {
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "";
+          if (ok && isCoordinatorAuthFailureMessage(msg)) {
             await clearSession();
             router.replace("/login");
           }
@@ -184,20 +187,38 @@ export default function HomeTab() {
       return () => {
         ok = false;
       };
-    }, [loadDashboard, orderRefreshTick])
+    }, [loadDashboard, router])
   );
+
+  const orderRefreshDebounceRef = useRef(
+    debounce(() => {
+      void loadDashboard().catch(() => {
+        /* أخطاء الشبكة المؤقتة لا تُسجّل خروجًا من الشاشة الرئيسية */
+      });
+    }, 600)
+  );
+
+  const orderRefreshTickRef = useRef(orderRefreshTick);
+  useEffect(() => {
+    if (orderRefreshTickRef.current === orderRefreshTick) return;
+    orderRefreshTickRef.current = orderRefreshTick;
+    orderRefreshDebounceRef.current();
+  }, [orderRefreshTick]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await loadDashboard();
-    } catch {
-      await clearSession();
-      router.replace("/login");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (isCoordinatorAuthFailureMessage(msg)) {
+        await clearSession();
+        router.replace("/login");
+      }
     } finally {
       setRefreshing(false);
     }
-  }, [loadDashboard]);
+  }, [loadDashboard, router]);
 
   const homeScrollBottomPad = 40 + coordinatorTabBarOuterHeight(insets.bottom);
 

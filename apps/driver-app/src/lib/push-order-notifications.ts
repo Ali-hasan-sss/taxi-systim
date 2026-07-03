@@ -36,6 +36,14 @@ export function setupDriverOrderPushHandlers(): () => void {
       return;
     }
 
+    if (type === "NEW_ORDER") {
+      if (AppState.currentState !== "active") {
+        useDriverStore.getState().incrementRoomPendingCount();
+        void playDriverOrderPushSound(type);
+      }
+      return;
+    }
+
     void playDriverOrderPushSound(type);
   });
 

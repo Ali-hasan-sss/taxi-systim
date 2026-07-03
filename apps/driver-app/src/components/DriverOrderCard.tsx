@@ -113,13 +113,16 @@ export function DriverOrderCard({
   item,
   footer,
   afterAmountRow,
-  variant = "default"
+  variant = "default",
+  layout = "full"
 }: {
   item: DriverOrderRow;
   footer?: ReactNode;
   afterAmountRow?: ReactNode;
   /** أرشيف السائق: بدون رقم زبون ولا اتصال (خصوصية). */
   variant?: "default" | "archive";
+  /** compact: من/إلى فقط — لقائمة الطلبات المعلّقة في غرفة الطلبات */
+  layout?: "full" | "compact";
 }) {
   const { theme } = useTheme();
   const contactVisible = showCustomerContact(item.status, variant);
@@ -285,8 +288,63 @@ export function DriverOrderCard({
     },
     driverLast: {
       marginBottom: 0
+    },
+    cardCompact: {
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      marginBottom: 8,
+      borderRadius: 12,
+      shadowOpacity: 0.04,
+      shadowRadius: 8,
+      elevation: 2
+    },
+    compactRoute: {
+      gap: 4,
+      marginBottom: 8
+    },
+    compactFrom: {
+      fontSize: 13,
+      color: t.colors.textSecondary,
+      ...rtlText,
+      lineHeight: 18,
+      textAlign: "right" as const
+    },
+    compactTo: {
+      fontSize: 13,
+      color: t.colors.text,
+      fontWeight: "700" as const,
+      ...rtlText,
+      lineHeight: 18,
+      textAlign: "right" as const
+    },
+    compactAmount: {
+      fontSize: 13,
+      color: t.colors.primary,
+      fontWeight: "800" as const,
+      ...rtlText,
+      lineHeight: 18,
+      textAlign: "right" as const
     }
   }));
+
+  if (layout === "compact") {
+    return (
+      <View style={[styles.card, styles.cardCompact]}>
+        <View style={styles.compactRoute}>
+          <Text style={styles.compactFrom} numberOfLines={2}>
+            من: {item.pickupAddress}
+          </Text>
+          <Text style={styles.compactTo} numberOfLines={2}>
+            إلى: {item.dropoffAddress}
+          </Text>
+          <Text style={styles.compactAmount} numberOfLines={1}>
+            الأجرة: {formatAmount(item.amount)}
+          </Text>
+        </View>
+        {footer}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.card}>

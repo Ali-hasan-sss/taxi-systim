@@ -78,49 +78,48 @@ async function tryOpenUrl(url: string): Promise<boolean> {
   }
 }
 
-export const WHATSAPP_BUSINESS_REQUIRED_MESSAGE = "ليس لديك واتساب بزنس";
+/** رسالة عند تعذّر فتح أي تطبيق واتساب على جهاز المنسق. */
+export const WHATSAPP_OPEN_FAILED_MESSAGE =
+  "تعذّر فتح واتساب. تأكد من تثبيت واتساب أو واتساب بزنس على جهازك.";
+
+/** رسالة عند عدم وجود رقم هاتف صالح. */
+export const WHATSAPP_NO_PHONE_MESSAGE = "لا يوجد رقم هاتف صالح لإرسال الرسالة.";
 
 export type WhatsAppOpenOptions = {
   /** يفتح واتساب أعمال أولًا ثم العادي */
   preferBusiness?: boolean;
 };
 
-/** روابط واتساب بزنس فقط — بدون واتساب العادي أو wa.me (لتجنب نافذة اختيار التطبيق). */
-export function buildWhatsAppBusinessOnlyCandidates(
-  phone: string | null | undefined,
-  text: string
-): string[] {
+function buildWhatsAppQuery(phone: string, text?: string): { n: string; query: string } | null {
   const n = waMePhonePart(phone);
-  if (!n) return [];
-
-  const encodedText = encodeURIComponent(text);
-  const query = `phone=${n}&text=${encodedText}`;
-
-  if (Platform.OS === "android") {
-    return [
-      `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`,
-      `whatsapp-business://send?${query}`
-    ];
-  }
-
-  return [`whatsapp-business://send?${query}`];
+  if (!n) return null;
+  const query = text != null ? `phone=${n}&text=${encodeURIComponent(text)}` : `phone=${n}`;
+  return { n, query };
 }
 
-/**
- * يفتح واتساب بزنس حصرًا مع نص جاهز (معلومات السائق / الفاتورة للزبون).
- * لا يجرّب واتساب العادي ولا روابط wa.me.
- */
-export async function openWhatsAppBusinessOnlyWithText(
-  phone: string | null | undefined,
-  text: string
-): Promise<boolean> {
-  const urls = buildWhatsAppBusinessOnlyCandidates(phone, text);
-  for (const url of urls) {
-    if (await tryOpenUrl(url)) {
-      return true;
-    }
+function androidIntentUrl(query: string, packageName: string): string {
+  return `intent://send?${query}#Intent;scheme=whatsapp;package=${packageName};end`;
+}
+
+function buildWhatsAppUrlSets(query: string, n: string, text?: string) {
+  const encodedText = text != null ? encodeURIComponent(text) : "";
+  const httpsUrls =
+    text != null
+      ? [`https://wa.me/${n}?text=${encodedText}`, `https://api.whatsapp.com/send?${query}`]
+      : [`https://wa.me/${n}`, `https://api.whatsapp.com/send?${query}`];
+
+  const businessUrls: string[] = [];
+  const regularUrls: string[] = [];
+
+  if (Platform.OS === "android") {
+    businessUrls.push(androidIntentUrl(query, "com.whatsapp.w4b"), `whatsapp-business://send?${query}`);
+    regularUrls.push(androidIntentUrl(query, "com.whatsapp"), `whatsapp://send?${query}`);
+  } else {
+    businessUrls.push(`whatsapp-business://send?${query}`);
+    regularUrls.push(`whatsapp://send?${query}`);
   }
-  return false;
+
+  return { businessUrls, regularUrls, httpsUrls };
 }
 
 /**
@@ -132,44 +131,40 @@ export function buildWhatsAppOpenCandidates(
   text: string,
   options?: WhatsAppOpenOptions
 ): string[] {
-  const n = waMePhonePart(phone);
-  if (!n) return [];
+  const built = phone ? buildWhatsAppQuery(phone, text) : null;
+  if (!built) return [];
 
-  const encodedText = encodeURIComponent(text);
-  const query = `phone=${n}&text=${encodedText}`;
-
-  const httpsUrls = [
-    `https://wa.me/${n}?text=${encodedText}`,
-    `https://api.whatsapp.com/send?${query}`
-  ];
-
-  const androidBusiness = `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
-  const androidRegular = `intent://send?${query}#Intent;scheme=whatsapp;package=com.whatsapp;end`;
-  const schemeBusiness = `whatsapp-business://send?${query}`;
-  const schemeRegular = `whatsapp://send?${query}`;
+  const { n, query } = built;
+  const { businessUrls, regularUrls, httpsUrls } = buildWhatsAppUrlSets(query, n, text);
 
   if (options?.preferBusiness) {
-    const urls: string[] = [];
-    if (Platform.OS === "android") {
-      urls.push(androidBusiness, schemeBusiness, androidRegular, schemeRegular);
-    } else {
-      urls.push(schemeBusiness, schemeRegular);
-    }
-    urls.push(...httpsUrls);
-    return urls;
+    return [...businessUrls, ...regularUrls, ...httpsUrls];
   }
 
-  const urls: string[] = [...httpsUrls];
-  if (Platform.OS === "android") {
-    urls.push(androidBusiness, androidRegular);
+  return [...httpsUrls, ...businessUrls, ...regularUrls];
+}
+
+/** روابط محادثة واتساب بدون نص مُسبق. */
+export function buildWhatsAppChatCandidates(
+  phone: string | null | undefined,
+  options?: WhatsAppOpenOptions
+): string[] {
+  const built = phone ? buildWhatsAppQuery(phone) : null;
+  if (!built) return [];
+
+  const { n, query } = built;
+  const { businessUrls, regularUrls, httpsUrls } = buildWhatsAppUrlSets(query, n);
+
+  if (options?.preferBusiness) {
+    return [...businessUrls, ...regularUrls, ...httpsUrls];
   }
-  urls.push(schemeRegular, schemeBusiness);
-  return urls;
+
+  return [...httpsUrls, ...regularUrls, ...businessUrls];
 }
 
 /**
- * يفتح واتساب (عادي أو أعمال) مع نص جاهز.
- * يجرّب كل رابط بالترتيب دون الاعتماد على canOpenURL الذي يفشل أحيانًا مع واتساب أعمال على أندرويد.
+ * يفتح واتساب (أعمال أولًا ثم عادي عند الطلب) مع نص جاهز.
+ * يجرّب كل رابط بالترتيب دون الاعتماد على canOpenURL الذي يفشل أحيانًا على أندرويد.
  */
 export async function openWhatsAppChatWithText(
   phone: string | null | undefined,
@@ -177,6 +172,20 @@ export async function openWhatsAppChatWithText(
   options?: WhatsAppOpenOptions
 ): Promise<boolean> {
   const urls = buildWhatsAppOpenCandidates(phone, text, options);
+  for (const url of urls) {
+    if (await tryOpenUrl(url)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** يفتح محادثة واتساب مع الزبون بدون نص مُسبق. */
+export async function openWhatsAppChat(
+  phone: string | null | undefined,
+  options?: WhatsAppOpenOptions
+): Promise<boolean> {
+  const urls = buildWhatsAppChatCandidates(phone, options);
   for (const url of urls) {
     if (await tryOpenUrl(url)) {
       return true;

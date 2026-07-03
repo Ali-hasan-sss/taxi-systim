@@ -265,14 +265,40 @@ export async function broadcastNewOrder(io: Server, order: Order) {
 }
 
 /** نفس منطق استهداف طلب جديد (سوكيت) لإرسال إشعار دفع للسائقين المعنيين */
-export async function getPushTargetDriverUserIdsForNewOrder(order: Order): Promise<string[]> {
-  const driverIds = await collectNewOrderTargetDriverDbIds(order);
-  if (driverIds.length === 0) return [];
+export async function getPushTargetDriverUserIdsForNewOrder(
+  order: Order,
+  io?: Server
+): Promise<string[]> {
+  const driverIds = new Set(await collectNewOrderTargetDriverDbIds(order));
+
+  if (io && order.broadcastTarget === OrderBroadcastTarget.ALL) {
+    const connected = await getConnectedOnlineDriverIds(io);
+    if (connected.length > 0) {
+      const rows = await prisma.driver.findMany({
+        where: { id: { in: connected }, user: { isActive: true } },
+        select: { id: true, vehicleKind: true }
+      });
+      for (const row of rows) {
+        if (driverMatchesOrderVehicle(order.vehicleRequirement, row.vehicleKind)) {
+          driverIds.add(row.id);
+        }
+      }
+    }
+  }
+
+  if (driverIds.size === 0) return [];
   const drivers = await prisma.driver.findMany({
-    where: { id: { in: driverIds } },
+    where: { id: { in: [...driverIds] } },
     select: { userId: true }
   });
   return [...new Set(drivers.map((d) => d.userId))];
+}
+
+/** بث سوكيت + إشعار دفع لطلب معلّق جديد — منسق أو طلب ويب بعد النشر */
+export async function dispatchNewPendingOrderToDrivers(io: Server, order: Order): Promise<void> {
+  await broadcastNewOrder(io, order);
+  const { notifyDriversNewOrderPush } = await import("./shared/expo-push");
+  await notifyDriversNewOrderPush(order, io);
 }
 
 /** إسناد من المنسق: للسائق المختار + بث عام لتحديث واجهات المنسق */

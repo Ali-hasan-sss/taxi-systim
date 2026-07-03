@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { coordinatorRefreshAccessToken } from "./api";
+import { isPermanentRefreshFailure } from "./coordinator-auth";
 
 const SESSION_KEY = "taxi_coordinator_session";
 
@@ -26,10 +27,18 @@ function readJwtExp(accessToken: string): number | null {
 
 export async function saveSession(raw: string): Promise<void> {
   await AsyncStorage.setItem(SESSION_KEY, raw);
+  const { useCoordinatorStore } = await import("../store");
+  useCoordinatorStore.getState().bumpAuthEpoch();
+}
+
+async function persistSessionTokens(session: CoordinatorSession): Promise<void> {
+  await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 export async function clearSession(): Promise<void> {
   await AsyncStorage.removeItem(SESSION_KEY);
+  const { useCoordinatorStore } = await import("../store");
+  useCoordinatorStore.getState().bumpAuthEpoch();
 }
 
 export async function getSessionRaw(): Promise<string | null> {
@@ -64,11 +73,21 @@ export async function tryRefreshCoordinatorSession(): Promise<CoordinatorSession
         }
         const { accessToken } = await coordinatorRefreshAccessToken(s.refreshToken);
         const next: CoordinatorSession = { ...s, accessToken };
-        await saveSession(JSON.stringify(next));
+        await persistSessionTokens(next);
         return next;
-      } catch {
-        await clearSession();
-        return null;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (isPermanentRefreshFailure(msg)) {
+          await clearSession();
+          return null;
+        }
+        try {
+          const raw = await getSessionRaw();
+          if (!raw) return null;
+          return JSON.parse(raw) as CoordinatorSession;
+        } catch {
+          return null;
+        }
       }
     })().finally(() => {
       refreshInFlight = null;

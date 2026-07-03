@@ -25,7 +25,11 @@ import { rtlText } from "../../src/lib/rtl-text";
 import { clearSession, getSession } from "../../src/lib/session";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { useCoordinatorStore } from "../../src/store";
-import { openWhatsAppBusinessOnlyWithText, WHATSAPP_BUSINESS_REQUIRED_MESSAGE } from "../../src/lib/whatsapp";
+import {
+  openWhatsAppChatWithText,
+  WHATSAPP_NO_PHONE_MESSAGE,
+  WHATSAPP_OPEN_FAILED_MESSAGE
+} from "../../src/lib/whatsapp";
 
 export default function WebInquiriesTab() {
   const router = useRouter();
@@ -142,12 +146,12 @@ export default function WebInquiriesTab() {
 
   const openWhatsApp = async (row: WebInquiryRow) => {
     if (!row.customerPhone?.trim()) {
-      feedback.warning("لا يوجد رقم هاتف.");
+      feedback.warning(WHATSAPP_NO_PHONE_MESSAGE);
       return;
     }
     const message = `مرحباً، أنا من Taxi Bro بخصوص طلب التاكسي من ${row.pickupAddress} إلى ${row.dropoffAddress}.`;
-    const opened = await openWhatsAppBusinessOnlyWithText(row.customerPhone, message);
-    if (!opened) feedback.warning(WHATSAPP_BUSINESS_REQUIRED_MESSAGE);
+    const opened = await openWhatsAppChatWithText(row.customerPhone, message);
+    if (!opened) feedback.warning(WHATSAPP_OPEN_FAILED_MESSAGE);
   };
 
   const onDismiss = async (row: WebInquiryRow) => {

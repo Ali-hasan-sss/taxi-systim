@@ -1,8 +1,8 @@
 import { playBundledAlertSound } from "./alert-sound";
 import { playOrderStuckSound } from "./order-stuck-sound";
 
-const NEEDS_INFO_SOURCE = require("../../assets/sounds/chat-message.wav");
-const NEEDS_INVOICE_SOURCE = require("../../assets/sounds/chat-message.wav");
+const NEEDS_INFO_SOURCE = require("../../assets/sounds/chat-message.mp3");
+const NEEDS_INVOICE_SOURCE = require("../../assets/sounds/chat-message.mp3");
 
 export type CoordinatorOrderPushType =
   | "ORDER_NEEDS_INFO"

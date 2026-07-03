@@ -12,6 +12,7 @@ interface DriverState {
   setActiveChatRoomId: (roomId: string | null) => void;
   incrementUnreadChat: (roomId: string) => void;
   markChatRoomRead: (roomId: string) => void;
+  incrementRoomPendingCount: () => void;
 }
 
 function sumUnread(map: Record<string, number>) {
@@ -37,5 +38,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     const next = { ...get().unreadByRoom };
     delete next[roomId];
     set({ unreadByRoom: next, unreadChatCount: sumUnread(next) });
-  }
+  },
+  incrementRoomPendingCount: () =>
+    set((s) => ({ roomPendingCount: s.roomPendingCount + 1 }))
 }));

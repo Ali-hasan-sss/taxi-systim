@@ -1,3 +1,4 @@
+import type { Server } from "socket.io";
 import type { Order } from "@prisma/client";
 import { Expo, type ExpoPushMessage } from "expo-server-sdk";
 import { getPushTargetDriverUserIdsForNewOrder } from "../socket";
@@ -25,6 +26,7 @@ export type OrderPushType =
 export type ChatPushType = "CHAT_MESSAGE";
 
 export type ChatMessagePushPayload = {
+  messageId: string;
   roomId: string;
   orderId: string | null;
   roomTitle: string;
@@ -96,9 +98,9 @@ function pickupLine(order: Order): string {
 }
 
 /** طلب معلّق جديد في غرفة السائقين */
-export async function notifyDriversNewOrderPush(order: Order): Promise<void> {
+export async function notifyDriversNewOrderPush(order: Order, io?: Server): Promise<void> {
   try {
-    const userIds = await getPushTargetDriverUserIdsForNewOrder(order);
+    const userIds = await getPushTargetDriverUserIdsForNewOrder(order, io);
     const tokens = await tokensForUserIds(userIds);
     await sendExpoPush(tokens, {
       title: "طلب جديد",
@@ -246,9 +248,13 @@ export async function notifyChatMessagePush(
       body: chatMessagePreview(message),
       data: {
         type: "CHAT_MESSAGE" satisfies ChatPushType,
+        messageId: message.messageId,
         roomId: message.roomId,
         roomTitle: message.roomTitle,
         roomType: message.orderId ? "ORDER" : "GLOBAL",
+        senderName: message.senderName,
+        body: message.body,
+        hasImage: message.hasImage,
         ...(message.orderId ? { orderId: message.orderId } : {})
       }
     });

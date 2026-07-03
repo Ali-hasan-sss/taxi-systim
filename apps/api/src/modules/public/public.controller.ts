@@ -3,8 +3,8 @@ import type { Server } from "socket.io";
 import type { AuthRequest } from "../../shared/auth";
 import { publicTaxiRequestDto, publishWebInquiryDto } from "./public.dto";
 import { broadcastWebOrderRequest, publicBookingService } from "./public.service";
-import { broadcastNewOrder } from "../../socket";
-import { notifyCoordinatorsWebOrderRequestPush, notifyDriversNewOrderPush } from "../../shared/expo-push";
+import { dispatchNewPendingOrderToDrivers } from "../../socket";
+import { notifyCoordinatorsWebOrderRequestPush } from "../../shared/expo-push";
 
 function getIo(req: Request): Server | null {
   return (req.app.get("io") as Server | undefined) ?? null;
@@ -36,9 +36,8 @@ export const publicController = {
     const order = await publicBookingService.publishWebInquiry(req.auth!.userId, req.params.orderId!, dto);
     const io = getIo(req);
     if (io) {
-      await broadcastNewOrder(io, order);
+      await dispatchNewPendingOrderToDrivers(io, order);
     }
-    void notifyDriversNewOrderPush(order);
     res.json({ ok: true, orderId: order.id });
   },
 

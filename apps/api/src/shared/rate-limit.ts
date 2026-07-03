@@ -40,7 +40,7 @@ const createJsonRateLimiter = ({
 
 export const generalApiRateLimit = createJsonRateLimiter({
   windowMs: 60_000,
-  limit: Number(process.env.API_RATE_LIMIT_PER_MIN ?? 180),
+  limit: Number(process.env.API_RATE_LIMIT_PER_MIN ?? 360),
   message: "عدد الطلبات كبير جدًا، حاول بعد قليل."
 });
 
@@ -53,13 +53,13 @@ export const authLoginRateLimit = createJsonRateLimiter({
 
 export const authRefreshRateLimit = createJsonRateLimiter({
   windowMs: 10 * 60_000,
-  limit: Number(process.env.AUTH_REFRESH_RATE_LIMIT_PER_10_MIN ?? 20),
+  limit: Number(process.env.AUTH_REFRESH_RATE_LIMIT_PER_10_MIN ?? 80),
   message: "طلبات تجديد الجلسة كثيرة جدًا، حاول بعد قليل.",
   skipSuccessfulRequests: true
 });
 
 export const orderMutationRateLimit = createJsonRateLimiter({
   windowMs: 60_000,
-  limit: Number(process.env.ORDER_MUTATION_RATE_LIMIT_PER_MIN ?? 60),
+  limit: Number(process.env.ORDER_MUTATION_RATE_LIMIT_PER_MIN ?? 180),
   message: "طلبات تعديل الطلبات كثيرة جدًا، حاول بعد قليل."
 });
