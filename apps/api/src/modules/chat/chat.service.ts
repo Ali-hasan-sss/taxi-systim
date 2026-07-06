@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { ChatRoomType, OrderStatus, Role } from "@prisma/client";
+import { ChatRoomType, OrderStatus, Prisma, Role } from "@prisma/client";
 import type { ChatReceiptStatus } from "@taxi/config";
 import { AppError } from "../../shared/app-error";
 import { prisma } from "../../shared/prisma";
@@ -287,9 +287,12 @@ async function assertRoomAccess(
   throw new AppError("Forbidden", 403);
 }
 
-function assertRoomWritable(room: { archivedAt: Date | null }) {
+function assertRoomWritable(room: { archivedAt: Date | null; type: ChatRoomType }, role: Role) {
   if (room.archivedAt) {
     throw new AppError("المحادثة مؤرشفة ولا يمكن الإرسال فيها", 403);
+  }
+  if (room.type === ChatRoomType.GLOBAL && role === Role.DRIVER) {
+    throw new AppError("المحادثة العامة للقراءة فقط", 403);
   }
 }
 
@@ -337,6 +340,44 @@ export const chatService = {
         title
       }
     });
+  },
+
+  /** أرشفة محادثة الطلب تلقائيًا عند اكتماله (idempotent). */
+  async archiveOrderRoomByOrderId(
+    orderId: string,
+    opts?: { archivedByUserId?: string | null; tx?: Prisma.TransactionClient }
+  ): Promise<boolean> {
+    const db = opts?.tx ?? prisma;
+    const room = await db.chatRoom.findUnique({ where: { orderId } });
+    if (!room || room.archivedAt) return false;
+    await db.chatRoom.update({
+      where: { id: room.id },
+      data: {
+        archivedAt: new Date(),
+        archivedByUserId: opts?.archivedByUserId ?? null
+      }
+    });
+    return true;
+  },
+
+  /** أرشفة محادثات الطلبات المكتملة التي لم تُؤرشف بعد (تشغيل عند الإقلاع). */
+  async archiveRoomsForCompletedOrders(): Promise<number> {
+    const result = await prisma.chatRoom.updateMany({
+      where: {
+        type: ChatRoomType.ORDER,
+        archivedAt: null,
+        order: { status: OrderStatus.COMPLETED }
+      },
+      data: {
+        archivedAt: new Date(),
+        archivedByUserId: null
+      }
+    });
+    if (result.count > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[chat] archived ${result.count} room(s) for completed orders`);
+    }
+    return result.count;
   },
 
   async listRooms(
@@ -601,13 +642,18 @@ export const chatService = {
       select: { role: true, isActive: true }
     });
     if (!user?.isActive) return [];
-    return this.markRoomRead(roomId, userId, user.role);
+    try {
+      return await this.markRoomRead(roomId, userId, user.role);
+    } catch (e) {
+      if (e instanceof AppError && e.statusCode === 404) return [];
+      throw e;
+    }
   },
 
   async sendTextMessage(roomId: string, userId: string, role: Role, body: string, apiBase: string) {
     const ctx = await getUserContext(userId, role);
     const room = await assertRoomAccess(roomId, userId, role, ctx.coordinatorId, ctx.driverId);
-    assertRoomWritable(room);
+    assertRoomWritable(room, role);
 
     const message = await prisma.chatMessage.create({
       data: { roomId, senderUserId: userId, body },
@@ -627,7 +673,7 @@ export const chatService = {
   ) {
     const ctx = await getUserContext(userId, role);
     const room = await assertRoomAccess(roomId, userId, role, ctx.coordinatorId, ctx.driverId);
-    assertRoomWritable(room);
+    assertRoomWritable(room, role);
 
     const expiresAt = new Date(Date.now() + IMAGE_TTL_MS);
     const message = await prisma.chatMessage.create({

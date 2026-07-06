@@ -5,6 +5,7 @@ import { CHAT_GLOBAL_ROOM, emitChatReceipt } from "./modules/chat/chat-socket";
 import { chatService } from "./modules/chat/chat.service";
 import { setChatUserConnected } from "./modules/chat/chat-presence";
 import { prisma } from "./shared/prisma";
+import { AppError } from "./shared/app-error";
 import { redis, redisEnabled } from "./shared/redis";
 import { orderToSocketPayload } from "./modules/orders/order-socket-payload";
 import { driverMatchesOrderVehicle, driverWhereMatchesOrderVehicle } from "./modules/orders/order-vehicle-filter";
@@ -383,13 +384,18 @@ export const initSocket = (io: Server) => {
       });
     });
 
+    const ignoreChatSocketErr = (e: unknown) => {
+      if (e instanceof AppError && (e.statusCode === 404 || e.statusCode === 403)) return;
+      console.error("[chat-socket]", e);
+    };
+
     socket.on(chatSocketEvents.DELIVERED, (payload: { messageId?: string }) => {
       const userId = socket.data.chatUserId as string | undefined;
       if (!userId || typeof payload?.messageId !== "string") return;
       void chatService.markDelivered(payload.messageId, userId).then((result) => {
         if (!result) return;
         emitChatReceipt(io, result.senderUserId, payload.messageId!, result.status);
-      });
+      }).catch(ignoreChatSocketErr);
     });
 
     socket.on(chatSocketEvents.READ, (payload: { roomId?: string }) => {
@@ -399,7 +405,7 @@ export const initSocket = (io: Server) => {
         for (const row of updates) {
           emitChatReceipt(io, row.senderUserId, row.messageId, row.status);
         }
-      });
+      }).catch(ignoreChatSocketErr);
     });
 
     socket.on("driver:online", async (driverId: string) => {

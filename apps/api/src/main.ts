@@ -51,4 +51,13 @@ server.listen(port, () => {
     // eslint-disable-next-line no-console
     console.error("Failed to extend refresh tokens for permanent sessions", error);
   });
+  void chatService.archiveRoomsForCompletedOrders().catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error("Failed to archive chat rooms for completed orders", error);
+  });
+});
+
+process.on("unhandledRejection", (reason) => {
+  // eslint-disable-next-line no-console
+  console.error("[unhandledRejection]", reason);
 });

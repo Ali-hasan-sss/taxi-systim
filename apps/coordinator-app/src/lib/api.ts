@@ -34,6 +34,20 @@ async function coordinatorFetchWithRefresh(
   return run(next.accessToken);
 }
 
+function throwCoordinatorApiError(
+  res: Response,
+  body: { message?: string },
+  fallback: string
+): never {
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(body.message ?? "غير مصرح");
+  }
+  if (res.status >= 500) {
+    throw new Error("تعذر الاتصال بالخادم. حاول مرة أخرى.");
+  }
+  throw new Error(body.message ?? fallback);
+}
+
 export function getSocketOrigin(): string {
   return getSocketOriginFromApiBase(API_BASE);
 }
@@ -122,7 +136,7 @@ export async function coordinatorMe(accessToken: string): Promise<CoordinatorMeR
   );
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? "غير مصرح");
+    throwCoordinatorApiError(res, body, "غير مصرح");
   }
   return res.json() as Promise<CoordinatorMeResponse>;
 }

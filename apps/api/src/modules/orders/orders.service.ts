@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
+import { chatService } from "../chat/chat.service";
 import { SYRIA_TIME_ZONE, syriaCalendarDayIso } from "../../shared/syria-time";
 import { getDriverLocationsForNearest } from "../../socket";
 import type { CreateOrderDto } from "./orders.dto";
@@ -1555,6 +1556,7 @@ export const ordersService = {
       }
 
       if (order.status === OrderStatus.COMPLETED) {
+        await chatService.archiveOrderRoomByOrderId(orderId, { tx });
         return tx.order.findFirstOrThrow({
           where: { id: orderId },
           include: orderIncludeDriverUser
@@ -1619,6 +1621,8 @@ export const ordersService = {
           referenceId: order.id
         }
       });
+
+      await chatService.archiveOrderRoomByOrderId(orderId, { tx });
 
       return tx.order.findFirstOrThrow({
         where: { id: orderId },
