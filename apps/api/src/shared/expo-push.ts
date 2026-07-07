@@ -1,5 +1,6 @@
 import type { Server } from "socket.io";
 import type { Order } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { Expo, type ExpoPushMessage } from "expo-server-sdk";
 import { getPushTargetDriverUserIdsForNewOrder } from "../socket";
 import { prisma } from "./prisma";
@@ -33,17 +34,24 @@ export type ChatMessagePushPayload = {
   senderName: string;
   body: string | null;
   hasImage: boolean;
+  hasVoice?: boolean;
 };
 
-export async function sendExpoPush(
-  tokens: string[],
-  payload: ExpoPushPayload
-): Promise<void> {
+type ExpoPushApiError = Error & {
+  code?: string;
+  details?: Record<string, string[]>;
+};
+
+function isTooManyExperienceIdsError(e: unknown): e is ExpoPushApiError {
+  if (typeof e !== "object" || e === null) return false;
+  const err = e as ExpoPushApiError;
+  return err.code === "PUSH_TOO_MANY_EXPERIENCE_IDS" && !!err.details && typeof err.details === "object";
+}
+
+function buildPushMessages(tokens: string[], payload: ExpoPushPayload): ExpoPushMessage[] {
   const unique = [...new Set(tokens.map((t) => t.trim()).filter(Boolean))];
   const valid = unique.filter((t) => Expo.isExpoPushToken(t));
-  if (valid.length === 0) return;
-
-  const messages: ExpoPushMessage[] = valid.map((to) => ({
+  return valid.map((to) => ({
     to,
     sound: payload.sound ?? "default",
     title: payload.title,
@@ -52,21 +60,49 @@ export async function sendExpoPush(
     priority: "high",
     channelId: "default"
   }));
+}
 
-  const chunks = expo.chunkPushNotifications(messages);
-  for (const chunk of chunks) {
-    try {
-      await expo.sendPushNotificationsAsync(chunk);
-    } catch (e) {
-      console.error("[expo-push] send failed", e);
+async function sendPushMessageChunk(messages: ExpoPushMessage[], payload: ExpoPushPayload): Promise<void> {
+  if (messages.length === 0) return;
+  try {
+    await expo.sendPushNotificationsAsync(messages);
+  } catch (e) {
+    if (isTooManyExperienceIdsError(e)) {
+      const groups = Object.values(e.details!).filter(
+        (tokens): tokens is string[] => Array.isArray(tokens) && tokens.length > 0
+      );
+      if (groups.length > 1) {
+        for (const groupTokens of groups) {
+          await sendExpoPush(groupTokens, payload);
+        }
+        return;
+      }
     }
+    console.error("[expo-push] send failed", e);
   }
 }
 
-async function tokensForUserIds(userIds: string[]): Promise<string[]> {
+export async function sendExpoPush(
+  tokens: string[],
+  payload: ExpoPushPayload
+): Promise<void> {
+  const messages = buildPushMessages(tokens, payload);
+  if (messages.length === 0) return;
+
+  const chunks = expo.chunkPushNotifications(messages);
+  for (const chunk of chunks) {
+    await sendPushMessageChunk(chunk, payload);
+  }
+}
+
+async function tokensForUserIds(userIds: string[], roles?: Role[]): Promise<string[]> {
   if (userIds.length === 0) return [];
   const users = await prisma.user.findMany({
-    where: { id: { in: userIds }, expoPushToken: { not: null } },
+    where: {
+      id: { in: userIds },
+      expoPushToken: { not: null },
+      ...(roles?.length ? { role: { in: roles } } : {})
+    },
     select: { expoPushToken: true }
   });
   return users.map((u) => u.expoPushToken!).filter(Boolean);
@@ -76,17 +112,19 @@ async function tokenForDriverId(driverId: string | null | undefined): Promise<st
   if (!driverId) return null;
   const row = await prisma.driver.findUnique({
     where: { id: driverId },
-    select: { user: { select: { expoPushToken: true } } }
+    select: { user: { select: { expoPushToken: true, role: true } } }
   });
-  return row?.user.expoPushToken ?? null;
+  if (!row?.user.expoPushToken || row.user.role !== Role.DRIVER) return null;
+  return row.user.expoPushToken;
 }
 
 async function tokenForCoordinatorId(coordinatorId: string): Promise<string | null> {
   const row = await prisma.coordinator.findUnique({
     where: { id: coordinatorId },
-    select: { user: { select: { expoPushToken: true } } }
+    select: { user: { select: { expoPushToken: true, role: true } } }
   });
-  return row?.user.expoPushToken ?? null;
+  if (!row?.user.expoPushToken || row.user.role !== Role.COORDINATOR) return null;
+  return row.user.expoPushToken;
 }
 
 function shortLabel(value: string, max = 60): string {
@@ -101,7 +139,7 @@ function pickupLine(order: Order): string {
 export async function notifyDriversNewOrderPush(order: Order, io?: Server): Promise<void> {
   try {
     const userIds = await getPushTargetDriverUserIdsForNewOrder(order, io);
-    const tokens = await tokensForUserIds(userIds);
+    const tokens = await tokensForUserIds(userIds, [Role.DRIVER]);
     await sendExpoPush(tokens, {
       title: "طلب جديد",
       body: `من: ${pickupLine(order)}`,
@@ -228,6 +266,7 @@ export async function notifyCoordinatorOrderCompletedPush(orderId: string): Prom
 function chatMessagePreview(message: ChatMessagePushPayload): string {
   const text = message.body?.trim();
   if (text) return shortLabel(text, 80);
+  if (message.hasVoice) return "أرسل رسالة صوتية";
   if (message.hasImage) return "أرسل صورة";
   return "رسالة جديدة";
 }
@@ -255,6 +294,7 @@ export async function notifyChatMessagePush(
         senderName: message.senderName,
         body: message.body,
         hasImage: message.hasImage,
+        hasVoice: message.hasVoice === true,
         ...(message.orderId ? { orderId: message.orderId } : {})
       }
     });
@@ -268,7 +308,7 @@ export async function notifyCoordinatorsWebOrderRequestPush(order: Order): Promi
   try {
     const users = await prisma.user.findMany({
       where: {
-        role: { in: ["COORDINATOR", "ADMIN"] },
+        role: { in: [Role.COORDINATOR, Role.ADMIN] },
         isActive: true,
         expoPushToken: { not: null }
       },

@@ -4,6 +4,16 @@ export type ChatRoomPreview = {
   senderName: string;
   body: string | null;
   imageUrl: string | null;
+  hasVoice?: boolean;
+};
+
+export type ChatIncomingToast = {
+  roomId: string;
+  messageId: string;
+  senderName: string;
+  body: string | null;
+  imageUrl: string | null;
+  hasVoice?: boolean;
 };
 
 interface CoordinatorUiState {
@@ -22,6 +32,8 @@ interface CoordinatorUiState {
     messageId: string,
     preview?: ChatRoomPreview
   ) => boolean;
+  pendingChatToast: ChatIncomingToast | null;
+  clearChatToast: () => void;
   incrementUnreadChat: (roomId: string) => void;
   markChatRoomRead: (roomId: string) => void;
   webInquiryCount: number;
@@ -55,6 +67,8 @@ export const useCoordinatorStore = create<CoordinatorUiState>((set, get) => ({
   chatPreviewByRoom: {},
   handledChatMessageIds: {},
   activeChatRoomId: null,
+  pendingChatToast: null,
+  clearChatToast: () => set({ pendingChatToast: null }),
   setActiveChatRoomId: (roomId) => set({ activeChatRoomId: roomId }),
   authEpoch: 0,
   bumpAuthEpoch: () => set((s) => ({ authEpoch: s.authEpoch + 1 })),
@@ -78,6 +92,14 @@ export const useCoordinatorStore = create<CoordinatorUiState>((set, get) => ({
     };
     if (preview) {
       updates.chatPreviewByRoom = { ...state.chatPreviewByRoom, [roomId]: preview };
+      updates.pendingChatToast = {
+        roomId,
+        messageId,
+        senderName: preview.senderName,
+        body: preview.body,
+        imageUrl: preview.imageUrl,
+        hasVoice: preview.hasVoice
+      };
     }
     set(updates);
     return true;

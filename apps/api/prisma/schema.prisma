@@ -179,6 +179,9 @@ model ChatMessage {
   body           String?
   imagePath      String?
   imageExpiresAt DateTime?
+  voicePath      String?
+  voiceExpiresAt DateTime?
+  voiceDurationMs Int?
   room           ChatRoom  @relation(fields: [roomId], references: [id], onDelete: Cascade)
   sender         User      @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
   receipts       ChatMessageReceipt[]

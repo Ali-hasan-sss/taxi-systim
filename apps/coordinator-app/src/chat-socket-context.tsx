@@ -58,7 +58,8 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
         const counted = store.notifyIncomingChatMessage(msg.roomId, msg.id, {
           senderName: msg.sender.fullName,
           body: msg.body,
-          imageUrl: msg.imageUrl
+          imageUrl: msg.imageUrl,
+          hasVoice: !!msg.voiceUrl
         });
         if (counted) void playChatMessageSound();
       };

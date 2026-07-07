@@ -8,11 +8,16 @@ const CLEANUP_INTERVAL_MS = Math.max(
 export function startChatImageCleanupJob() {
   const run = async () => {
     try {
-      const result = await chatService.cleanupExpiredImages();
-      if (result.scanned > 0) {
+      const [images, voice] = await Promise.all([
+        chatService.cleanupExpiredImages(),
+        chatService.cleanupExpiredVoice()
+      ]);
+      const scanned = images.scanned + voice.scanned;
+      const filesDeleted = images.filesDeleted + voice.filesDeleted;
+      if (scanned > 0) {
         // eslint-disable-next-line no-console
         console.log(
-          `[chat-cleanup] expired=${result.scanned} filesDeleted=${result.filesDeleted}`
+          `[chat-cleanup] expired=${scanned} filesDeleted=${filesDeleted} (images=${images.scanned}, voice=${voice.scanned})`
         );
       }
     } catch (err) {

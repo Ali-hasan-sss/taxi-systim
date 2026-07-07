@@ -6,9 +6,11 @@ import {
   KeyboardAvoidingView,
   useKeyboardOpen,
   MessageReceipt,
-  TypingIndicator
+  TypingIndicator,
+  ChatVoiceMicButton,
+  ChatVoiceMessage
 } from "@taxi/expo-theme";
-import { chatSocketEvents, socketEvents, type ChatReceiptStatus } from "@taxi/config";
+import { chatSocketEvents, formatChatSenderLabel, socketEvents, type ChatReceiptStatus } from "@taxi/config";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -32,11 +34,12 @@ import {
   listChatMessages,
   markChatRoomReadOnServer,
   sendChatMessage,
-  uploadChatImage
+  uploadChatImage,
+  uploadChatVoice
 } from "../lib/chat";
 import { captureCompressedChatPhoto } from "../lib/chat-image";
 import { getSocketOrigin, coordinatorUpdateCompletedOrderAmount } from "../lib/api";
-import { resolveAuthedChatImageUri } from "../lib/chat-image-auth";
+import { resolveAuthedChatImageUri, resolveAuthedChatVoiceUri } from "../lib/chat-image-auth";
 import { feedback } from "../lib/feedback";
 import { rtlText } from "../lib/rtl-text";
 import { getSession } from "../lib/session";
@@ -95,11 +98,19 @@ type Props = {
   roomId: string;
   title: string;
   subtitle?: string | null;
+  roomType?: "GLOBAL" | "ORDER";
   canArchive?: boolean;
   onBack?: () => void;
 };
 
-export function ChatThreadView({ roomId, title, subtitle, canArchive = false, onBack }: Props) {
+export function ChatThreadView({
+  roomId,
+  title,
+  subtitle,
+  roomType = "ORDER",
+  canArchive = false,
+  onBack
+}: Props) {
   const insets = useSafeAreaInsets();
   const keyboardOpen = useKeyboardOpen();
   const { theme } = useTheme();
@@ -573,11 +584,27 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
     }
   };
 
+  const handleVoiceSend = async (uri: string, durationMs: number) => {
+    setSending(true);
+    try {
+      const msg = await uploadChatVoice(roomId, uri, durationMs);
+      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      scrollToBottom(true);
+    } catch (e) {
+      feedback.error(e instanceof Error ? e.message : "تعذر إرسال الرسالة الصوتية");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const renderItem = ({ item }: { item: ChatMessageRow }) => {
-    const mine = item.sender.role === "COORDINATOR";
+    const mine = !!myUserId && item.sender.id === myUserId;
+    const showSender = !mine || roomType === "GLOBAL";
     return (
       <View style={mine ? styles.bubbleMine : styles.bubbleOther}>
-        {!mine ? <Text style={styles.sender}>{item.sender.fullName}</Text> : null}
+        {showSender ? (
+          <Text style={styles.sender}>{formatChatSenderLabel(item.sender)}</Text>
+        ) : null}
         {item.imageUrl && accessToken ? (
           <ChatAuthedImage
             imageUrl={item.imageUrl}
@@ -588,6 +615,21 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
           />
         ) : item.imageExpired ? (
           <Text style={styles.body}>[انتهت صلاحية الصورة]</Text>
+        ) : null}
+        {item.voiceUrl && accessToken ? (
+          <ChatVoiceMessage
+            voiceUrl={item.voiceUrl}
+            token={accessToken}
+            durationMs={item.voiceDurationMs}
+            expired={item.voiceExpired}
+            mine={mine}
+            accentColor={theme.colors.accent}
+            textColor={theme.colors.textInverse}
+            mutedTextColor={theme.colors.textMuted}
+            resolveUri={resolveAuthedChatVoiceUri}
+          />
+        ) : item.voiceExpired ? (
+          <Text style={styles.body}>[انتهت صلاحية الرسالة الصوتية]</Text>
         ) : null}
         {item.body ? <Text style={[styles.body, mine && styles.bodyMine]}>{item.body}</Text> : null}
         <View style={styles.metaRow}>
@@ -609,16 +651,26 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
   const composerBottomPad = keyboardOpen && Platform.OS === "ios" ? 10 : Math.max(insets.bottom, 10);
 
   const composer = (
-    <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>
-      <Pressable
-        style={styles.iconBtn}
-        onPress={() => void handleCaptureImage()}
-        disabled={sending}
-        accessibilityLabel="التقاط صورة"
-      >
-        <Ionicons name="camera-outline" size={22} color={theme.colors.text} />
-      </Pressable>
-      <TextInput
+    <View style={{ position: "relative" }}>
+      <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>
+        <Pressable
+          style={styles.iconBtn}
+          onPress={() => void handleCaptureImage()}
+          disabled={sending}
+          accessibilityLabel="التقاط صورة"
+        >
+          <Ionicons name="camera-outline" size={22} color={theme.colors.text} />
+        </Pressable>
+        <ChatVoiceMicButton
+          disabled={sending}
+          accentColor={theme.colors.accent}
+          textColor={theme.colors.text}
+          overlayTextColor={theme.colors.textInverse}
+          dangerColor={theme.colors.danger}
+          onSend={handleVoiceSend}
+          onError={(message) => feedback.error(message)}
+        />
+        <TextInput
         style={styles.input}
         value={draft}
         onChangeText={onDraftChange}
@@ -634,6 +686,7 @@ export function ChatThreadView({ roomId, title, subtitle, canArchive = false, on
           <Ionicons name="send" size={20} color={theme.colors.textInverse} />
         )}
       </Pressable>
+      </View>
     </View>
   );
 

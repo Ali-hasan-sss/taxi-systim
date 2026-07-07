@@ -9,6 +9,9 @@ export type ChatMessageRow = {
   body: string | null;
   imageUrl: string | null;
   imageExpired: boolean;
+  voiceUrl: string | null;
+  voiceExpired: boolean;
+  voiceDurationMs: number | null;
   sender: { id: string; fullName: string; role: string };
   createdAt: string;
   receiptStatus?: "sent" | "delivered" | "read";
@@ -53,6 +56,17 @@ export function chatRoomHref(room: ChatRoomRow): string {
   const params = new URLSearchParams({ title: chatRoomListTitle(room), roomType: room.type });
   if (room.orderLabel) params.set("subtitle", room.orderLabel);
   return `/chat/${room.id}?${params.toString()}`;
+}
+
+export function chatRoomHrefFallback(
+  roomId: string,
+  title: string,
+  roomType: ChatRoomRow["type"] = "ORDER",
+  subtitle?: string | null
+): string {
+  const params = new URLSearchParams({ title, roomType });
+  if (subtitle) params.set("subtitle", subtitle);
+  return `/chat/${roomId}?${params.toString()}`;
 }
 
 async function chatFetch(path: string, init: RequestInit, accessToken: string): Promise<Response> {
@@ -143,6 +157,27 @@ export async function uploadChatImage(roomId: string, uri: string, caption?: str
   );
   const body = (await res.json().catch(() => ({}))) as ChatMessageRow & { message?: string };
   if (!res.ok) throw new Error(body.message ?? "تعذر رفع الصورة");
+  return body;
+}
+
+export async function uploadChatVoice(
+  roomId: string,
+  uri: string,
+  durationMs: number
+): Promise<ChatMessageRow> {
+  const session = await getSession();
+  if (!session) throw new Error("يجب تسجيل الدخول");
+  const form = new FormData();
+  const name = uri.split("/").pop() ?? "voice.m4a";
+  form.append("voice", { uri, name, type: "audio/m4a" } as unknown as Blob);
+  form.append("durationMs", String(Math.round(durationMs)));
+  const res = await chatFetch(
+    `/chat/rooms/${roomId}/voice`,
+    { method: "POST", body: form },
+    session.accessToken
+  );
+  const body = (await res.json().catch(() => ({}))) as ChatMessageRow & { message?: string };
+  if (!res.ok) throw new Error(body.message ?? "تعذر إرسال الرسالة الصوتية");
   return body;
 }
 

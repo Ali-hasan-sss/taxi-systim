@@ -159,6 +159,10 @@ export default function ChatTab() {
                           <Text style={styles.rowPreview} numberOfLines={1}>
                             {item.lastMessage.sender.fullName}: {item.lastMessage.body}
                           </Text>
+                        ) : item.lastMessage?.voiceUrl ? (
+                          <Text style={styles.rowPreview}>🎤 رسالة صوتية</Text>
+                        ) : item.lastMessage?.imageUrl ? (
+                          <Text style={styles.rowPreview}>📷 صورة</Text>
                         ) : null}
                         {unreadByRoom[item.id] ? (
                           <Text style={styles.unreadDot}>{unreadByRoom[item.id]} غير مقروء</Text>

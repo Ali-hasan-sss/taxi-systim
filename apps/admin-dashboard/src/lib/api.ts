@@ -926,6 +926,16 @@ export const api = {
     return URL.createObjectURL(blob);
   },
 
+  async fetchChatVoiceObjectUrl(accessToken: string, voiceUrl: string): Promise<string | null> {
+    const rawName = voiceUrl.split("?")[0].split("/").pop();
+    if (!rawName) return null;
+    const filename = decodeURIComponent(rawName);
+    const res = await authorizedFetch(`/chat/voice/${encodeURIComponent(filename)}`, {}, accessToken);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  },
+
   async listWebInquiries(accessToken: string) {
     const res = await authorizedFetch("/public/web-inquiries", { method: "GET" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل طلبات الويب"));
@@ -961,6 +971,9 @@ export type ChatMessageRow = {
   body: string | null;
   imageUrl: string | null;
   imageExpired: boolean;
+  voiceUrl: string | null;
+  voiceExpired: boolean;
+  voiceDurationMs: number | null;
   sender: { id: string; fullName: string; role: string };
   createdAt: string;
   receiptStatus?: "sent" | "delivered" | "read";

@@ -107,6 +107,7 @@ export async function emitChatMessage(
     roomTitle: roomTitleForPush(room),
     senderName: message.sender.fullName,
     body: message.body,
-    hasImage: !!message.imageUrl
+    hasImage: !!message.imageUrl,
+    hasVoice: !!message.voiceUrl
   });
 }

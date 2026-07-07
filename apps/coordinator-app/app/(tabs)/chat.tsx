@@ -175,7 +175,8 @@ export default function ChatTab() {
             ? {
                 sender: { fullName: livePreview.senderName },
                 body: livePreview.body,
-                imageUrl: livePreview.imageUrl === "push" ? "push" : livePreview.imageUrl
+                imageUrl: livePreview.imageUrl === "push" ? "push" : livePreview.imageUrl,
+                voiceUrl: livePreview.hasVoice ? "voice" : null
               }
             : item.lastMessage;
 
@@ -205,6 +206,8 @@ export default function ChatTab() {
                     <Text style={styles.rowPreview} numberOfLines={1}>
                       {previewMessage.sender.fullName}: {previewMessage.body}
                     </Text>
+                  ) : previewMessage?.voiceUrl ? (
+                    <Text style={styles.rowPreview}>🎤 رسالة صوتية</Text>
                   ) : previewMessage?.imageUrl ? (
                     <Text style={styles.rowPreview}>📷 صورة</Text>
                   ) : null}

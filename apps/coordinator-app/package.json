@@ -1,8 +1,8 @@
 {
   "name": "@taxi/coordinator-app",
   "private": true,
-  "version": "1.0.11",
-  "main": "index.js",
+  "version": "1.0.12",
+  "main": "index",
   "scripts": {
     "dev": "expo start --offline",
     "eas:init": "eas init",

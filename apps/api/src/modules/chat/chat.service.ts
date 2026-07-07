@@ -8,7 +8,7 @@ import { resolveChatImagePath } from "./chat-upload";
 import { isChatUserOnline } from "./chat-presence";
 
 const GLOBAL_ROOM_TITLE = "المحادثة العامة";
-const IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
+const MEDIA_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type ChatMessagePayload = {
   id: string;
@@ -16,6 +16,9 @@ export type ChatMessagePayload = {
   body: string | null;
   imageUrl: string | null;
   imageExpired: boolean;
+  voiceUrl: string | null;
+  voiceExpired: boolean;
+  voiceDurationMs: number | null;
   sender: { id: string; fullName: string; role: Role };
   createdAt: string;
   receiptStatus?: ChatReceiptStatus;
@@ -190,6 +193,9 @@ function messageToPayload(
     body: string | null;
     imagePath: string | null;
     imageExpiresAt: Date | null;
+    voicePath: string | null;
+    voiceExpiresAt: Date | null;
+    voiceDurationMs: number | null;
     createdAt: Date;
     sender: { id: string; fullName: string; role: Role };
   },
@@ -197,6 +203,8 @@ function messageToPayload(
 ): ChatMessagePayload {
   const imageExpired =
     !!row.imagePath && !!row.imageExpiresAt && row.imageExpiresAt.getTime() <= Date.now();
+  const voiceExpired =
+    !!row.voicePath && !!row.voiceExpiresAt && row.voiceExpiresAt.getTime() <= Date.now();
   return {
     id: row.id,
     roomId: row.roomId,
@@ -206,6 +214,12 @@ function messageToPayload(
         ? `${apiBase}/chat/images/${path.basename(row.imagePath)}`
         : null,
     imageExpired: !!row.imagePath && imageExpired,
+    voiceUrl:
+      row.voicePath && !voiceExpired
+        ? `${apiBase}/chat/voice/${path.basename(row.voicePath)}`
+        : null,
+    voiceExpired: !!row.voicePath && voiceExpired,
+    voiceDurationMs: row.voiceDurationMs,
     sender: {
       id: row.sender.id,
       fullName: row.sender.fullName,
@@ -404,6 +418,9 @@ export const chatService = {
         body: string | null;
         imagePath: string | null;
         imageExpiresAt: Date | null;
+        voicePath: string | null;
+        voiceExpiresAt: Date | null;
+        voiceDurationMs: number | null;
         createdAt: Date;
         sender: { id: string; fullName: string; role: Role };
       }>;
@@ -456,6 +473,9 @@ export const chatService = {
         body: string | null;
         imagePath: string | null;
         imageExpiresAt: Date | null;
+        voicePath: string | null;
+        voiceExpiresAt: Date | null;
+        voiceDurationMs: number | null;
         createdAt: Date;
         sender: { id: string; fullName: string; role: Role };
       }>;
@@ -675,7 +695,7 @@ export const chatService = {
     const room = await assertRoomAccess(roomId, userId, role, ctx.coordinatorId, ctx.driverId);
     assertRoomWritable(room, role);
 
-    const expiresAt = new Date(Date.now() + IMAGE_TTL_MS);
+    const expiresAt = new Date(Date.now() + MEDIA_TTL_MS);
     const message = await prisma.chatMessage.create({
       data: {
         roomId,
@@ -683,6 +703,37 @@ export const chatService = {
         body: caption?.trim() || null,
         imagePath: filename,
         imageExpiresAt: expiresAt
+      },
+      include: { sender: { select: { id: true, fullName: true, role: true } } }
+    });
+    await prisma.chatRoom.update({ where: { id: roomId }, data: { updatedAt: new Date() } });
+    return { ...messageToPayload(message, apiBase), receiptStatus: "sent" as const };
+  },
+
+  async sendVoiceMessage(
+    roomId: string,
+    userId: string,
+    role: Role,
+    filename: string,
+    durationMs: number | undefined,
+    apiBase: string
+  ) {
+    const ctx = await getUserContext(userId, role);
+    const room = await assertRoomAccess(roomId, userId, role, ctx.coordinatorId, ctx.driverId);
+    assertRoomWritable(room, role);
+
+    const safeDuration =
+      typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0
+        ? Math.min(Math.round(durationMs), 15 * 60 * 1000)
+        : null;
+    const expiresAt = new Date(Date.now() + MEDIA_TTL_MS);
+    const message = await prisma.chatMessage.create({
+      data: {
+        roomId,
+        senderUserId: userId,
+        voicePath: filename,
+        voiceExpiresAt: expiresAt,
+        voiceDurationMs: safeDuration
       },
       include: { sender: { select: { id: true, fullName: true, role: true } } }
     });
@@ -776,6 +827,23 @@ export const chatService = {
     return resolveChatImagePath(message.imagePath);
   },
 
+  async assertVoiceAccess(filename: string, userId: string, role: Role) {
+    const ctx = await getUserContext(userId, role);
+    const safeName = path.basename(filename);
+    const message = await prisma.chatMessage.findFirst({
+      where: {
+        OR: [{ voicePath: safeName }, { voicePath: { endsWith: `/${safeName}` } }]
+      },
+      include: { room: { include: { order: true } } }
+    });
+    if (!message?.voicePath) throw new AppError("الرسالة الصوتية غير موجودة", 404);
+    if (message.voiceExpiresAt && message.voiceExpiresAt.getTime() <= Date.now()) {
+      throw new AppError("انتهت صلاحية الرسالة الصوتية", 410);
+    }
+    await assertRoomAccess(message.roomId, userId, role, ctx.coordinatorId, ctx.driverId);
+    return resolveChatImagePath(message.voicePath);
+  },
+
   async cleanupExpiredImages() {
     const now = new Date();
     const expired = await prisma.chatMessage.findMany({
@@ -802,6 +870,37 @@ export const chatService = {
       await prisma.chatMessage.update({
         where: { id: row.id },
         data: { imagePath: null, imageExpiresAt: null }
+      });
+    }
+    return { scanned: expired.length, filesDeleted: deleted };
+  },
+
+  async cleanupExpiredVoice() {
+    const now = new Date();
+    const expired = await prisma.chatMessage.findMany({
+      where: {
+        voicePath: { not: null },
+        voiceExpiresAt: { lte: now }
+      },
+      select: { id: true, voicePath: true }
+    });
+
+    let deleted = 0;
+    for (const row of expired) {
+      if (row.voicePath) {
+        const full = resolveChatImagePath(row.voicePath);
+        try {
+          if (fs.existsSync(full)) {
+            fs.unlinkSync(full);
+            deleted += 1;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      await prisma.chatMessage.update({
+        where: { id: row.id },
+        data: { voicePath: null, voiceExpiresAt: null, voiceDurationMs: null }
       });
     }
     return { scanned: expired.length, filesDeleted: deleted };

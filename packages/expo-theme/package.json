@@ -14,6 +14,7 @@
     "@react-native-async-storage/async-storage": ">=2",
     "@taxi/config": "workspace:*",
     "expo": ">=54",
+    "expo-audio": ">=1.1",
     "react": ">=18",
     "react-native": ">=0.74",
     "react-native-gesture-handler": ">=2",

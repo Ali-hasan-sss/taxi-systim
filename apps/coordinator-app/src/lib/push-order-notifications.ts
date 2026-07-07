@@ -33,13 +33,15 @@ export function setupCoordinatorOrderPushHandlers(): () => void {
         const senderName = typeof data.senderName === "string" ? data.senderName : "مرسل";
         const body = typeof data.body === "string" ? data.body : null;
         const hasImage = data.hasImage === true;
+        const hasVoice = data.hasVoice === true;
         const counted = useCoordinatorStore.getState().notifyIncomingChatMessage(
           roomId,
           typeof messageId === "string" ? messageId : `push:${roomId}:${n.request.identifier}`,
           {
             senderName,
             body,
-            imageUrl: hasImage ? "push" : null
+            imageUrl: hasImage ? "push" : null,
+            hasVoice
           }
         );
         if (counted) void playChatMessageSound();

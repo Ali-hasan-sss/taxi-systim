@@ -1,8 +1,8 @@
 {
   "name": "@taxi/driver-app",
   "private": true,
-  "version": "1.0.8",
-  "main": "index.js",
+  "version": "1.0.9",
+  "main": "index",
   "scripts": {
     "dev": "expo start --offline",
     "eas:android:preview": "node ../../scripts/verify-google-services.cjs apps/driver-app && eas build --platform android --profile preview",

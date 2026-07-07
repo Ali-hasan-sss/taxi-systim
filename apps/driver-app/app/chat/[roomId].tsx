@@ -24,6 +24,7 @@ export default function ChatRoomScreen() {
       roomId={roomId}
       title={titleText ? decodeURIComponent(titleText) : "محادثة"}
       subtitle={subtitleText ? decodeURIComponent(subtitleText) : null}
+      roomType={typeText === "GLOBAL" ? "GLOBAL" : "ORDER"}
       canArchive={canArchive}
       onBack={() => router.back()}
     />

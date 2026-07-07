@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
-import { chatSocketEvents, socketEvents, type ChatReceiptStatus } from "@taxi/config";
+import { chatSocketEvents, socketEvents, formatChatSenderLabel, type ChatReceiptStatus } from "@taxi/config";
 import { ChatMessageReceipt } from "../../../components/chat-message-receipt";
 import { api, getSocketOrigin, type ChatMessageRow, type ChatRoomRow } from "../../../lib/api";
 import { useDebouncedSearch } from "../../../lib/use-debounced-value";
@@ -52,6 +52,60 @@ function AuthChatImage({
   if (!src) return <p>…</p>;
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={src} alt="" className={styles.image} />;
+}
+
+function formatVoiceDuration(ms: number | null): string {
+  const totalSec = Math.max(0, Math.floor((ms ?? 0) / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function AuthChatVoice({
+  url,
+  token,
+  durationMs,
+  expired
+}: {
+  url: string;
+  token: string;
+  durationMs: number | null;
+  expired: boolean;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (expired) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    void api
+      .fetchChatVoiceObjectUrl(token, url)
+      .then((next) => {
+        if (cancelled) return;
+        if (!next) {
+          setFailed(true);
+          return;
+        }
+        objectUrl = next;
+        setSrc(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [expired, token, url]);
+  if (expired) return <p>[انتهت صلاحية الرسالة الصوتية]</p>;
+  if (failed) return <p>[تعذر تحميل الرسالة الصوتية]</p>;
+  if (!src) return <p>…</p>;
+  return (
+    <div className={styles.voice}>
+      <audio controls preload="metadata" src={src} className={styles.voicePlayer} />
+      <span className={styles.voiceDuration}>{formatVoiceDuration(durationMs)}</span>
+    </div>
+  );
 }
 
 function formatOrderRoomHeading(room: ChatRoomRow): string {
@@ -511,14 +565,25 @@ export default function ChatPage() {
               </div>
             ) : (
               messages.map((m) => {
-              const mine = m.sender.role === "ADMIN";
+              const mine = myUserId ? m.sender.id === myUserId : m.sender.role === "ADMIN";
+              const showSender = !mine || activeRoom.type === "GLOBAL";
               return (
                 <div key={m.id} className={mine ? styles.bubbleMine : styles.bubbleOther}>
-                  {!mine ? <div className={styles.sender}>{m.sender.fullName}</div> : null}
+                  {showSender ? <div className={styles.sender}>{formatChatSenderLabel(m.sender)}</div> : null}
                   {m.imageUrl && token ? (
                     <AuthChatImage url={m.imageUrl} token={token} onReady={onChatImageReady} />
                   ) : m.imageExpired ? (
                     <p>[انتهت صلاحية الصورة]</p>
+                  ) : null}
+                  {m.voiceUrl && token ? (
+                    <AuthChatVoice
+                      url={m.voiceUrl}
+                      token={token}
+                      durationMs={m.voiceDurationMs}
+                      expired={m.voiceExpired}
+                    />
+                  ) : m.voiceExpired ? (
+                    <p>[انتهت صلاحية الرسالة الصوتية]</p>
                   ) : null}
                   {m.body ? <p>{m.body}</p> : null}
                   <div className={styles.bubbleMeta}>

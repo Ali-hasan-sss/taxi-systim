@@ -33,6 +33,48 @@ export const chatImageUpload = multer({
   }
 });
 
+const VOICE_MAX_BYTES = Math.min(
+  10 * 1024 * 1024,
+  Number(process.env.CHAT_VOICE_MAX_BYTES ?? 8 * 1024 * 1024)
+);
+
+const voiceStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, UPLOAD_ROOT);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeExt = [".m4a", ".mp4", ".aac", ".mp3", ".webm", ".caf"].includes(ext) ? ext : ".m4a";
+    cb(null, `${randomUUID()}${safeExt}`);
+  }
+});
+
+const VOICE_MIMES = new Set([
+  "audio/m4a",
+  "audio/mp4",
+  "audio/aac",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/x-m4a",
+  "audio/webm",
+  "audio/caf",
+  "audio/x-caf",
+  "application/octet-stream"
+]);
+
+export const chatVoiceUpload = multer({
+  storage: voiceStorage,
+  limits: { fileSize: VOICE_MAX_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const mime = file.mimetype.toLowerCase();
+    if (!mime.startsWith("audio/") && !VOICE_MIMES.has(mime)) {
+      cb(new Error("نوع الملف الصوتي غير مدعوم"));
+      return;
+    }
+    cb(null, true);
+  }
+});
+
 export function getChatUploadRoot() {
   return UPLOAD_ROOT;
 }

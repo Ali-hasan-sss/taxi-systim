@@ -24,3 +24,5 @@ export { MessageReceipt } from "./chat/MessageReceipt";
 export { TypingIndicator } from "./chat/TypingIndicator";
 export { ChatImageZoomModal } from "./chat/ChatImageZoomModal";
 export { ChatPeerAvatar, ChatHeaderPeer } from "./chat/ChatPeerAvatar";
+export { ChatVoiceMicButton } from "./chat/ChatVoiceMicButton";
+export { ChatVoiceMessage } from "./chat/ChatVoiceMessage";

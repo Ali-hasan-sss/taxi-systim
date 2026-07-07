@@ -37,3 +37,12 @@ export const chatSocketEvents = {
 } as const;
 
 export type ChatReceiptStatus = "sent" | "delivered" | "read";
+
+/** تسمية مرسل المحادثة مع تمييز الدور (إدارة / منسق / سائق). */
+export function formatChatSenderLabel(sender: { fullName: string; role: string }): string {
+  const name = sender.fullName?.trim() || "مستخدم";
+  if (sender.role === "ADMIN") return `${name} (الإدارة)`;
+  if (sender.role === "COORDINATOR") return `${name} (منسق)`;
+  if (sender.role === "DRIVER") return `${name} (سائق)`;
+  return name;
+}

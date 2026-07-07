@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../../shared/auth";
 import { chatController } from "./chat.controller";
-import { chatImageUpload } from "./chat-upload";
+import { chatImageUpload, chatVoiceUpload } from "./chat-upload";
 
 export const chatRouter = Router();
 
@@ -14,7 +14,14 @@ chatRouter.post(
   chatImageUpload.single("image"),
   chatController.uploadImage
 );
+chatRouter.post(
+  "/rooms/:roomId/voice",
+  requireAuth,
+  chatVoiceUpload.single("voice"),
+  chatController.uploadVoice
+);
 chatRouter.post("/rooms/:roomId/read", requireAuth, chatController.markRoomRead);
 chatRouter.post("/rooms/:roomId/archive", requireAuth, chatController.archiveRoom);
 chatRouter.get("/orders/:orderId/room", requireAuth, chatController.getOrderRoom);
 chatRouter.get("/images/:filename", requireAuth, chatController.serveImage);
+chatRouter.get("/voice/:filename", requireAuth, chatController.serveVoice);

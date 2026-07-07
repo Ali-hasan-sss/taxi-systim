@@ -34,3 +34,27 @@ export async function resolveAuthedChatImageUri(
     return null;
   }
 }
+
+/** يُعيد رابط الرسالة الصوتية على نفس قاعدة API الحالية */
+export function normalizeChatVoiceUrl(voiceUrl: string | null): string | null {
+  if (!voiceUrl) return null;
+  const base = resolveExpoApiBase();
+  const raw = voiceUrl.split("?")[0].split("/").pop();
+  if (!raw) return null;
+  const name = decodeURIComponent(raw);
+  return `${base}/chat/voice/${encodeURIComponent(name)}`;
+}
+
+export async function resolveAuthedChatVoiceUri(
+  voiceUrl: string,
+  token: string
+): Promise<string | null> {
+  const remote = normalizeChatVoiceUrl(voiceUrl) ?? voiceUrl;
+  try {
+    const res = await fetch(remote, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    return await blobToDataUri(await res.blob());
+  } catch {
+    return null;
+  }
+}

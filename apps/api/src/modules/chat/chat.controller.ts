@@ -96,6 +96,39 @@ export const chatController = {
     }
   },
 
+  async uploadVoice(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.file?.filename) {
+        throw new AppError("لم يُرفَع ملف صوتي", 400);
+      }
+      const rawDuration = req.body?.durationMs;
+      const durationMs =
+        typeof rawDuration === "string" || typeof rawDuration === "number"
+          ? Number(rawDuration)
+          : undefined;
+      const message = await chatService.sendVoiceMessage(
+        req.params.roomId,
+        req.auth!.userId,
+        req.auth!.role,
+        req.file.filename,
+        durationMs,
+        apiBaseFromRequest(req)
+      );
+      const io = req.app.get("io") as Server | undefined;
+      if (io) await emitChatMessage(io, req.params.roomId, message, req.auth!.userId);
+      res.status(201).json(message);
+    } catch (e) {
+      if (req.file?.filename) {
+        try {
+          fs.unlinkSync(path.join(req.file.destination, req.file.filename));
+        } catch {
+          /* ignore */
+        }
+      }
+      next(e);
+    }
+  },
+
   async getOrderRoom(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const room = await chatService.getOrderRoomForUser(
@@ -152,6 +185,34 @@ export const chatController = {
       const ext = path.extname(filePath).toLowerCase();
       const mime =
         ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
+      res.type(mime);
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.sendFile(filePath);
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async serveVoice(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const safeName = path.basename(req.params.filename ?? "");
+      const filePath = await chatService.assertVoiceAccess(
+        safeName,
+        req.auth!.userId,
+        req.auth!.role
+      );
+      if (!fs.existsSync(filePath)) {
+        throw new AppError("الرسالة الصوتية غير موجودة", 404);
+      }
+      const ext = path.extname(filePath).toLowerCase();
+      const mime =
+        ext === ".mp3"
+          ? "audio/mpeg"
+          : ext === ".webm"
+            ? "audio/webm"
+            : ext === ".caf"
+              ? "audio/x-caf"
+              : "audio/mp4";
       res.type(mime);
       res.setHeader("Cache-Control", "private, max-age=3600");
       res.sendFile(filePath);
