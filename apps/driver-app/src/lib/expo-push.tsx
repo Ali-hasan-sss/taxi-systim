@@ -52,5 +52,5 @@ export async function ensurePushRegistrationForDriver(accessToken?: string): Pro
     getAccessToken: async () => accessToken ?? (await getDriverSession())?.accessToken,
     registerToken: registerExpoPushToken,
     channelName: "الطلبات"
-  });
+  }, { attempts: 4, delayMs: 1200 });
 }

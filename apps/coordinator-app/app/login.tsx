@@ -159,14 +159,17 @@ export default function LoginScreen() {
     try {
       const result = await coordinatorLogin(trimmedPhone, password);
       await saveSession(JSON.stringify(result));
-      const pushResult = await ensurePushRegistrationForCoordinator(result.accessToken);
-      if (isPushRegistrationFailure(pushResult)) {
-        feedback.warning(
-          pushResult.message ??
-            `تعذر تسجيل إشعارات الجهاز (${pushResult.reason}). راجع docs/PUSH-SETUP-AR.md`,
-          "إشعارات الجوال"
-        );
-      }
+      // لا نُبطّئ تسجيل الدخول بانتظار FCM — قد تكون إعادة المحاولة بطيئة.
+      void ensurePushRegistrationForCoordinator(result.accessToken)
+        .then((pushResult) => {
+          if (isPushRegistrationFailure(pushResult)) {
+            feedback.warning(
+              pushResult.message ?? `تعذر تسجيل إشعارات الجهاز (${pushResult.reason}). راجع docs/PUSH-SETUP-AR.md`,
+              "إشعارات الجوال"
+            );
+          }
+        })
+        .catch(() => undefined);
       router.replace("/(tabs)");
     } catch (e) {
       setError(e instanceof Error ? e.message : "حدث خطأ غير متوقع.");

@@ -179,14 +179,18 @@ export default function LoginScreen() {
     try {
       const session = await driverLogin(trimmedPhone, password);
       await saveDriverSession(JSON.stringify(session));
-      const pushResult = await ensurePushRegistrationForDriver(session.accessToken);
-      if (isPushRegistrationFailure(pushResult)) {
-        feedback.warning(
-          pushResult.message ??
-            `تعذر تسجيل إشعارات الجهاز (${pushResult.reason}). راجع docs/PUSH-SETUP-AR.md — غالباً ينقص google-services.json`,
-          "إشعارات الجوال"
-        );
-      }
+      // لا نُبطّئ تسجيل الدخول بانتظار FCM — قد تكون إعادة المحاولة بطيئة.
+      void ensurePushRegistrationForDriver(session.accessToken)
+        .then((pushResult) => {
+          if (isPushRegistrationFailure(pushResult)) {
+            feedback.warning(
+              pushResult.message ??
+                `تعذر تسجيل إشعارات الجهاز (${pushResult.reason}). راجع docs/PUSH-SETUP-AR.md — غالباً ينقص google-services.json`,
+              "إشعارات الجوال"
+            );
+          }
+        })
+        .catch(() => undefined);
       const locationState = await getDriverLocationAccessState();
       if (isDriverLocationReady(locationState)) {
         setOnline(true);

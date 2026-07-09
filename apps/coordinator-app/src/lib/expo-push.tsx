@@ -52,5 +52,5 @@ export async function ensurePushRegistrationForCoordinator(accessToken?: string)
     getAccessToken: async () => accessToken ?? (await getSession())?.accessToken,
     registerToken: registerExpoPushToken,
     channelName: "الطلبات"
-  });
+  }, { attempts: 4, delayMs: 1200 });
 }

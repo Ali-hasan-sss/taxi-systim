@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import type { Server } from "socket.io";
 import { Role } from "@prisma/client";
 import { resyncDriverOrderVehicleRooms } from "../../socket";
@@ -54,9 +54,13 @@ export const usersController = {
     res.json(user);
   },
 
-  async remove(req: Request, res: Response) {
-    const result = await usersService.remove(req.params.userId);
-    res.json(result);
+  async remove(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await usersService.remove(req.params.userId);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
   },
 
   async setStatus(req: Request, res: Response) {
