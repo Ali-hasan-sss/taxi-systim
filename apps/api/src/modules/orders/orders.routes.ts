@@ -6,6 +6,7 @@ import { orderMutationRateLimit } from "../../shared/rate-limit";
 export const ordersRouter = Router();
 
 ordersRouter.get("/driver/stats", requireAuth, requireRole("DRIVER"), ordersController.driverOrderStats);
+ordersRouter.get("/driver/fines", requireAuth, requireRole("DRIVER"), ordersController.driverFines);
 ordersRouter.get("/driver/room", requireAuth, requireRole("DRIVER"), ordersController.driverOrderRoom);
 ordersRouter.get("/driver/reports", requireAuth, requireRole("DRIVER"), ordersController.driverReport);
 ordersRouter.get("/driver/orders", requireAuth, requireRole("DRIVER"), ordersController.listDriverOrders);

@@ -10,6 +10,7 @@ import { clearSession, getSession } from "../lib/session";
 import { rtlText } from "../lib/rtl-text";
 import { useWebInquiryRealtime } from "../lib/use-web-inquiry-realtime";
 import { WebInquiriesNavButton } from "./WebInquiriesNavButton";
+import { CustomersNavButton } from "./CustomersNavButton";
 
 export function CoordinatorAppHeader() {
   useWebInquiryRealtime();
@@ -164,6 +165,7 @@ export function CoordinatorAppHeader() {
           />
         </View>
         <View style={styles.topBarActions}>
+          <CustomersNavButton />
           <WebInquiriesNavButton />
           <View ref={avatarAnchorRef} collapsable={false} style={styles.avatarAnchor}>
             <Pressable onPress={openUserMenu} style={styles.avatarBtn} accessibilityRole="button" accessibilityLabel="قائمة الحساب" hitSlop={8}>

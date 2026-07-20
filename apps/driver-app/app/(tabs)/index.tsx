@@ -1,8 +1,9 @@
 import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { DriverFinesLedgerModal } from "../../src/components/DriverFinesLedgerModal";
 import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
 import { type DriverOrderStats, fetchDriverOrderStats } from "../../src/lib/api";
 import { rtlText } from "../../src/lib/rtl-text";
@@ -16,7 +17,8 @@ const emptyStats: DriverOrderStats = {
   cancelled: 0,
   stuckToday: 0,
   commissionDueTodaySyria: 0,
-  unpaidCommissionAmount: 0
+  unpaidCommissionAmount: 0,
+  fineAmount: 0
 };
 
 function StatCard({
@@ -24,13 +26,17 @@ function StatCard({
   detail,
   value,
   accent,
-  formatMoney
+  formatMoney,
+  onPress,
+  pressHint
 }: {
   label: string;
   detail?: string;
   value: number;
   accent: string;
   formatMoney?: boolean;
+  onPress?: () => void;
+  pressHint?: string;
 }) {
   const styles = useThemedStyles((t) => ({
     statCard: {
@@ -68,19 +74,44 @@ function StatCard({
       ...rtlText,
       marginTop: 4,
       textAlign: "right" as const
+    },
+    pressHint: {
+      fontSize: 11,
+      fontWeight: "700" as const,
+      color: t.colors.warning,
+      ...rtlText,
+      marginTop: 6,
+      textAlign: "right" as const
     }
   }));
 
   const valueText = formatMoney
     ? value.toLocaleString("ar", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
     : String(value);
-  return (
-    <View style={[styles.statCard, { borderColor: accent }]}>
+
+  const content = (
+    <>
       <Text style={styles.statValue}>{valueText}</Text>
       <Text style={styles.statLabel}>{label}</Text>
       {detail ? <Text style={styles.statDetail}>{detail}</Text> : null}
-    </View>
+      {onPress && pressHint ? <Text style={styles.pressHint}>{pressHint}</Text> : null}
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable
+        style={[styles.statCard, { borderColor: accent }]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${label} — ${pressHint ?? "عرض التفاصيل"}`}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={[styles.statCard, { borderColor: accent }]}>{content}</View>;
 }
 
 function authFailureMessage(msg: string): boolean {
@@ -95,6 +126,7 @@ export default function DriverHomeTab() {
   const [loadingStats, setLoadingStats] = useState(false);
   const [driverName, setDriverName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [finesOpen, setFinesOpen] = useState(false);
 
   const styles = useThemedStyles((t) => ({
     safe: {
@@ -229,10 +261,19 @@ export default function DriverHomeTab() {
               <StatCard label="طلبات معلقة" detail="قبل القبول إن وُجدت" value={stats.pending} accent={theme.colors.warning} />
               <StatCard
                 label="عمولات غير مسددة"
-                detail="إجمالي العمولة المتبقية عليك"
+                detail="عمولات + غرامات − تعويضات"
                 value={stats.unpaidCommissionAmount}
                 accent={theme.colors.busy}
                 formatMoney
+              />
+              <StatCard
+                label="مجموع الغرامات"
+                detail="كل الغرامات المسجّلة"
+                value={stats.fineAmount}
+                accent={theme.colors.danger}
+                formatMoney
+                onPress={() => setFinesOpen(true)}
+                pressHint="اضغط لعرض السجل"
               />
               <StatCard
                 label="عمولة اليوم (مستحقة)"
@@ -247,6 +288,15 @@ export default function DriverHomeTab() {
           )}
         </ScrollView>
       </DriverScreenBackground>
+
+      <DriverFinesLedgerModal
+        open={finesOpen}
+        onClose={() => setFinesOpen(false)}
+        onAuthFailure={() => {
+          setFinesOpen(false);
+          void goToLogin();
+        }}
+      />
     </SafeAreaView>
   );
 }

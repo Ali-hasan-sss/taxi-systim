@@ -55,6 +55,7 @@ export default function DriverOrdersTab() {
 
   const [inProgress, setInProgress] = useState<DriverOrderRow | null>(null);
   const [pending, setPending] = useState<DriverOrderRow[]>([]);
+  const [takenHighlightIds, setTakenHighlightIds] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,14 +65,61 @@ export default function DriverOrdersTab() {
 
   const inProgressRef = useRef<DriverOrderRow | null>(null);
   const myDriverIdRef = useRef<string | null>(null);
+  const pendingRef = useRef<DriverOrderRow[]>([]);
+  const takenTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   inProgressRef.current = inProgress;
   myDriverIdRef.current = myDriverId;
+  pendingRef.current = pending;
 
   const goToLogin = useCallback(async () => {
     await clearDriverSession();
     router.replace("/login");
   }, [router]);
+
+  const clearTakenTimer = useCallback((orderId: string) => {
+    const timer = takenTimersRef.current.get(orderId);
+    if (timer) {
+      clearTimeout(timer);
+      takenTimersRef.current.delete(orderId);
+    }
+  }, []);
+
+  const scheduleTakenRemoval = useCallback((orderId: string) => {
+    if (!pendingRef.current.some((o) => o.id === orderId)) return;
+
+    setTakenHighlightIds((prev) => {
+      if (prev.has(orderId)) return prev;
+      const next = new Set(prev);
+      next.add(orderId);
+      return next;
+    });
+
+    clearTakenTimer(orderId);
+    const timer = setTimeout(() => {
+      setPending((prev) => prev.filter((o) => o.id !== orderId));
+      setTakenHighlightIds((prev) => {
+        const next = new Set(prev);
+        next.delete(orderId);
+        return next;
+      });
+      setExpandedPendingIds((prev) => {
+        if (!prev.has(orderId)) return prev;
+        const next = new Set(prev);
+        next.delete(orderId);
+        return next;
+      });
+      takenTimersRef.current.delete(orderId);
+    }, 2000);
+    takenTimersRef.current.set(orderId, timer);
+  }, [clearTakenTimer]);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of takenTimersRef.current.values()) clearTimeout(timer);
+      takenTimersRef.current.clear();
+    };
+  }, []);
 
   const loadRoom = useCallback(async (isPull = false) => {
     const session = await getDriverSession();
@@ -84,6 +132,9 @@ export default function DriverOrdersTab() {
     setError(null);
     try {
       const room = await fetchDriverOrderRoom(session.accessToken);
+      for (const timer of takenTimersRef.current.values()) clearTimeout(timer);
+      takenTimersRef.current.clear();
+      setTakenHighlightIds(new Set());
       setInProgress(room.inProgress);
       setPending(room.pending);
     } catch (e) {
@@ -110,7 +161,12 @@ export default function DriverOrdersTab() {
   }, [pending.length, setRoomPendingCount]);
 
   useEffect(() => {
-    if (!isOnline) setPending([]);
+    if (!isOnline) {
+      for (const timer of takenTimersRef.current.values()) clearTimeout(timer);
+      takenTimersRef.current.clear();
+      setTakenHighlightIds(new Set());
+      setPending([]);
+    }
   }, [isOnline]);
 
   const wasOnlineRef = useRef(isOnline);
@@ -132,24 +188,38 @@ export default function DriverOrdersTab() {
       const row = socketPayloadToDriverOrderRow(p);
       setPending((prev) => {
         if (prev.some((o) => o.id === row.id)) return prev;
-        return [row, ...prev];
+        // الطلبات الجديدة في الأسفل حتى لا تزيح القائمة وتسبب استلام طلب خاطئ
+        return [...prev, row];
       });
     };
 
     const onAssigned = (raw: unknown) => {
       const p = raw as DriverSocketOrderPayload;
       if (!p?.orderId) return;
-      setPending((prev) => prev.filter((o) => o.id !== p.orderId));
       if (myDriverIdRef.current && p.driverId === myDriverIdRef.current) {
         void playDriverOrderPushSound("ORDER_ASSIGNED");
+        for (const timer of takenTimersRef.current.values()) clearTimeout(timer);
+        takenTimersRef.current.clear();
+        setTakenHighlightIds(new Set());
+        setPending([]);
         void loadRoomRef.current(false);
+        return;
       }
+      // سائق آخر استلم الطلب — أبقِ البطاقة ثانيتين بإطار برتقالي ثم أزلها
+      scheduleTakenRemoval(p.orderId);
     };
 
     const onPendingCancelled = (raw: unknown) => {
       const id = typeof raw === "object" && raw !== null && "orderId" in raw ? (raw as { orderId: string }).orderId : null;
       if (typeof id === "string") {
+        clearTakenTimer(id);
         setPending((prev) => prev.filter((o) => o.id !== id));
+        setTakenHighlightIds((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
       }
     };
 
@@ -173,7 +243,7 @@ export default function DriverOrdersTab() {
       socket.off(SOCKET_EVENTS.ORDER_PENDING_CANCELLED, onPendingCancelled);
       socket.off(SOCKET_EVENTS.ORDER_STATUS_UPDATED, onOrderStatusUpdated);
     };
-  }, [socket, myDriverId]);
+  }, [socket, myDriverId, scheduleTakenRemoval, clearTakenTimer]);
 
   const togglePendingExpanded = (orderId: string) => {
     setExpandedPendingIds((prev) => {
@@ -194,14 +264,24 @@ export default function DriverOrdersTab() {
     setError(null);
     try {
       const row = await driverAcceptOrder(session.accessToken, orderId);
+      for (const timer of takenTimersRef.current.values()) clearTimeout(timer);
+      takenTimersRef.current.clear();
+      setTakenHighlightIds(new Set());
       setInProgress(row);
       setPending([]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "تعذر استلام الطلب";
-      setError(msg);
-      Alert.alert("تعذر القبول", msg);
-      if (authFailureMessage(msg)) await goToLogin();
-      else void loadRoom(false);
+      const takenByOther =
+        /تم استلام الطلب من سائق آخر|قبِلَه سائق آخر|غير متاح|409/i.test(msg);
+      if (takenByOther) {
+        Alert.alert("تنبيه", "لقد تم استلام الطلب من سائق آخر");
+        scheduleTakenRemoval(orderId);
+      } else {
+        setError(msg);
+        Alert.alert("تعذر القبول", msg);
+        if (authFailureMessage(msg)) await goToLogin();
+        else void loadRoom(false);
+      }
     } finally {
       setActionOrderId(null);
     }
@@ -629,10 +709,11 @@ export default function DriverOrdersTab() {
         <FlatList
           data={data}
           keyExtractor={(item) => item.id}
-          extraData={{ inProgress: !!inProgress, actionOrderId, expandedPendingIds }}
+          extraData={{ inProgress: !!inProgress, actionOrderId, expandedPendingIds, takenHighlightIds }}
           renderItem={({ item }) => {
           const busy = actionOrderId === item.id;
           const pendingExpanded = expandedPendingIds.has(item.id);
+          const takenHighlight = takenHighlightIds.has(item.id);
           if (inProgress) {
             if (isEnRouteToCustomer(item.status)) {
               return (
@@ -699,15 +780,17 @@ export default function DriverOrdersTab() {
                 styles.btnPendingAction,
                 styles.btnAccept,
                 pendingExpanded && styles.btnAcceptFull,
-                busy && styles.btnDisabled
+                (busy || takenHighlight) && styles.btnDisabled
               ]}
-              disabled={!!busy}
+              disabled={!!busy || takenHighlight}
               onPress={() => void onAccept(item.id)}
             >
               {busy ? (
                 <ActivityIndicator color={theme.colors.textInverse} />
               ) : (
-                <Text style={styles.btnAcceptText}>استلام الطلب</Text>
+                <Text style={styles.btnAcceptText}>
+                  {takenHighlight ? "تم استلامه من سائق آخر" : "استلام الطلب"}
+                </Text>
               )}
             </Pressable>
           );
@@ -732,6 +815,7 @@ export default function DriverOrdersTab() {
             <DriverOrderCard
               item={item}
               layout={pendingExpanded ? "full" : "compact"}
+              takenHighlight={takenHighlight}
               footer={
                 pendingExpanded ? (
                   <View style={styles.pendingActionsRow}>

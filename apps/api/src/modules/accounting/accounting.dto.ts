@@ -14,6 +14,18 @@ export const recordDriverCompensationDto = z.object({
   notes: z.string().max(1000).optional()
 });
 
+export const recordDriverFineDto = z.object({
+  driverId: z.string().cuid(),
+  amount: z.number().positive(),
+  notes: z.string().max(1000).optional()
+});
+
+export const listDriverFinesQueryDto = z.object({
+  driverId: z.string().cuid().optional(),
+  from: ymdField.optional(),
+  to: ymdField.optional()
+});
+
 export const financeReportQueryDto = z.object({
   from: ymdField.optional(),
   to: ymdField.optional(),
@@ -33,6 +45,11 @@ export const financeExportQueryDto = z.object({
 export const settleOrderCommissionDto = z.object({
   orderId: z.string().cuid(),
   notes: z.string().optional()
+});
+
+export const settleDriverFineDto = z.object({
+  fineId: z.string().cuid(),
+  notes: z.string().max(1000).optional()
 });
 
 export const settleFilteredCommissionsDto = z.object({

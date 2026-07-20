@@ -132,6 +132,21 @@ function compensationNotes(notes?: string) {
   return notes?.trim() ? `تعويض سائق: ${notes.trim()}` : "تعويض سائق";
 }
 
+function fineNotes(notes?: string) {
+  return notes?.trim() ? `غرامة سائق: ${notes.trim()}` : "غرامة سائق";
+}
+
+function parseFineReason(notes: string | null | undefined): string {
+  if (!notes) return "—";
+  const trimmed = notes.trim();
+  if (trimmed === "غرامة سائق") return "—";
+  if (trimmed.startsWith("غرامة سائق:")) {
+    const reason = trimmed.slice("غرامة سائق:".length).trim();
+    return reason || "—";
+  }
+  return trimmed;
+}
+
 function driverCompensationWhere(opts: { fromUtc: Date; toExclusive: Date; driverId?: string | null }): Prisma.FinancialTransactionWhereInput {
   return {
     type: FinancialTransactionType.MANUAL_ADJUSTMENT,
@@ -140,6 +155,84 @@ function driverCompensationWhere(opts: { fromUtc: Date; toExclusive: Date; drive
     createdAt: { gte: opts.fromUtc, lt: opts.toExclusive },
     ...(opts.driverId ? { driverId: opts.driverId } : {})
   };
+}
+
+/** غرامات غير مسددة فقط (referenceId = null). */
+function driverFineWhere(opts: { fromUtc: Date; toExclusive: Date; driverId?: string | null }): Prisma.FinancialTransactionWhereInput {
+  return {
+    type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+    referenceId: null,
+    notes: { startsWith: "غرامة سائق" },
+    createdAt: { gte: opts.fromUtc, lt: opts.toExclusive },
+    ...(opts.driverId ? { driverId: opts.driverId } : {})
+  };
+}
+
+/** كل غرامات السجل (مسددة وغير مسددة). */
+function driverFineLedgerWhere(opts: {
+  fromUtc: Date;
+  toExclusive: Date;
+  driverId?: string | null;
+}): Prisma.FinancialTransactionWhereInput {
+  return {
+    type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+    notes: { startsWith: "غرامة سائق" },
+    createdAt: { gte: opts.fromUtc, lt: opts.toExclusive },
+    ...(opts.driverId ? { driverId: opts.driverId } : {})
+  };
+}
+
+type FinePaymentShape = {
+  id: string;
+  driverId: string;
+  amount: Prisma.Decimal | number;
+  referenceId: string | null;
+  notes: string | null;
+  type: FinancialTransactionType;
+};
+
+async function applyFinePayment(tx: PrismaTx, fine: FinePaymentShape, adminUserId: string, notes?: string) {
+  if (fine.type !== FinancialTransactionType.MANUAL_ADJUSTMENT) {
+    throw new AppError("المعاملة المحددة ليست غرامة", 400);
+  }
+  if (!fine.notes?.startsWith("غرامة سائق")) {
+    throw new AppError("المعاملة المحددة ليست غرامة", 400);
+  }
+  if (fine.referenceId) {
+    throw new AppError("تم تسديد هذه الغرامة بالفعل", 400);
+  }
+
+  const amount = toNum(fine.amount);
+  if (amount <= 0) throw new AppError("قيمة الغرامة غير صالحة", 400);
+
+  const payment = await tx.financialTransaction.create({
+    data: {
+      driverId: fine.driverId,
+      type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+      amount: new Prisma.Decimal(amount.toFixed(2)),
+      referenceId: fine.id,
+      notes: notes?.trim() || "تسديد غرامة سائق",
+      createdByUserId: adminUserId
+    }
+  });
+
+  await tx.financialTransaction.update({
+    where: { id: fine.id },
+    data: { referenceId: payment.id }
+  });
+
+  const balance = await tx.driverBalance.findUnique({ where: { driverId: fine.driverId } });
+  if (balance) {
+    await tx.driverBalance.update({
+      where: { driverId: fine.driverId },
+      data: {
+        remainingDebt: new Prisma.Decimal(Math.max(0, toNum(balance.remainingDebt) - amount).toFixed(2)),
+        availableBalance: new Prisma.Decimal((toNum(balance.availableBalance) + amount).toFixed(2))
+      }
+    });
+  }
+
+  return { amount, paymentId: payment.id };
 }
 
 function syriaDayRangeUtc(fromYmd: string, toYmd: string): { from: Date; toExclusive: Date } {
@@ -275,6 +368,152 @@ export const accountingService = {
     });
   },
 
+  async recordDriverFine(driverId: string, amount: number, adminUserId: string, notes?: string) {
+    return prisma.$transaction(async (tx) => {
+      const driver = await tx.driver.findUnique({
+        where: { id: driverId },
+        select: { id: true }
+      });
+      if (!driver) throw new AppError("السائق غير موجود", 404);
+
+      const currentBalance = (await tx.driverBalance.findUnique({ where: { driverId } })) ?? (await tx.driverBalance.create({ data: { driverId } }));
+
+      await tx.financialTransaction.create({
+        data: {
+          driverId,
+          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+          amount: new Prisma.Decimal(amount.toFixed(2)),
+          notes: fineNotes(notes),
+          createdByUserId: adminUserId
+        }
+      });
+
+      await tx.driverBalance.update({
+        where: { driverId },
+        data: {
+          remainingDebt: new Prisma.Decimal((toNum(currentBalance.remainingDebt) + amount).toFixed(2)),
+          availableBalance: new Prisma.Decimal(Math.max(0, toNum(currentBalance.availableBalance) - amount).toFixed(2))
+        }
+      });
+
+      return { driverId, amount };
+    });
+  },
+
+  async listDriverFines(opts: { driverId?: string | null; from?: string | null; to?: string | null }) {
+    let driver: { id: string; fullName: string; phone: string | null } | null = null;
+    if (opts.driverId) {
+      const row = await prisma.driver.findUnique({
+        where: { id: opts.driverId },
+        select: {
+          id: true,
+          user: { select: { fullName: true, phone: true } }
+        }
+      });
+      if (!row) throw new AppError("السائق غير موجود", 404);
+      driver = {
+        id: row.id,
+        fullName: row.user.fullName ?? "",
+        phone: row.user.phone ?? null
+      };
+    }
+
+    const from = opts.from?.trim() || undefined;
+    const to = opts.to?.trim() || from;
+    const range = from && to ? syriaDayRangeUtc(from, to) : null;
+    const rangeOpts = {
+      fromUtc: range?.from ?? new Date(0),
+      toExclusive: range?.toExclusive ?? new Date("9999-12-31T00:00:00.000Z"),
+      driverId: opts.driverId
+    };
+
+    const ledgerWhere = driverFineLedgerWhere(rangeOpts);
+    const unpaidWhere = driverFineWhere(rangeOpts);
+
+    const [rows, aggregate, unpaidAggregate] = await Promise.all([
+      prisma.financialTransaction.findMany({
+        where: ledgerWhere,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 300,
+        select: {
+          id: true,
+          amount: true,
+          notes: true,
+          createdAt: true,
+          createdByUserId: true,
+          driverId: true,
+          referenceId: true,
+          driver: {
+            select: {
+              id: true,
+              user: { select: { fullName: true, phone: true } }
+            }
+          }
+        }
+      }),
+      prisma.financialTransaction.aggregate({
+        where: ledgerWhere,
+        _sum: { amount: true },
+        _count: { _all: true }
+      }),
+      prisma.financialTransaction.aggregate({
+        where: unpaidWhere,
+        _sum: { amount: true },
+        _count: { _all: true }
+      })
+    ]);
+
+    const creatorIds = [...new Set(rows.map((r) => r.createdByUserId).filter((id): id is string => !!id))];
+    const creators =
+      creatorIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: creatorIds } },
+            select: { id: true, fullName: true }
+          })
+        : [];
+    const creatorById = new Map(creators.map((u) => [u.id, u.fullName]));
+
+    return {
+      driver,
+      from: from ?? null,
+      to: to ?? null,
+      totalAmount: toNum(aggregate._sum.amount ?? new Prisma.Decimal(0)).toFixed(2),
+      count: aggregate._count._all,
+      unpaidAmount: toNum(unpaidAggregate._sum.amount ?? new Prisma.Decimal(0)).toFixed(2),
+      unpaidCount: unpaidAggregate._count._all,
+      rows: rows.map((row) => ({
+        id: row.id,
+        amount: row.amount.toString(),
+        reason: parseFineReason(row.notes),
+        notes: row.notes,
+        createdAt: row.createdAt.toISOString(),
+        createdByName: row.createdByUserId ? creatorById.get(row.createdByUserId) ?? null : null,
+        driverId: row.driverId,
+        driverName: row.driver?.user.fullName ?? "—",
+        isPaid: row.referenceId != null
+      }))
+    };
+  },
+
+  async settleDriverFine(fineId: string, adminUserId: string, notes?: string) {
+    return prisma.$transaction(async (tx) => {
+      const fine = await tx.financialTransaction.findUnique({
+        where: { id: fineId },
+        select: {
+          id: true,
+          driverId: true,
+          amount: true,
+          referenceId: true,
+          notes: true,
+          type: true
+        }
+      });
+      if (!fine) throw new AppError("الغرامة غير موجودة", 404);
+      const result = await applyFinePayment(tx, fine, adminUserId, notes);
+      return { fineId: fine.id, driverId: fine.driverId, amount: result.amount };
+    });
+  },
+
   async recordCommissionPayment(commissionId: string, amount: number, adminUserId: string, notes?: string) {
     return prisma.$transaction(async (tx) => {
       const commission = await tx.commission.findUnique({ where: { id: commissionId } });
@@ -312,16 +551,30 @@ export const accountingService = {
       status: OrderStatus.COMPLETED
     };
 
-    const compensationWhere = opts?.driverId
+    const includeAdjustments = !opts?.coordinatorId || Boolean(opts?.driverId);
+    const compensationWhere = includeAdjustments
       ? driverCompensationWhere({
           fromUtc,
           toExclusive,
-          driverId: opts.driverId
+          driverId: opts?.driverId
+        })
+      : null;
+    const fineWhere = includeAdjustments
+      ? driverFineWhere({
+          fromUtc,
+          toExclusive,
+          driverId: opts?.driverId
         })
       : null;
 
-    const [completedOrdersAggregate, totalCommissionAggregate, dueCommissionAggregate, compensationAggregate, rows] =
-      await Promise.all([
+    const [
+      completedOrdersAggregate,
+      totalCommissionAggregate,
+      dueCommissionAggregate,
+      compensationAggregate,
+      fineAggregate,
+      rows
+    ] = await Promise.all([
       prisma.order.aggregate({
         where: completedWhere,
         _count: { _all: true },
@@ -342,6 +595,12 @@ export const accountingService = {
       compensationWhere
         ? prisma.financialTransaction.aggregate({
             where: compensationWhere,
+            _sum: { amount: true }
+          })
+        : Promise.resolve({ _sum: { amount: new Prisma.Decimal(0) } }),
+      fineWhere
+        ? prisma.financialTransaction.aggregate({
+            where: fineWhere,
             _sum: { amount: true }
           })
         : Promise.resolve({ _sum: { amount: new Prisma.Decimal(0) } }),
@@ -379,7 +638,8 @@ export const accountingService = {
     const nextCursor = hasMore && page.length > 0 ? encodeCursor(page[page.length - 1]!) : null;
     const dueCommissionAmount = toNum(dueCommissionAggregate._sum.remainingAmount ?? new Prisma.Decimal(0));
     const compensationAmount = toNum(compensationAggregate._sum.amount ?? new Prisma.Decimal(0));
-    const adjustedDueCommissionAmount = Math.max(0, dueCommissionAmount - compensationAmount);
+    const fineAmount = toNum(fineAggregate._sum.amount ?? new Prisma.Decimal(0));
+    const adjustedDueCommissionAmount = Math.max(0, dueCommissionAmount - compensationAmount + fineAmount);
 
     return {
       rows: page.map((row) => ({
@@ -424,6 +684,7 @@ export const accountingService = {
         totalCommissionAmount: (totalCommissionAggregate._sum.calculatedCommission ?? new Prisma.Decimal(0)).toString(),
         dueCommissionAmount: dueCommissionAmount.toFixed(2),
         compensationAmount: compensationAmount.toFixed(2),
+        fineAmount: fineAmount.toFixed(2),
         adjustedDueCommissionAmount: adjustedDueCommissionAmount.toFixed(2),
         from,
         to
@@ -516,7 +777,21 @@ export const accountingService = {
           )._sum.amount ?? new Prisma.Decimal(0)
         )
       : 0;
-    const adjustedDueCommission = Math.max(0, totalCommission - compensationAmount);
+    const fineAmount = driverInfo
+      ? toNum(
+          (
+            await prisma.financialTransaction.aggregate({
+              where: driverFineWhere({
+                fromUtc,
+                toExclusive,
+                driverId: driverInfo.id
+              }),
+              _sum: { amount: true }
+            })
+          )._sum.amount ?? new Prisma.Decimal(0)
+        )
+      : 0;
+    const adjustedDueCommission = Math.max(0, dueCommission - compensationAmount + fineAmount);
 
     const columns: Array<{ header: string; key: string; width: number }> = [
       { header: "رقم الطلب", key: "id", width: 18 },
@@ -650,13 +925,39 @@ export const accountingService = {
           right: { style: "thin", color: { argb: "FF5EEAD4" } }
         };
       });
+
+      const fineRow = sheet.addRow({
+        commission: fineAmount
+      });
+      sheet.mergeCells(`A${fineRow.number}:K${fineRow.number}`);
+      fineRow.getCell(1).value = "مجموع الغرامات";
+      fineRow.getCell(1).font = { bold: true, color: { argb: "FF9A3412" } };
+      fineRow.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
+      fineRow.getCell(12).numFmt = "#,##0.00";
+      fineRow.getCell(12).font = { bold: true, color: { argb: "FF9A3412" } };
+      fineRow.getCell(12).alignment = { horizontal: "center", vertical: "middle" };
+      fineRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFFEDD5" }
+        };
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFFDBA74" } },
+          bottom: { style: "thin", color: { argb: "FFFDBA74" } },
+          left: { style: "thin", color: { argb: "FFFDBA74" } },
+          right: { style: "thin", color: { argb: "FFFDBA74" } }
+        };
+      });
     }
 
     const dueRow = sheet.addRow({
       commission: driverInfo ? adjustedDueCommission : dueCommission
     });
     sheet.mergeCells(`A${dueRow.number}:K${dueRow.number}`);
-    dueRow.getCell(1).value = "مجموع العمولة المستحقة";
+    dueRow.getCell(1).value = driverInfo
+      ? "المبلغ المترتب (عمولات − تعويضات + غرامات)"
+      : "مجموع العمولة المستحقة";
     dueRow.getCell(1).font = { bold: true, color: { argb: "FF166534" } };
     dueRow.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
     dueRow.getCell(12).numFmt = "#,##0.00";
@@ -715,7 +1016,7 @@ export const accountingService = {
     adminUserId: string,
     opts?: { from?: string | null; to?: string | null; driverId?: string | null; coordinatorId?: string | null; notes?: string }
   ) {
-    const { baseWhere } = buildOrderRangeWhere(opts);
+    const { baseWhere, fromUtc, toExclusive } = buildOrderRangeWhere(opts);
     return prisma.$transaction(async (tx) => {
       const commissions = await tx.commission.findMany({
         where: {
@@ -735,10 +1036,6 @@ export const accountingService = {
         }
       });
 
-      if (commissions.length === 0) {
-        return { paidCount: 0, totalPaid: 0 };
-      }
-
       let totalPaid = 0;
       for (const commission of commissions) {
         const amount = toNum(commission.remainingAmount);
@@ -753,7 +1050,41 @@ export const accountingService = {
         );
       }
 
-      return { paidCount: commissions.length, totalPaid };
+      const unpaidFines = await tx.financialTransaction.findMany({
+        where: driverFineWhere({
+          fromUtc,
+          toExclusive,
+          driverId: opts?.driverId
+        }),
+        select: {
+          id: true,
+          driverId: true,
+          amount: true,
+          referenceId: true,
+          notes: true,
+          type: true
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+      });
+
+      let finesTotalPaid = 0;
+      for (const fine of unpaidFines) {
+        // eslint-disable-next-line no-await-in-loop
+        const paid = await applyFinePayment(
+          tx,
+          fine,
+          adminUserId,
+          opts?.notes ?? "تسديد جماعي للغرامات حسب الفلتر"
+        );
+        finesTotalPaid += paid.amount;
+      }
+
+      return {
+        paidCount: commissions.length,
+        totalPaid,
+        finesPaidCount: unpaidFines.length,
+        finesTotalPaid
+      };
     });
   }
 };

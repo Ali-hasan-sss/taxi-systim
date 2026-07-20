@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DriverFinesModal } from "../../../components/driver-fines-modal";
 import { api, type Employee, type FinanceOrderRow, type FinancePaymentStatus, type FinanceOrderStatus } from "../../../lib/api";
 
 const REPORT_PAGE_SIZE = 25;
@@ -99,6 +100,7 @@ export default function FinancePage() {
   const today = useMemo(() => syriaTodayYmd(), []);
   const driverDropdownRef = useRef<HTMLDivElement | null>(null);
   const compensationDriverDropdownRef = useRef<HTMLDivElement | null>(null);
+  const fineDriverDropdownRef = useRef<HTMLDivElement | null>(null);
   const exportDriverDropdownRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -107,6 +109,7 @@ export default function FinancePage() {
   const [settlingOrderId, setSettlingOrderId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [recordingCompensation, setRecordingCompensation] = useState(false);
+  const [recordingFine, setRecordingFine] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [rows, setRows] = useState<FinanceOrderRow[]>([]);
@@ -118,6 +121,7 @@ export default function FinancePage() {
     totalCommissionAmount: "0.00",
     dueCommissionAmount: "0.00",
     compensationAmount: "0.00",
+    fineAmount: "0.00",
     adjustedDueCommissionAmount: "0.00",
     from: today,
     to: today
@@ -142,6 +146,13 @@ export default function FinancePage() {
   const [compensationDriverDropdownOpen, setCompensationDriverDropdownOpen] = useState(false);
   const [compensationAmount, setCompensationAmount] = useState("");
   const [compensationNotes, setCompensationNotes] = useState("");
+  const [fineModalOpen, setFineModalOpen] = useState(false);
+  const [fineDriverId, setFineDriverId] = useState("");
+  const [fineDriverSearch, setFineDriverSearch] = useState("");
+  const [fineDriverDropdownOpen, setFineDriverDropdownOpen] = useState(false);
+  const [fineAmount, setFineAmount] = useState("");
+  const [fineNotes, setFineNotes] = useState("");
+  const [finesLedgerOpen, setFinesLedgerOpen] = useState(false);
 
   const token = useMemo(() => {
     const raw = typeof window !== "undefined" ? localStorage.getItem("taxi_admin_session") : null;
@@ -264,6 +275,17 @@ export default function FinancePage() {
   }, [compensationDriverDropdownOpen]);
 
   useEffect(() => {
+    if (!fineDriverDropdownOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!fineDriverDropdownRef.current?.contains(event.target as Node)) {
+        setFineDriverDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [fineDriverDropdownOpen]);
+
+  useEffect(() => {
     void loadReport();
   }, [loadReport]);
 
@@ -302,6 +324,16 @@ export default function FinancePage() {
     });
   }, [compensationDriverSearch, driverOptions]);
 
+  const fineFilteredDriverOptions = useMemo(() => {
+    const q = fineDriverSearch.trim().toLowerCase();
+    if (!q) return driverOptions;
+    return driverOptions.filter((item) => {
+      const fullName = item.fullName.toLowerCase();
+      const phone = (item.phone ?? "").toLowerCase();
+      return fullName.includes(q) || phone.includes(q);
+    });
+  }, [fineDriverSearch, driverOptions]);
+
   const selectedDriverLabel = useMemo(() => {
     if (!draftDriverId) return "كل السائقين";
     const match = driverOptions.find((item) => item.driver?.id === draftDriverId);
@@ -319,6 +351,12 @@ export default function FinancePage() {
     const match = driverOptions.find((item) => item.driver?.id === compensationDriverId);
     return match?.fullName ?? "اختر السائق";
   }, [compensationDriverId, driverOptions]);
+
+  const fineSelectedDriverLabel = useMemo(() => {
+    if (!fineDriverId) return "اختر السائق";
+    const match = driverOptions.find((item) => item.driver?.id === fineDriverId);
+    return match?.fullName ?? "اختر السائق";
+  }, [fineDriverId, driverOptions]);
 
   const applyFilters = () => {
     const from = draftFrom.trim() || today;
@@ -375,10 +413,12 @@ export default function FinancePage() {
   };
 
   const settleCurrentFilter = async () => {
-    if (!token || Number(summary.dueCommissionAmount) <= 0) return;
+    const dueCommissions = Number(summary.dueCommissionAmount);
+    const dueFines = Number(summary.fineAmount);
+    if (!token || (dueCommissions <= 0 && dueFines <= 0)) return;
     const confirmMessage = filters.driverId
-      ? "سيتم تسديد جميع العمولات غير المسددة للسائق المحدد ضمن الفترة الحالية. هل تريد المتابعة؟"
-      : "سيتم تسديد جميع العمولات غير المسددة ضمن الفترة الحالية. هل تريد المتابعة؟";
+      ? "سيتم تسديد جميع العمولات والغرامات غير المسددة للسائق المحدد ضمن الفترة الحالية. هل تريد المتابعة؟"
+      : "سيتم تسديد جميع العمولات والغرامات غير المسددة ضمن الفترة الحالية. هل تريد المتابعة؟";
     if (!window.confirm(confirmMessage)) return;
     setSettlingAll(true);
     setError(null);
@@ -389,7 +429,13 @@ export default function FinancePage() {
         to: filters.to,
         driverId: filters.driverId || null
       });
-      setNotice(`تم تسديد ${result.paidCount} عمولة بمجموع ${formatMoney(result.totalPaid)}.`);
+      const finesPaidCount = result.finesPaidCount ?? 0;
+      const finesTotalPaid = result.finesTotalPaid ?? 0;
+      setNotice(
+        `تم تسديد ${result.paidCount} عمولة بمجموع ${formatMoney(result.totalPaid)}` +
+          (finesPaidCount > 0 ? `، و${finesPaidCount} غرامة بمجموع ${formatMoney(finesTotalPaid)}` : "") +
+          "."
+      );
       await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "فشل التسديد الجماعي";
@@ -459,6 +505,65 @@ export default function FinancePage() {
       setError(message);
     } finally {
       setRecordingCompensation(false);
+    }
+  };
+
+  const openFineModal = () => {
+    setFineDriverId(filters.driverId || "");
+    setFineDriverSearch("");
+    setFineDriverDropdownOpen(false);
+    setFineAmount("");
+    setFineNotes("");
+    setFineModalOpen(true);
+    setError(null);
+    setNotice(null);
+  };
+
+  const closeFineModal = () => {
+    if (recordingFine) return;
+    setFineModalOpen(false);
+    setFineDriverDropdownOpen(false);
+    setFineDriverSearch("");
+  };
+
+  const saveFine = async () => {
+    if (!token) {
+      handleSessionExpired();
+      return;
+    }
+    if (!fineDriverId) {
+      setError("اختر السائق الذي تريد تسجيل غرامة له.");
+      return;
+    }
+    const amount = Number(fineAmount.replace(",", ".").trim());
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("أدخل قيمة غرامة صحيحة أكبر من صفر.");
+      return;
+    }
+
+    setRecordingFine(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.recordDriverFine(token, {
+        driverId: fineDriverId,
+        amount,
+        notes: fineNotes.trim() || undefined
+      });
+      setFineModalOpen(false);
+      setFineDriverDropdownOpen(false);
+      setFineDriverSearch("");
+      setNotice(`تم تسجيل غرامة بقيمة ${formatMoney(result.amount)} للسائق المحدد.`);
+      await loadReport();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر تسجيل الغرامة";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setRecordingFine(false);
     }
   };
 
@@ -567,6 +672,9 @@ export default function FinancePage() {
           <button type="button" className="btn btn-ghost" onClick={openCompensationModal}>
             إضافة تعويض لسائق
           </button>
+          <button type="button" className="btn btn-ghost" onClick={openFineModal}>
+            إضافة غرامة لسائق
+          </button>
           <button type="button" className="btn btn-ghost" onClick={() => openExportModal("general")}>
             تصدير Excel عام
           </button>
@@ -657,7 +765,10 @@ export default function FinancePage() {
             type="button"
             className="btn btn-primary"
             onClick={() => void settleCurrentFilter()}
-            disabled={settlingAll || Number(summary.dueCommissionAmount) <= 0}
+            disabled={
+              settlingAll ||
+              (Number(summary.dueCommissionAmount) <= 0 && Number(summary.fineAmount) <= 0)
+            }
           >
             {settlingAll ? "جارٍ التسديد..." : "تسديد جميع العمولات ضمن الفلتر"}
           </button>
@@ -667,7 +778,7 @@ export default function FinancePage() {
       {error ? <p className="form-error">{error}</p> : null}
       {notice ? <p className="settings-notice">{notice}</p> : null}
 
-      <section className="finance-summary-grid">
+      <section className={`finance-summary-grid${filters.driverId ? " finance-summary-grid--with-fines" : ""}`}>
         <article className="card finance-summary-card">
           <p className="finance-summary-card__label">الطلبات المكتملة</p>
           <h3 className="finance-summary-card__value">{summary.completedOrdersCount}</h3>
@@ -681,12 +792,25 @@ export default function FinancePage() {
           <h3 className="finance-summary-card__value">{formatMoney(summary.totalCommissionAmount)}</h3>
         </article>
         <article className="card finance-summary-card">
-          <p className="finance-summary-card__label">المستحق بعد التعويضات</p>
+          <p className="finance-summary-card__label">المبلغ المترتب</p>
           <h3 className="finance-summary-card__value">{formatMoney(summary.adjustedDueCommissionAmount)}</h3>
           <p className="finance-summary-card__subvalue">
-            قبل الخصم: {formatMoney(summary.dueCommissionAmount)} | التعويضات: {formatMoney(summary.compensationAmount)}
+            عمولات: {formatMoney(summary.dueCommissionAmount)} | تعويضات: {formatMoney(summary.compensationAmount)} | غرامات:{" "}
+            {formatMoney(summary.fineAmount)}
           </p>
         </article>
+        {filters.driverId ? (
+          <button
+            type="button"
+            className="card finance-summary-card finance-summary-card--clickable"
+            onClick={() => setFinesLedgerOpen(true)}
+            aria-label="عرض سجل الغرامات"
+          >
+            <p className="finance-summary-card__label">مجموع الغرامات</p>
+            <h3 className="finance-summary-card__value">{formatMoney(summary.fineAmount)}</h3>
+            <p className="finance-summary-card__hint">اضغط لعرض السجل</p>
+          </button>
+        ) : null}
       </section>
 
       <section className="card employees-table-card finance-table-card">
@@ -896,6 +1020,105 @@ export default function FinancePage() {
         </div>
       ) : null}
 
+      {fineModalOpen ? (
+        <div className="finance-export-modal" role="dialog" aria-modal="true">
+          <button type="button" className="finance-export-modal__backdrop" onClick={closeFineModal} aria-label="إغلاق" />
+          <div className="card finance-export-modal__card">
+            <div className="finance-export-modal__header">
+              <div>
+                <h3 className="finance-export-modal__title">إضافة غرامة لسائق</h3>
+                <p className="finance-export-modal__hint">
+                  سجّل غرامة يدوية لتُضاف إلى المبلغ المترتب على السائق (عمولات + غرامات − تعويضات) في التقارير والملخصات.
+                </p>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={closeFineModal} disabled={recordingFine}>
+                إغلاق
+              </button>
+            </div>
+
+            <div className="finance-export-modal__grid">
+              <div className="finance-export-modal__field finance-export-modal__field--full">
+                <span>السائق</span>
+                <div className="finance-driver-dropdown finance-driver-dropdown--full" ref={fineDriverDropdownRef}>
+                  <button
+                    type="button"
+                    className="input-styled finance-driver-dropdown__trigger"
+                    onClick={() => !loadingDrivers && setFineDriverDropdownOpen((prev) => !prev)}
+                    disabled={loadingDrivers}
+                  >
+                    <span>{loadingDrivers ? "جارٍ تحميل السائقين..." : fineSelectedDriverLabel}</span>
+                    <span className="finance-driver-dropdown__chevron" aria-hidden>
+                      ▼
+                    </span>
+                  </button>
+                  {fineDriverDropdownOpen ? (
+                    <div className="card finance-driver-dropdown__menu">
+                      <input
+                        className="input-styled finance-driver-dropdown__search"
+                        value={fineDriverSearch}
+                        onChange={(e) => setFineDriverSearch(e.target.value)}
+                        placeholder="ابحث باسم السائق أو الهاتف"
+                      />
+                      <div className="finance-driver-dropdown__options">
+                        {fineFilteredDriverOptions.map((driver) => (
+                          <button
+                            key={driver.id}
+                            type="button"
+                            className={`finance-driver-dropdown__option${
+                              fineDriverId === (driver.driver?.id ?? "") ? " finance-driver-dropdown__option--active" : ""
+                            }`}
+                            onClick={() => {
+                              setFineDriverId(driver.driver?.id ?? "");
+                              setFineDriverDropdownOpen(false);
+                              setFineDriverSearch("");
+                            }}
+                          >
+                            <span>{driver.fullName}</span>
+                            <small>{driver.phone ?? "—"}</small>
+                          </button>
+                        ))}
+                        {fineFilteredDriverOptions.length === 0 ? (
+                          <div className="finance-driver-dropdown__empty">لا يوجد سائق يطابق البحث.</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <label className="finance-export-modal__field">
+                <span>قيمة الغرامة</span>
+                <input
+                  className="input-styled"
+                  value={fineAmount}
+                  onChange={(e) => setFineAmount(e.target.value)}
+                  placeholder="مثال: 15000"
+                />
+              </label>
+
+              <label className="finance-export-modal__field finance-export-modal__field--full">
+                <span>ملاحظات</span>
+                <input
+                  className="input-styled"
+                  value={fineNotes}
+                  onChange={(e) => setFineNotes(e.target.value)}
+                  placeholder="سبب الغرامة أو أي ملاحظة إضافية"
+                />
+              </label>
+            </div>
+
+            <div className="finance-export-modal__actions">
+              <button type="button" className="btn btn-ghost" onClick={closeFineModal} disabled={recordingFine}>
+                إلغاء
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void saveFine()} disabled={recordingFine}>
+                {recordingFine ? "جارٍ الحفظ..." : "حفظ الغرامة"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {exportModalOpen ? (
         <div className="finance-export-modal" role="dialog" aria-modal="true">
           <button type="button" className="finance-export-modal__backdrop" onClick={closeExportModal} aria-label="إغلاق" />
@@ -999,6 +1222,19 @@ export default function FinancePage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {finesLedgerOpen && token && filters.driverId ? (
+        <DriverFinesModal
+          open={finesLedgerOpen}
+          token={token}
+          driverId={filters.driverId}
+          from={filters.from}
+          to={filters.to}
+          onClose={() => setFinesLedgerOpen(false)}
+          onSessionExpired={handleSessionExpired}
+          onSettled={() => void loadReport()}
+        />
       ) : null}
     </div>
   );

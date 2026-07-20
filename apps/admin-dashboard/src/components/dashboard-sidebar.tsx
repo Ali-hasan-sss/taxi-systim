@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   DashboardChatIcon,
+  DashboardCustomersIcon,
   DashboardDriversIcon,
   DashboardEmployeesIcon,
   DashboardFinanceIcon,
   DashboardHomeIcon,
   DashboardOrdersListIcon,
   DashboardOrdersRoomIcon,
+  DashboardPromotionsIcon,
   DashboardSettingsIcon
 } from "./dashboard-nav-icons";
 import { DashboardBrandLogo } from "./dashboard-brand-logo";
@@ -28,6 +30,8 @@ const navItems: NavItem[] = [
   { href: "/", label: "الرئيسية", mobileLabel: "الرئيسية", icon: DashboardHomeIcon },
   { href: "/orders-room", label: "غرفة الطلبات", mobileLabel: "الطلبات", icon: DashboardOrdersRoomIcon },
   { href: "/orders", label: "جميع الطلبات", mobileLabel: "الجدول", icon: DashboardOrdersListIcon, nested: true },
+  { href: "/customers", label: "الزبائن", mobileLabel: "الزبائن", icon: DashboardCustomersIcon },
+  { href: "/promotions", label: "العروض", mobileLabel: "العروض", icon: DashboardPromotionsIcon },
   { href: "/chat", label: "المحادثات", mobileLabel: "المحادثات", icon: DashboardChatIcon },
   { href: "/employees", label: "الموظفون", mobileLabel: "الموظفون", icon: DashboardEmployeesIcon },
   { href: "/drivers-distribution", label: "توزع السائقين", mobileLabel: "السائقون", icon: DashboardDriversIcon },

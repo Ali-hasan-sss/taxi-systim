@@ -114,7 +114,8 @@ export function DriverOrderCard({
   footer,
   afterAmountRow,
   variant = "default",
-  layout = "full"
+  layout = "full",
+  takenHighlight = false
 }: {
   item: DriverOrderRow;
   footer?: ReactNode;
@@ -123,6 +124,8 @@ export function DriverOrderCard({
   variant?: "default" | "archive";
   /** compact: من/إلى فقط — لقائمة الطلبات المعلّقة في غرفة الطلبات */
   layout?: "full" | "compact";
+  /** إطار برتقالي عند استلام الطلب من سائق آخر قبل الإخفاء */
+  takenHighlight?: boolean;
 }) {
   const { theme } = useTheme();
   const contactVisible = showCustomerContact(item.status, variant);
@@ -145,6 +148,10 @@ export function DriverOrderCard({
       shadowOpacity: 0.08,
       shadowRadius: 14,
       elevation: 5
+    },
+    cardTaken: {
+      borderWidth: 2,
+      borderColor: t.colors.warning
     },
     cardTop: {
       flexDirection: "row-reverse" as const,
@@ -203,24 +210,41 @@ export function DriverOrderCard({
       alignItems: "flex-end" as const
     },
     dropoffBox: {
-      backgroundColor: t.colors.successBg,
+      backgroundColor: t.colors.surfaceMuted,
       borderWidth: 1,
-      borderColor: t.colors.success,
+      borderColor: t.colors.border,
       borderRadius: 12,
       padding: 12,
       alignItems: "flex-end" as const
     },
-    addressBoxLabel: {
+    addressBoxLabelFrom: {
       fontSize: 12,
       fontWeight: "800" as const,
-      color: t.colors.textSecondary,
+      color: t.colors.text,
       ...rtlText,
       marginBottom: 6,
       textAlign: "right" as const
     },
-    addressBoxText: {
+    addressBoxLabelTo: {
+      fontSize: 12,
+      fontWeight: "400" as const,
+      color: t.colors.textMuted,
+      ...rtlText,
+      marginBottom: 6,
+      textAlign: "right" as const
+    },
+    addressBoxTextFrom: {
       fontSize: 14,
+      fontWeight: "800" as const,
       color: t.colors.text,
+      ...rtlText,
+      lineHeight: 22,
+      textAlign: "right" as const
+    },
+    addressBoxTextTo: {
+      fontSize: 14,
+      fontWeight: "400" as const,
+      color: t.colors.textMuted,
       ...rtlText,
       lineHeight: 22,
       textAlign: "right" as const
@@ -304,15 +328,16 @@ export function DriverOrderCard({
     },
     compactFrom: {
       fontSize: 13,
-      color: t.colors.textSecondary,
+      color: t.colors.text,
+      fontWeight: "800" as const,
       ...rtlText,
       lineHeight: 18,
       textAlign: "right" as const
     },
     compactTo: {
       fontSize: 13,
-      color: t.colors.text,
-      fontWeight: "700" as const,
+      color: t.colors.textMuted,
+      fontWeight: "400" as const,
       ...rtlText,
       lineHeight: 18,
       textAlign: "right" as const
@@ -329,7 +354,7 @@ export function DriverOrderCard({
 
   if (layout === "compact") {
     return (
-      <View style={[styles.card, styles.cardCompact]}>
+      <View style={[styles.card, styles.cardCompact, takenHighlight && styles.cardTaken]}>
         <View style={styles.compactRoute}>
           <Text style={styles.compactFrom} numberOfLines={2}>
             من: {item.pickupAddress}
@@ -347,7 +372,7 @@ export function DriverOrderCard({
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, takenHighlight && styles.cardTaken]}>
       <View style={styles.cardTop}>
         <Text style={[styles.statusPill, pillColors]}>
           {STATUS_AR[item.status] ?? item.status}
@@ -378,12 +403,12 @@ export function DriverOrderCard({
       ) : null}
       <View style={styles.addressBlock}>
         <View style={styles.pickupBox}>
-          <Text style={styles.addressBoxLabel}>من — الانطلاق</Text>
-          <Text style={styles.addressBoxText}>{item.pickupAddress}</Text>
+          <Text style={styles.addressBoxLabelFrom}>من — الانطلاق</Text>
+          <Text style={styles.addressBoxTextFrom}>{item.pickupAddress}</Text>
         </View>
         <View style={styles.dropoffBox}>
-          <Text style={styles.addressBoxLabel}>إلى — الوجهة</Text>
-          <Text style={styles.addressBoxText}>{item.dropoffAddress}</Text>
+          <Text style={styles.addressBoxLabelTo}>إلى — الوجهة</Text>
+          <Text style={styles.addressBoxTextTo}>{item.dropoffAddress}</Text>
         </View>
       </View>
       {item.notes?.trim() ? (

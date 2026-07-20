@@ -123,6 +123,7 @@ export interface FinanceReportSummary {
   totalCommissionAmount: string;
   dueCommissionAmount: string;
   compensationAmount: string;
+  fineAmount: string;
   adjustedDueCommissionAmount: string;
   from: string;
   to: string;
@@ -139,11 +140,91 @@ export interface FinanceExportFile {
   filename: string;
 }
 
+export interface DriverFineRow {
+  id: string;
+  amount: string;
+  reason: string;
+  notes: string | null;
+  createdAt: string;
+  createdByName: string | null;
+  driverId?: string;
+  driverName?: string | null;
+  isPaid?: boolean;
+}
+
+export interface DriverFinesLedger {
+  driver: { id: string; fullName: string; phone: string | null } | null;
+  from: string | null;
+  to: string | null;
+  totalAmount: string;
+  count: number;
+  unpaidAmount?: string;
+  unpaidCount?: number;
+  rows: DriverFineRow[];
+}
+
+export interface CustomerRow {
+  id: string;
+  phone: string;
+  phoneDisplay: string;
+  name: string | null;
+  ordersCount: number;
+  lastOrderAt: string | null;
+  createdAt: string;
+}
+
+export interface CustomersListResponse {
+  filter: "all" | "most_orders" | "inactive";
+  page: number;
+  limit: number;
+  total: number;
+  totalAll: number;
+  inactiveCount: number;
+  hasMore: boolean;
+  customers: CustomerRow[];
+}
+
+export type PromotionChannel = "WEB_LINK" | "LOYALTY";
+export type PromotionRewardType = "FIXED_DISCOUNT" | "FREE_ORDER";
+
+export interface PromotionRow {
+  id: string;
+  title: string;
+  description: string | null;
+  channel: PromotionChannel;
+  rewardType: PromotionRewardType;
+  ordersThreshold: number;
+  discountAmount: string | null;
+  code: string | null;
+  isActive: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  redemptionsCount: number;
+  webBookPath: string | null;
+}
+
+export interface CreatePromotionPayload {
+  title: string;
+  description?: string;
+  channel: PromotionChannel;
+  rewardType: PromotionRewardType;
+  ordersThreshold: number;
+  discountAmount?: number;
+  code?: string;
+  isActive?: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+}
+
 export interface AdminDashboardStats {
   today: string;
   revenueToday: string;
   commissionToday: string;
   dueCommission: string;
+  fineAmount?: string;
+  compensationAmount?: string;
   completedOrdersToday: number;
   activeTrips: number;
   activeDriversOnline: number;
@@ -541,6 +622,53 @@ export const api = {
     return res.json() as Promise<Employee[]>;
   },
 
+  async listCustomers(
+    accessToken: string,
+    params?: { filter?: "all" | "most_orders" | "inactive"; q?: string; page?: number; limit?: number }
+  ) {
+    const query = new URLSearchParams();
+    if (params?.filter) query.set("filter", params.filter);
+    if (params?.q?.trim()) query.set("q", params.q.trim());
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.limit) query.set("limit", String(params.limit));
+    const qs = query.toString();
+    const res = await authorizedFetch(`/customers${qs ? `?${qs}` : ""}`, { method: "GET", cache: "no-store" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب الزبائن"));
+    return res.json() as Promise<CustomersListResponse>;
+  },
+
+  async listPromotions(accessToken: string) {
+    const res = await authorizedFetch("/promotions", { method: "GET", cache: "no-store" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب العروض"));
+    return res.json() as Promise<{ promotions: PromotionRow[] }>;
+  },
+
+  async createPromotion(accessToken: string, payload: CreatePromotionPayload) {
+    const res = await authorizedFetch(
+      "/promotions",
+      { method: "POST", body: JSON.stringify(payload) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل إنشاء العرض"));
+    return res.json() as Promise<PromotionRow>;
+  },
+
+  async updatePromotion(accessToken: string, id: string, payload: Partial<CreatePromotionPayload>) {
+    const res = await authorizedFetch(
+      `/promotions/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث العرض"));
+    return res.json() as Promise<PromotionRow>;
+  },
+
+  async deletePromotion(accessToken: string, id: string) {
+    const res = await authorizedFetch(`/promotions/${encodeURIComponent(id)}`, { method: "DELETE" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل حذف العرض"));
+    return res.json() as Promise<{ ok: boolean }>;
+  },
+
   async downloadEmployeesExport(accessToken: string): Promise<FinanceExportFile> {
     const res = await authorizedFetch("/users/export.xlsx", { method: "GET" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تصدير الموظفين"));
@@ -743,6 +871,49 @@ export const api = {
     return res.json() as Promise<{ message: string; driverId: string; amount: number }>;
   },
 
+  async recordDriverFine(
+    accessToken: string,
+    payload: { driverId: string; amount: number; notes?: string }
+  ) {
+    const res = await authorizedFetch(
+      "/accounting/fines",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تسجيل الغرامة"));
+    return res.json() as Promise<{ message: string; driverId: string; amount: number }>;
+  },
+
+  async listDriverFines(
+    accessToken: string,
+    opts?: { driverId?: string; from?: string; to?: string }
+  ) {
+    const params = new URLSearchParams();
+    if (opts?.driverId) params.set("driverId", opts.driverId);
+    if (opts?.from) params.set("from", opts.from);
+    if (opts?.to) params.set("to", opts.to);
+    const qs = params.toString();
+    const res = await authorizedFetch(`/accounting/fines${qs ? `?${qs}` : ""}`, { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحميل سجل الغرامات"));
+    return res.json() as Promise<DriverFinesLedger>;
+  },
+
+  async settleDriverFine(accessToken: string, payload: { fineId: string; notes?: string }) {
+    const res = await authorizedFetch(
+      "/accounting/fines/settle",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تسديد الغرامة"));
+    return res.json() as Promise<{ message: string; fineId: string; driverId: string; amount: number }>;
+  },
+
   async downloadFinanceExport(
     accessToken: string,
     opts?: {
@@ -867,7 +1038,13 @@ export const api = {
       accessToken
     );
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل التسديد الجماعي"));
-    return res.json() as Promise<{ message: string; paidCount: number; totalPaid: number }>;
+    return res.json() as Promise<{
+      message: string;
+      paidCount: number;
+      totalPaid: number;
+      finesPaidCount?: number;
+      finesTotalPaid?: number;
+    }>;
   },
 
   clearSession() {

@@ -48,6 +48,17 @@ export function chatRoomHref(room: ChatRoomRow): string {
   return `/chat/${room.id}?${params.toString()}`;
 }
 
+export function chatRoomHrefFallback(
+  roomId: string,
+  title: string,
+  roomType: ChatRoomRow["type"] = "ORDER",
+  subtitle?: string | null
+): string {
+  const params = new URLSearchParams({ title, roomType });
+  if (subtitle) params.set("subtitle", subtitle);
+  return `/chat/${roomId}?${params.toString()}`;
+}
+
 async function chatFetch(path: string, init: RequestInit, accessToken: string): Promise<Response> {
   const url = `${API_BASE}${path}`;
   const run = (token: string) => {

@@ -6,6 +6,7 @@ import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ChatSocketProvider } from "../src/chat-socket-context";
+import { ChatIncomingToastHost } from "../src/components/ChatIncomingToastHost";
 import { DriverPushBootstrap } from "../src/lib/expo-push";
 import { FeedbackHost } from "../src/lib/feedback";
 
@@ -28,6 +29,7 @@ function RootLayoutInner() {
           }}
         />
       </ChatSocketProvider>
+      <ChatIncomingToastHost />
       <FeedbackHost />
     </View>
   );

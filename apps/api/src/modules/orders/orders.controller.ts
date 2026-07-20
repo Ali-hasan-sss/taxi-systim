@@ -17,6 +17,9 @@ import {
   ordersService
 } from "./orders.service";
 import type { AuthRequest } from "../../shared/auth";
+import { AppError } from "../../shared/app-error";
+import { prisma } from "../../shared/prisma";
+import { accountingService } from "../accounting/accounting.service";
 import {
   broadcastNewOrder,
   dispatchNewPendingOrderToDrivers,
@@ -151,6 +154,20 @@ export const ordersController = {
     try {
       const stats = await ordersService.orderStatsForDriver(req.auth!.userId);
       res.json(stats);
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async driverFines(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const driver = await prisma.driver.findUnique({
+        where: { userId: req.auth!.userId },
+        select: { id: true }
+      });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+      const data = await accountingService.listDriverFines({ driverId: driver.id });
+      res.json(data);
     } catch (e) {
       next(e);
     }

@@ -38,8 +38,13 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
           socket?.emit(chatSocketEvents.READ, { roomId: msg.roomId });
           return;
         }
-        store.incrementUnreadChat(msg.roomId);
-        void playChatMessageSound();
+        const counted = store.notifyIncomingChatMessage(msg.roomId, msg.id, {
+          senderName: msg.sender.fullName,
+          body: msg.body,
+          imageUrl: msg.imageUrl,
+          hasVoice: !!msg.voiceUrl
+        });
+        if (counted) void playChatMessageSound();
       };
 
       socket.on("connect", onConnect);

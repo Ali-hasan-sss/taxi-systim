@@ -10,6 +10,13 @@ import {
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
 import { chatService } from "../chat/chat.service";
+import { linkCustomerToNewOrder } from "../customers/customer-phone";
+import {
+  attachPromotionToOrder,
+  compensateDriverForPromoDiscount,
+  findEligiblePromotion,
+  getCustomerOrdersCount
+} from "../promotions/promotion-apply";
 import { SYRIA_TIME_ZONE, syriaCalendarDayIso } from "../../shared/syria-time";
 import { getDriverLocationsForNearest } from "../../socket";
 import type { CreateOrderDto } from "./orders.dto";
@@ -89,7 +96,7 @@ async function listPendingVisibleToDriver(driverDbId: string) {
 
   const all = await prisma.order.findMany({
     where: { status: OrderStatus.PENDING, driverId: null, ...driversPublishedWhere() },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: 100,
     include: orderIncludeDriverUser
   });
@@ -387,19 +394,80 @@ async function sumCommissionDueTodaySyriaForDriver(driverId: string): Promise<nu
   return Number.isFinite(n) ? n : 0;
 }
 
-/** إجمالي العمولات غير المسددة للسائق عبر جميع الطلبات المكتملة. */
+/** إجمالي العمولات غير المسددة + الغرامات − التعويضات (رصيد الدين الحالي للسائق). */
 async function sumUnpaidCommissionForDriver(driverId: string): Promise<number> {
-  const rows = await prisma.$queryRaw<Array<{ s: string | null }>>`
-    SELECT COALESCE(SUM(c."remainingAmount"), 0)::text AS s
-    FROM "Commission" c
-    INNER JOIN "Order" o ON o.id = c."orderId"
-    WHERE c."driverId" = ${driverId}
-      AND o."status"::text = 'COMPLETED'
-      AND c."remainingAmount" > 0
-  `;
-  const t = rows[0]?.s ?? "0";
-  const n = Number(t);
-  return Number.isFinite(n) ? n : 0;
+  const balance = await prisma.driverBalance.findUnique({
+    where: { driverId },
+    select: { remainingDebt: true }
+  });
+  if (balance) {
+    const n = Number(balance.remainingDebt);
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  }
+
+  const [commissionAgg, fineAgg, compensationAgg] = await Promise.all([
+    prisma.commission.aggregate({
+      where: {
+        driverId,
+        order: { status: OrderStatus.COMPLETED },
+        remainingAmount: { gt: 0 }
+      },
+      _sum: { remainingAmount: true }
+    }),
+    prisma.financialTransaction.aggregate({
+      where: {
+        driverId,
+        type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+        referenceId: null,
+        notes: { startsWith: "غرامة سائق" }
+      },
+      _sum: { amount: true }
+    }),
+    prisma.financialTransaction.aggregate({
+      where: {
+        driverId,
+        type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+        referenceId: null,
+        notes: { startsWith: "تعويض سائق" }
+      },
+      _sum: { amount: true }
+    })
+  ]);
+
+  const due = Number(commissionAgg._sum.remainingAmount ?? 0);
+  const fines = Number(fineAgg._sum.amount ?? 0);
+  const compensation = Number(compensationAgg._sum.amount ?? 0);
+  const total = due - compensation + fines;
+  return Number.isFinite(total) ? Math.max(0, total) : 0;
+}
+
+async function sumDriverPeriodAdjustments(
+  driverId: string,
+  fromUtc: Date,
+  toExclusive: Date
+): Promise<{ fineAmount: number; compensationAmount: number }> {
+  const base = {
+    driverId,
+    type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+    referenceId: null,
+    createdAt: { gte: fromUtc, lt: toExclusive }
+  } as const;
+
+  const [fineAgg, compensationAgg] = await Promise.all([
+    prisma.financialTransaction.aggregate({
+      where: { ...base, notes: { startsWith: "غرامة سائق" } },
+      _sum: { amount: true }
+    }),
+    prisma.financialTransaction.aggregate({
+      where: { ...base, notes: { startsWith: "تعويض سائق" } },
+      _sum: { amount: true }
+    })
+  ]);
+
+  return {
+    fineAmount: Number(fineAgg._sum.amount ?? 0) || 0,
+    compensationAmount: Number(compensationAgg._sum.amount ?? 0) || 0
+  };
 }
 
 export const ordersService = {
@@ -460,22 +528,49 @@ export const ordersService = {
       payload.customerName?.trim() ||
       (payload.customerPhone ? `زبون ${payload.customerPhone.trim()}` : "زبون");
 
-    return prisma.order.create({
-      data: {
-        customerName,
-        customerPhone: payload.customerPhone?.trim(),
-        pickupAddress: payload.pickupAddress.trim(),
-        dropoffAddress: payload.dropoffAddress.trim(),
-        amount: payload.amount,
-        notes: payload.notes?.trim() || undefined,
-        vehicleRequirement: payload.vehicleRequirement,
-        broadcastTarget: payload.broadcastTarget,
-        pickupLat: payload.pickupLat,
-        pickupLng: payload.pickupLng,
-        coordinatorId: coordinator.id,
-        source: OrderSource.APP,
-        driversNotifiedAt: new Date()
+    return prisma.$transaction(async (tx) => {
+      const customerId = await linkCustomerToNewOrder(tx, {
+        phone: payload.customerPhone,
+        name: payload.customerName
+      });
+      const ordersCount = customerId ? await getCustomerOrdersCount(tx, customerId) : 0;
+      const promotion = await findEligiblePromotion(tx, {
+        customerId,
+        ordersCount,
+        channel: "APP"
+      });
+
+      const order = await tx.order.create({
+        data: {
+          customerName,
+          customerPhone: payload.customerPhone?.trim(),
+          customerId: customerId ?? undefined,
+          pickupAddress: payload.pickupAddress.trim(),
+          dropoffAddress: payload.dropoffAddress.trim(),
+          amount: payload.amount,
+          originalAmount: payload.amount,
+          notes: payload.notes?.trim() || undefined,
+          vehicleRequirement: payload.vehicleRequirement,
+          broadcastTarget: payload.broadcastTarget,
+          pickupLat: payload.pickupLat,
+          pickupLng: payload.pickupLng,
+          coordinatorId: coordinator.id,
+          source: OrderSource.APP,
+          driversNotifiedAt: new Date()
+        }
+      });
+
+      if (promotion && customerId) {
+        await attachPromotionToOrder(tx, {
+          orderId: order.id,
+          customerId,
+          promotion,
+          orderAmount: payload.amount,
+          milestoneCount: ordersCount
+        });
       }
+
+      return tx.order.findFirstOrThrow({ where: { id: order.id } });
     });
   },
 
@@ -1062,6 +1157,9 @@ export const ordersService = {
           orderCount: 0,
           totalAmount: "0.00",
           totalCommission: "0.00",
+          dueCommissionAmount: "0.00",
+          fineAmount: "0.00",
+          compensationAmount: "0.00",
           from: opts?.from ?? syriaCalendarDayIso(),
           to: opts?.to ?? opts?.from ?? syriaCalendarDayIso()
         }
@@ -1092,7 +1190,7 @@ export const ordersService = {
 
     const where: Prisma.OrderWhereInput = cursorWhere ? { AND: [baseWhere, cursorWhere] } : baseWhere;
 
-    const [aggregate, completedAmountAggregate, dueCommissionAggregate, rows] = await Promise.all([
+    const [aggregate, completedAmountAggregate, dueCommissionAggregate, adjustments, rows] = await Promise.all([
       prisma.order.aggregate({
         where: baseWhere,
         _count: { _all: true }
@@ -1113,6 +1211,7 @@ export const ordersService = {
         },
         _sum: { remainingAmount: true }
       }),
+      sumDriverPeriodAdjustments(driver.id, fromUtc, toExclusive),
       prisma.order.findMany({
         where,
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -1135,6 +1234,11 @@ export const ordersService = {
     const nextCursor =
       hasMore && page.length > 0 ? encodeOrderCursor(page[page.length - 1]!) : null;
 
+    const dueCommissionAmount = Number(dueCommissionAggregate._sum.remainingAmount ?? 0) || 0;
+    const fineAmount = adjustments.fineAmount;
+    const compensationAmount = adjustments.compensationAmount;
+    const totalCommission = Math.max(0, dueCommissionAmount - compensationAmount + fineAmount);
+
     return {
       orders: page.map((row) => ({
         ...this.serializeDriverOrderRow(row),
@@ -1150,7 +1254,10 @@ export const ordersService = {
       summary: {
         orderCount: aggregate._count._all,
         totalAmount: (completedAmountAggregate._sum.amount ?? new Prisma.Decimal(0)).toString(),
-        totalCommission: (dueCommissionAggregate._sum.remainingAmount ?? new Prisma.Decimal(0)).toString(),
+        dueCommissionAmount: dueCommissionAmount.toFixed(2),
+        fineAmount: fineAmount.toFixed(2),
+        compensationAmount: compensationAmount.toFixed(2),
+        totalCommission: totalCommission.toFixed(2),
         from,
         to
       }
@@ -1229,6 +1336,7 @@ export const ordersService = {
         stuckToday: 0,
         commissionDueTodaySyria: 0,
         unpaidCommissionAmount: 0,
+        fineAmount: 0,
         summaryDaySyria: syriaCalendarDayIso()
       };
     }
@@ -1251,10 +1359,21 @@ export const ordersService = {
     const cancelled = count(OrderStatus.CANCELLED);
     const summaryDaySyria = syriaCalendarDayIso();
     const stuckToday = await countStuckTodaySyriaForDriver(driver.id);
-    const [commissionDueTodaySyria, unpaidCommissionAmount] = await Promise.all([
+    const [commissionDueTodaySyria, unpaidCommissionAmount, fineAgg] = await Promise.all([
       sumCommissionDueTodaySyriaForDriver(driver.id),
-      sumUnpaidCommissionForDriver(driver.id)
+      sumUnpaidCommissionForDriver(driver.id),
+      prisma.financialTransaction.aggregate({
+        where: {
+          driverId: driver.id,
+          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+          referenceId: null,
+          notes: { startsWith: "غرامة سائق" }
+        },
+        _sum: { amount: true }
+      })
     ]);
+
+    const fineAmount = Number(fineAgg._sum.amount ?? 0) || 0;
 
     return {
       active,
@@ -1264,6 +1383,7 @@ export const ordersService = {
       stuckToday,
       commissionDueTodaySyria,
       unpaidCommissionAmount,
+      fineAmount,
       summaryDaySyria
     };
   },
@@ -1460,7 +1580,7 @@ export const ordersService = {
       const orderRow = await tx.order.findFirst({
         where: { id: orderId, status: OrderStatus.PENDING, driverId: null }
       });
-      if (!orderRow) throw new AppError("الطلب غير متاح أو قبِلَه سائق آخر", 409);
+      if (!orderRow) throw new AppError("لقد تم استلام الطلب من سائق آخر", 409);
       if (!driverMatchesOrderVehicle(orderRow.vehicleRequirement, driver.vehicleKind)) {
         throw new AppError("نوع سيارتك لا يطابق متطلب هذا الطلب (عامة/خاصة)", 400);
       }
@@ -1474,7 +1594,7 @@ export const ordersService = {
         }
       });
       if (updated.count !== 1) {
-        throw new AppError("الطلب غير متاح أو قبِلَه سائق آخر", 409);
+        throw new AppError("لقد تم استلام الطلب من سائق آخر", 409);
       }
 
       await tx.driver.update({
@@ -1621,6 +1741,19 @@ export const ordersService = {
           referenceId: order.id
         }
       });
+
+      const discountAmount = toNum(order.discountAmount ?? 0);
+      if (discountAmount > 0 && order.driverId) {
+        const promo = order.promotionId
+          ? await tx.promotion.findUnique({ where: { id: order.promotionId }, select: { title: true } })
+          : null;
+        await compensateDriverForPromoDiscount(tx, {
+          orderId: order.id,
+          driverId: order.driverId,
+          discountAmount,
+          promotionTitle: promo?.title
+        });
+      }
 
       await chatService.archiveOrderRoomByOrderId(orderId, { tx });
 

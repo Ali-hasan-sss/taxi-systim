@@ -1,5 +1,5 @@
 import type { Server } from "socket.io";
-import { OrderStatus, Role } from "@prisma/client";
+import { FinancialTransactionType, OrderStatus, Role } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { syriaCalendarDayIso } from "../../shared/syria-time";
 import { getConnectedOnlineDriverIds } from "../../socket";
@@ -75,6 +75,8 @@ export const adminService = {
       revenueTodayAgg,
       commissionTodayAgg,
       dueCommissionAgg,
+      fineAgg,
+      compensationAgg,
       completedTodayCount,
       activeTrips,
       totalDrivers,
@@ -95,6 +97,22 @@ export const adminService = {
           remainingAmount: { gt: 0 }
         },
         _sum: { remainingAmount: true }
+      }),
+      prisma.financialTransaction.aggregate({
+        where: {
+          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+          referenceId: null,
+          notes: { startsWith: "غرامة سائق" }
+        },
+        _sum: { amount: true }
+      }),
+      prisma.financialTransaction.aggregate({
+        where: {
+          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+          referenceId: null,
+          notes: { startsWith: "تعويض سائق" }
+        },
+        _sum: { amount: true }
       }),
       prisma.order.count({ where: completedTodayWhere }),
       prisma.order.count({ where: { status: { in: ACTIVE_TRIP_STATUSES } } }),
@@ -130,11 +148,18 @@ export const adminService = {
 
     const employeesTotal = roleCounts.admin + roleCounts.coordinator + roleCounts.driver;
 
+    const dueCommissionRaw = Number(dueCommissionAgg._sum.remainingAmount ?? 0) || 0;
+    const fineAmount = Number(fineAgg._sum.amount ?? 0) || 0;
+    const compensationAmount = Number(compensationAgg._sum.amount ?? 0) || 0;
+    const dueCommission = Math.max(0, dueCommissionRaw - compensationAmount + fineAmount);
+
     return {
       today,
       revenueToday: (revenueTodayAgg._sum.amount ?? 0).toString(),
       commissionToday: (commissionTodayAgg._sum.calculatedCommission ?? 0).toString(),
-      dueCommission: (dueCommissionAgg._sum.remainingAmount ?? 0).toString(),
+      dueCommission: dueCommission.toFixed(2),
+      fineAmount: fineAmount.toFixed(2),
+      compensationAmount: compensationAmount.toFixed(2),
       completedOrdersToday: completedTodayCount,
       activeTrips,
       activeDriversOnline,

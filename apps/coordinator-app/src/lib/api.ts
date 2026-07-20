@@ -660,3 +660,42 @@ export async function dismissWebInquiry(accessToken: string, orderId: string): P
   if (!res.ok) throw new Error(body.message ?? "تعذر رفض الطلب");
 }
 
+export type CustomerFilter = "all" | "most_orders" | "inactive";
+
+export interface CustomerRow {
+  id: string;
+  phone: string;
+  phoneDisplay: string;
+  name: string | null;
+  ordersCount: number;
+  lastOrderAt: string | null;
+  createdAt: string;
+}
+
+export interface CustomersListResponse {
+  filter: CustomerFilter;
+  page: number;
+  limit: number;
+  total: number;
+  totalAll: number;
+  inactiveCount: number;
+  hasMore: boolean;
+  customers: CustomerRow[];
+}
+
+export async function fetchCustomers(
+  accessToken: string,
+  opts?: { filter?: CustomerFilter; q?: string; page?: number; limit?: number }
+): Promise<CustomersListResponse> {
+  const params = new URLSearchParams();
+  if (opts?.filter) params.set("filter", opts.filter);
+  if (opts?.q?.trim()) params.set("q", opts.q.trim());
+  if (opts?.page) params.set("page", String(opts.page));
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  params.set("t", String(Date.now()));
+  const res = await coordinatorFetchWithRefresh(`/customers?${params.toString()}`, { cache: "no-store" }, accessToken);
+  const body = (await res.json().catch(() => ({}))) as CustomersListResponse & { message?: string };
+  if (!res.ok) throw new Error(body.message ?? "تعذر تحميل الزبائن");
+  return body;
+}
+

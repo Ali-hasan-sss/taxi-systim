@@ -110,6 +110,9 @@ export default function DriverReportsTab() {
     orderCount: 0,
     totalAmount: "0.00",
     totalCommission: "0.00",
+    dueCommissionAmount: "0.00",
+    fineAmount: "0.00",
+    compensationAmount: "0.00",
     from: today,
     to: today
   });
@@ -486,6 +489,9 @@ export default function DriverReportsTab() {
     statCardPurple: {
       borderColor: t.colors.accent
     },
+    statCardOrange: {
+      borderColor: t.colors.warning
+    },
     statValue: {
       fontSize: 26,
       fontWeight: "800" as const,
@@ -755,10 +761,20 @@ export default function DriverReportsTab() {
                   <Text style={styles.statLabel}>مجموع مبالغ الطلبات المكتملة</Text>
                 </View>
               </View>
+              <View style={styles.statsRow}>
+                <View style={[styles.statCard, styles.statCardHalf, styles.statCardPurple]}>
+                  <Text style={styles.statValue}>{formatAmount(summary.dueCommissionAmount ?? "0.00")}</Text>
+                  <Text style={styles.statLabel}>عمولات غير مسددة</Text>
+                </View>
+                <View style={[styles.statCard, styles.statCardHalf, styles.statCardOrange]}>
+                  <Text style={styles.statValue}>{formatAmount(summary.fineAmount ?? "0.00")}</Text>
+                  <Text style={styles.statLabel}>غرامات الفترة</Text>
+                </View>
+              </View>
               <View style={[styles.statCard, styles.statCardPurple]}>
                 <Text style={styles.statValue}>{formatAmount(summary.totalCommission)}</Text>
-                <Text style={styles.statLabel}>العمولة المستحقة</Text>
-                <Text style={styles.statDetail}>غير المسددة ضمن الفترة المحددة.</Text>
+                <Text style={styles.statLabel}>المبلغ المترتب</Text>
+                <Text style={styles.statDetail}>عمولات غير مسددة + غرامات − تعويضات ضمن الفترة.</Text>
               </View>
             </View>
 

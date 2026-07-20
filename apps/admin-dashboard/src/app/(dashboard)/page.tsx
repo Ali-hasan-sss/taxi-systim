@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { DriverFinesModal } from "../../components/driver-fines-modal";
 import { api, type AdminDashboardStats } from "../../lib/api";
 
 type KpiIconProps = React.SVGProps<SVGSVGElement>;
@@ -19,6 +20,14 @@ const CommissionIcon = (props: KpiIconProps) => (
     <rect x="3" y="5" width="18" height="14" rx="2" />
     <path d="M7 9h4" />
     <path d="M7 13h10" />
+  </svg>
+);
+
+const FineIcon = (props: KpiIconProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M12 3 4.5 6.5v5.2c0 4.6 3.2 8.8 7.5 9.8 4.3-1 7.5-5.2 7.5-9.8V6.5L12 3Z" />
+    <path d="M12 8v5" />
+    <path d="M12 16h.01" />
   </svg>
 );
 
@@ -112,31 +121,43 @@ function buildKpiCards(stats: AdminDashboardStats) {
       title: "إيرادات اليوم",
       value: formatSyrianMoney(stats.revenueToday),
       diff: `${stats.completedOrdersToday} رحلة مكتملة · عمولة ${formatSyrianMoney(stats.commissionToday)}`,
-      icon: ProfitIcon
+      icon: ProfitIcon,
+      clickable: false
     },
     {
       title: "العمولات غير المسددة",
       value: formatSyrianMoney(stats.dueCommission),
-      diff: "مستحق على السائقين",
-      icon: CommissionIcon
+      diff: `يشمل الغرامات · تعويضات ${formatSyrianMoney(stats.compensationAmount ?? "0")}`,
+      icon: CommissionIcon,
+      clickable: false
+    },
+    {
+      title: "مجموع الغرامات",
+      value: formatSyrianMoney(stats.fineAmount ?? "0"),
+      diff: "اضغط لعرض سجل الغرامات",
+      icon: FineIcon,
+      clickable: true
     },
     {
       title: "السائقون النشطون",
       value: String(stats.activeDriversOnline),
       diff: `من ${stats.totalDrivers} سائق مسجّل`,
-      icon: DriversIcon
+      icon: DriversIcon,
+      clickable: false
     },
     {
       title: "الموظفون",
       value: String(stats.employeesTotal),
       diff: `${stats.employeesByRole.coordinator} منسق · ${stats.employeesByRole.driver} سائق · ${stats.employeesByRole.admin} أدمن`,
-      icon: EmployeesIcon
+      icon: EmployeesIcon,
+      clickable: false
     },
     {
       title: "الرحلات النشطة",
       value: String(stats.activeTrips),
       diff: "قيد التنفيذ الآن",
-      icon: TripsIcon
+      icon: TripsIcon,
+      clickable: false
     }
   ];
 }
@@ -144,8 +165,10 @@ function buildKpiCards(stats: AdminDashboardStats) {
 export default function DashboardPage() {
   const router = useRouter();
   const [name, setName] = useState("المدير");
+  const [token, setToken] = useState("");
   const [stats, setStats] = useState<AdminDashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [finesLedgerOpen, setFinesLedgerOpen] = useState(false);
 
   useEffect(() => {
     const restore = async () => {
@@ -156,6 +179,7 @@ export default function DashboardPage() {
       }
       try {
         const parsed = JSON.parse(raw) as { accessToken: string };
+        setToken(parsed.accessToken);
         const [me, dashboardStats] = await Promise.all([
           api.me(parsed.accessToken),
           api.getDashboardStats(parsed.accessToken)
@@ -174,6 +198,12 @@ export default function DashboardPage() {
 
   const welcome = useMemo(() => `مرحبًا، ${name}`, [name]);
   const kpi = useMemo(() => (stats ? buildKpiCards(stats) : []), [stats]);
+
+  const openFinesLedger = () => setFinesLedgerOpen(true);
+  const handleSessionExpired = () => {
+    localStorage.removeItem("taxi_admin_session");
+    router.replace("/login");
+  };
 
   if (loading) {
     return (
@@ -197,8 +227,8 @@ export default function DashboardPage() {
       <section className="dashboard-kpi-grid">
         {kpi.map((item) => {
           const Icon = item.icon;
-          return (
-            <article key={item.title} className="card dashboard-kpi">
+          const content = (
+            <>
               <div className="dashboard-kpi__head">
                 <p className="dashboard-kpi__label">{item.title}</p>
                 <span className="dashboard-kpi__icon" aria-hidden>
@@ -207,6 +237,26 @@ export default function DashboardPage() {
               </div>
               <h3 className="dashboard-kpi__value">{item.value}</h3>
               <p className="dashboard-kpi__diff">{item.diff}</p>
+            </>
+          );
+
+          if (item.clickable) {
+            return (
+              <button
+                key={item.title}
+                type="button"
+                className="card dashboard-kpi dashboard-kpi--clickable"
+                onClick={openFinesLedger}
+                aria-label="عرض سجل الغرامات"
+              >
+                {content}
+              </button>
+            );
+          }
+
+          return (
+            <article key={item.title} className="card dashboard-kpi">
+              {content}
             </article>
           );
         })}
@@ -224,6 +274,17 @@ export default function DashboardPage() {
             <li>
               <span>عمولات غير مسددة</span>
               <strong>{stats ? formatSyrianMoney(stats.dueCommission) : "—"}</strong>
+            </li>
+            <li>
+              <button
+                type="button"
+                className="dashboard-snapshot__btn"
+                onClick={openFinesLedger}
+                aria-label="عرض سجل الغرامات"
+              >
+                <span>مجموع الغرامات</span>
+                <strong>{stats ? formatSyrianMoney(stats.fineAmount ?? "0") : "—"}</strong>
+              </button>
             </li>
             <li>
               <span>سائقون متصلون</span>
@@ -257,6 +318,15 @@ export default function DashboardPage() {
           </div>
         </article>
       </section>
+
+      {finesLedgerOpen && token ? (
+        <DriverFinesModal
+          open={finesLedgerOpen}
+          token={token}
+          onClose={() => setFinesLedgerOpen(false)}
+          onSessionExpired={handleSessionExpired}
+        />
+      ) : null}
     </div>
   );
 }

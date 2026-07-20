@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Bell } from "lucide-react";
+import { DriverFinesModal } from "../../../../components/driver-fines-modal";
 import {
   api,
   type DriverCoordinatorOption,
@@ -109,7 +110,9 @@ export default function EmployeeDetailPage() {
     completedOrdersCount: 0,
     completedOrdersAmount: "0.00",
     totalCommissionAmount: "0.00",
-    dueCommissionAmount: "0.00"
+    dueCommissionAmount: "0.00",
+    compensationAmount: "0.00",
+    fineAmount: "0.00"
   });
   const [draftFrom, setDraftFrom] = useState(today);
   const [draftTo, setDraftTo] = useState(today);
@@ -129,6 +132,11 @@ export default function EmployeeDetailPage() {
   const [compensationAmount, setCompensationAmount] = useState("");
   const [compensationNotes, setCompensationNotes] = useState("");
   const [recordingCompensation, setRecordingCompensation] = useState(false);
+  const [fineOpen, setFineOpen] = useState(false);
+  const [fineAmount, setFineAmount] = useState("");
+  const [fineNotes, setFineNotes] = useState("");
+  const [recordingFine, setRecordingFine] = useState(false);
+  const [finesLedgerOpen, setFinesLedgerOpen] = useState(false);
 
   const canViewOrders = profile?.role === "DRIVER" || profile?.role === "COORDINATOR";
   const driverId = profile?.driver?.id ?? null;
@@ -200,7 +208,9 @@ export default function EmployeeDetailPage() {
           completedOrdersCount: page.summary.completedOrdersCount,
           completedOrdersAmount: page.summary.completedOrdersAmount,
           totalCommissionAmount: page.summary.totalCommissionAmount,
-          dueCommissionAmount: page.summary.adjustedDueCommissionAmount
+          dueCommissionAmount: page.summary.adjustedDueCommissionAmount,
+          compensationAmount: page.summary.compensationAmount ?? "0.00",
+          fineAmount: page.summary.fineAmount ?? "0.00"
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "تعذر تحميل تقرير الطلبات";
@@ -336,17 +346,22 @@ export default function EmployeeDetailPage() {
 
   const settleAllInPeriod = async () => {
     if (!token || !driverId) return;
-    if (!confirm("تسديد كل العمولات المستحقة ضمن الفترة المحددة؟")) return;
+    if (!confirm("تسديد كل العمولات والغرامات المستحقة ضمن الفترة المحددة؟")) return;
     setSettlingAll(true);
     setError(null);
     try {
-      await api.settleFilteredCommissions(token, {
+      const result = await api.settleFilteredCommissions(token, {
         from: filters.from,
         to: filters.to,
         driverId,
         coordinatorId: reportCoordinatorId || undefined
       });
-      setNotice("تم تنفيذ التسديد الجماعي للفترة.");
+      const finesPaidCount = result.finesPaidCount ?? 0;
+      setNotice(
+        `تم تنفيذ التسديد الجماعي للفترة` +
+          (finesPaidCount > 0 ? ` (شمل ${finesPaidCount} غرامة)` : "") +
+          "."
+      );
       await Promise.all([loadProfile(), loadReport()]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر التسديد الجماعي";
@@ -390,6 +405,39 @@ export default function EmployeeDetailPage() {
       setError(message);
     } finally {
       setRecordingCompensation(false);
+    }
+  };
+
+  const submitFine = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!token || !driverId) return;
+    const amount = Number(fineAmount.replace(",", ".").trim());
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("أدخل قيمة غرامة صالحة.");
+      return;
+    }
+    setRecordingFine(true);
+    setError(null);
+    try {
+      await api.recordDriverFine(token, {
+        driverId,
+        amount,
+        notes: fineNotes.trim() || undefined
+      });
+      setNotice("تم تسجيل الغرامة.");
+      setFineOpen(false);
+      setFineAmount("");
+      setFineNotes("");
+      await Promise.all([loadProfile(), loadReport()]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر تسجيل الغرامة";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setRecordingFine(false);
     }
   };
 
@@ -469,9 +517,14 @@ export default function EmployeeDetailPage() {
               حذف
             </button>
             {profile.role === "DRIVER" && driverId ? (
-              <button type="button" className="btn btn-sm btn-primary" onClick={() => setCompensationOpen(true)}>
-                إضافة تعويض
-              </button>
+              <>
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => setCompensationOpen(true)}>
+                  إضافة تعويض
+                </button>
+                <button type="button" className="btn btn-sm" onClick={() => setFineOpen(true)}>
+                  إضافة غرامة
+                </button>
+              </>
             ) : null}
           </div>
         </div>
@@ -595,8 +648,22 @@ export default function EmployeeDetailPage() {
                 </div>
                 <div className={styles.statTile}>
                   <span className={styles.statValue}>{formatMoney(summary.dueCommissionAmount)}</span>
-                  <span className={styles.statLabel}>عمولة مستحقة (بعد التعويض)</span>
+                  <span className={styles.statLabel}>المبلغ المترتب</span>
                 </div>
+                <div className={styles.statTile}>
+                  <span className={styles.statValue}>{formatMoney(summary.compensationAmount)}</span>
+                  <span className={styles.statLabel}>تعويضات الفترة</span>
+                </div>
+                <button
+                  type="button"
+                  className={`${styles.statTile} ${styles.statTileClickable}`}
+                  onClick={() => setFinesLedgerOpen(true)}
+                  aria-label="عرض سجل الغرامات"
+                >
+                  <span className={styles.statValue}>{formatMoney(summary.fineAmount)}</span>
+                  <span className={styles.statLabel}>غرامات الفترة</span>
+                  <span className={styles.statHint}>اضغط لعرض السجل</span>
+                </button>
               </>
             ) : null}
           </div>
@@ -730,6 +797,57 @@ export default function EmployeeDetailPage() {
             </form>
           </div>
         </div>
+      ) : null}
+
+      {fineOpen && driverId ? (
+        <div className="modal-backdrop" onClick={() => !recordingFine && setFineOpen(false)} role="presentation">
+          <div className="card modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="modal-panel__header">
+              <h3>إضافة غرامة للسائق</h3>
+              <button type="button" className="btn btn-ghost" onClick={() => setFineOpen(false)}>
+                إغلاق
+              </button>
+            </div>
+            <form className="modal-form" onSubmit={submitFine}>
+              <input
+                className="input-styled"
+                value={fineAmount}
+                onChange={(e) => setFineAmount(e.target.value)}
+                placeholder="قيمة الغرامة"
+                inputMode="decimal"
+                required
+              />
+              <textarea
+                className="input-styled"
+                value={fineNotes}
+                onChange={(e) => setFineNotes(e.target.value)}
+                placeholder="ملاحظات (اختياري)"
+                rows={3}
+              />
+              <div className="modal-form__actions">
+                <button type="submit" className="btn btn-primary" disabled={recordingFine}>
+                  {recordingFine ? "جاري الحفظ..." : "تسجيل الغرامة"}
+                </button>
+                <button type="button" className="btn" onClick={() => setFineOpen(false)}>
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {finesLedgerOpen && token && driverId ? (
+        <DriverFinesModal
+          open={finesLedgerOpen}
+          token={token}
+          driverId={driverId}
+          from={filters.from}
+          to={filters.to}
+          onClose={() => setFinesLedgerOpen(false)}
+          onSessionExpired={handleSessionExpired}
+          onSettled={() => void Promise.all([loadProfile(), loadReport()])}
+        />
       ) : null}
     </div>
   );

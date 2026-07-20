@@ -189,6 +189,7 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="archive" options={{ href: null }} />
       <Tabs.Screen name="web-inquiries" options={{ href: null }} />
+      <Tabs.Screen name="customers" options={{ href: null }} />
       <Tabs.Screen name="reports" options={{ href: null }} />
     </Tabs>
     <CoordinatorCreateOrderModal

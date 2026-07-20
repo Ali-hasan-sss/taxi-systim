@@ -26,12 +26,24 @@ export function setupDriverOrderPushHandlers(): () => void {
     const type = pushType(data);
 
     if (type === "CHAT_MESSAGE") {
-      if (AppState.currentState !== "active") {
-        const roomId = data.roomId;
-        if (typeof roomId === "string") {
-          useDriverStore.getState().incrementUnreadChat(roomId);
-        }
-        void playChatMessageSound();
+      const roomId = data.roomId;
+      const messageId = data.messageId;
+      if (typeof roomId === "string") {
+        const senderName = typeof data.senderName === "string" ? data.senderName : "مرسل";
+        const body = typeof data.body === "string" ? data.body : null;
+        const hasImage = data.hasImage === true;
+        const hasVoice = data.hasVoice === true;
+        const counted = useDriverStore.getState().notifyIncomingChatMessage(
+          roomId,
+          typeof messageId === "string" ? messageId : `push:${roomId}:${n.request.identifier}`,
+          {
+            senderName,
+            body,
+            imageUrl: hasImage ? "push" : null,
+            hasVoice
+          }
+        );
+        if (counted) void playChatMessageSound();
       }
       return;
     }

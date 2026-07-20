@@ -44,6 +44,8 @@ export interface DriverOrderStats {
   commissionDueTodaySyria: number;
   /** إجمالي العمولات غير المسددة للسائق */
   unpaidCommissionAmount: number;
+  /** مجموع الغرامات المسجّلة على السائق */
+  fineAmount: number;
   summaryDaySyria?: string;
 }
 
@@ -137,7 +139,43 @@ export async function fetchDriverOrderStats(accessToken: string): Promise<Driver
     commissionDueTodaySyria:
       typeof data.commissionDueTodaySyria === "number" ? data.commissionDueTodaySyria : 0,
     unpaidCommissionAmount: typeof data.unpaidCommissionAmount === "number" ? data.unpaidCommissionAmount : 0,
+    fineAmount: typeof data.fineAmount === "number" ? data.fineAmount : 0,
     summaryDaySyria: typeof data.summaryDaySyria === "string" ? data.summaryDaySyria : undefined
+  };
+}
+
+export interface DriverFineRow {
+  id: string;
+  amount: string;
+  reason: string;
+  notes: string | null;
+  createdAt: string;
+  createdByName: string | null;
+}
+
+export interface DriverFinesLedger {
+  driver: { id: string; fullName: string; phone: string | null } | null;
+  from: string | null;
+  to: string | null;
+  totalAmount: string;
+  count: number;
+  rows: DriverFineRow[];
+}
+
+export async function fetchDriverFines(accessToken: string): Promise<DriverFinesLedger> {
+  const res = await driverFetchWithRefresh(`/orders/driver/fines?t=${Date.now()}`, { cache: "no-store" }, accessToken);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر تحميل سجل الغرامات");
+  }
+  const data = (await res.json()) as Partial<DriverFinesLedger>;
+  return {
+    driver: data.driver ?? null,
+    from: typeof data.from === "string" ? data.from : null,
+    to: typeof data.to === "string" ? data.to : null,
+    totalAmount: typeof data.totalAmount === "string" ? data.totalAmount : "0.00",
+    count: typeof data.count === "number" ? data.count : 0,
+    rows: Array.isArray(data.rows) ? data.rows : []
   };
 }
 
@@ -211,6 +249,9 @@ export interface DriverOrdersReportSummary {
   orderCount: number;
   totalAmount: string;
   totalCommission: string;
+  dueCommissionAmount?: string;
+  fineAmount?: string;
+  compensationAmount?: string;
   from: string;
   to: string;
 }
@@ -377,6 +418,11 @@ export async function driverOrdersReport(
       orderCount: typeof data.summary?.orderCount === "number" ? data.summary.orderCount : 0,
       totalAmount: typeof data.summary?.totalAmount === "string" ? data.summary.totalAmount : "0.00",
       totalCommission: typeof data.summary?.totalCommission === "string" ? data.summary.totalCommission : "0.00",
+      dueCommissionAmount:
+        typeof data.summary?.dueCommissionAmount === "string" ? data.summary.dueCommissionAmount : "0.00",
+      fineAmount: typeof data.summary?.fineAmount === "string" ? data.summary.fineAmount : "0.00",
+      compensationAmount:
+        typeof data.summary?.compensationAmount === "string" ? data.summary.compensationAmount : "0.00",
       from: typeof data.summary?.from === "string" ? data.summary.from : "",
       to: typeof data.summary?.to === "string" ? data.summary.to : ""
     }

@@ -43,29 +43,40 @@ export function ChatVoiceMicButton({
     ...RecordingPresets.HIGH_QUALITY,
     directory: "document"
   });
-  const recorderState = useAudioRecorderState(recorder, 200);
   const [active, setActive] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [permissionReady, setPermissionReady] = useState(false);
+  const recorderState = useAudioRecorderState(recorder, active ? 200 : 2000);
   const cancellingRef = useRef(false);
+  const activeRef = useRef(false);
   const finishingRef = useRef(false);
   const sendingRef = useRef(false);
+  const onSendRef = useRef(onSend);
+  const onErrorRef = useRef(onError);
+
+  onSendRef.current = onSend;
+  onErrorRef.current = onError;
+  activeRef.current = active;
 
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       try {
         const status = await AudioModule.requestRecordingPermissionsAsync();
+        if (cancelled) return;
         if (!status.granted) {
-          onError("يجب السماح بالوصول للميكروفون");
+          onErrorRef.current("يجب السماح بالوصول للميكروفون");
           return;
         }
-        await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
         setPermissionReady(true);
       } catch {
-        onError("تعذر تجهيز الميكروفون");
+        if (!cancelled) onErrorRef.current("تعذر تجهيز الميكروفون");
       }
     })();
-  }, [onError]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const finishRecording = useCallback(
     async (cancelled: boolean) => {
@@ -83,47 +94,48 @@ export function ChatVoiceMicButton({
 
         if (cancelled) return;
         if (durationMs < MIN_VOICE_MS) {
-          onError("التسجيل قصير جدًا");
+          onErrorRef.current("التسجيل قصير جدًا");
           return;
         }
         const uri = recorder.uri;
         if (!uri) {
-          onError("لم يُحفظ التسجيل");
+          onErrorRef.current("لم يُحفظ التسجيل");
           return;
         }
 
         sendingRef.current = true;
         try {
-          await onSend(uri, durationMs);
+          await onSendRef.current(uri, durationMs);
         } finally {
           sendingRef.current = false;
         }
       } catch {
-        onError("تعذر إيقاف التسجيل");
+        onErrorRef.current("تعذر إيقاف التسجيل");
       } finally {
         finishingRef.current = false;
       }
     },
-    [onError, onSend, recorder, recorderState.durationMillis, recorderState.isRecording]
+    [recorder, recorderState.durationMillis, recorderState.isRecording]
   );
 
   const startRecording = useCallback(async () => {
     if (!permissionReady || disabled || sendingRef.current || finishingRef.current) return;
     try {
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
       cancellingRef.current = false;
       setCancelling(false);
       setActive(true);
     } catch {
-      onError("تعذر بدء التسجيل");
+      onErrorRef.current("تعذر بدء التسجيل");
       setActive(false);
     }
-  }, [disabled, onError, permissionReady, recorder]);
+  }, [disabled, permissionReady, recorder]);
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: () => active,
+      onMoveShouldSetPanResponder: () => activeRef.current,
       onPanResponderMove: (_evt, gesture) => {
         const cancel = gesture.dx < -CANCEL_DRAG_PX;
         cancellingRef.current = cancel;
@@ -182,7 +194,7 @@ export function ChatVoiceMicButton({
           void startRecording();
         }}
         onPressOut={() => {
-          if (!active) return;
+          if (!activeRef.current) return;
           void finishRecording(cancellingRef.current);
         }}
         accessibilityLabel="تسجيل رسالة صوتية"

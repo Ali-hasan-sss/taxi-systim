@@ -48,6 +48,21 @@ enum OrderSource {
   WEB_PUBLIC
 }
 
+/** نوع آلية العرض */
+enum PromotionChannel {
+  /** عبر رابط الويب (?promo=CODE) */
+  WEB_LINK
+  /** عند بلوغ عدد طلبات الزبون للعتبة */
+  LOYALTY
+}
+
+enum PromotionRewardType {
+  /** خصم مبلغ ثابت من الأجرة */
+  FIXED_DISCOUNT
+  /** طلب مجاني (خصم كامل الأجرة) */
+  FREE_ORDER
+}
+
 enum CommissionType {
   PERCENTAGE
   FIXED
@@ -120,10 +135,68 @@ model Coordinator {
   updatedAt  DateTime @updatedAt
 }
 
+/** زبون يُنشأ تلقائيًا من رقم الهاتف عند إنشاء الطلب */
+model Customer {
+  id          String    @id @default(cuid())
+  /** رقم موحّد للمطابقة (مثل 9639…) */
+  phone       String    @unique
+  name        String?
+  ordersCount Int       @default(0)
+  lastOrderAt DateTime?
+  orders      Order[]
+  promoRedemptions PromotionRedemption[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([ordersCount])
+  @@index([lastOrderAt])
+}
+
+/** عروض خصم يضيفها المدير للزبائن */
+model Promotion {
+  id              String               @id @default(cuid())
+  title           String
+  description     String?
+  channel         PromotionChannel
+  rewardType      PromotionRewardType
+  /** عتبة عدد الطلبات (مثلاً كل 5 طلبات) */
+  ordersThreshold Int
+  /** مبلغ الخصم عند FIXED_DISCOUNT */
+  discountAmount  Decimal?             @db.Decimal(10, 2)
+  /** رمز العرض لرابط الويب — مطلوب لـ WEB_LINK */
+  code            String?              @unique
+  isActive        Boolean              @default(true)
+  startsAt        DateTime?
+  endsAt          DateTime?
+  createdByUserId String?
+  redemptions     PromotionRedemption[]
+  orders          Order[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([isActive, channel])
+}
+
+model PromotionRedemption {
+  id             String     @id @default(cuid())
+  promotionId    String
+  customerId     String
+  orderId        String     @unique
+  discountAmount Decimal    @db.Decimal(10, 2)
+  milestoneCount Int
+  promotion      Promotion  @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  customer       Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order          Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt      DateTime   @default(now())
+
+  @@index([promotionId, customerId])
+}
+
 model Order {
   id               String       @id @default(cuid())
   customerName     String
   customerPhone    String?
+  customerId       String?
   pickupAddress    String
   dropoffAddress   String
   pickupLat        Float?
@@ -136,6 +209,13 @@ model Order {
   /** null للطلبات الواردة من الويب قبل بثها لغرفة السائقين */
   driversNotifiedAt DateTime?
   amount           Decimal      @db.Decimal(10, 2)
+  /** الأجرة قبل الخصم الترويجي */
+  originalAmount   Decimal?     @db.Decimal(10, 2)
+  /** قيمة الخصم المطبّق على الزبون */
+  discountAmount   Decimal      @default(0) @db.Decimal(10, 2)
+  promotionId      String?
+  /** متى سُجّل تعويض السائق عن الخصم */
+  promoCompensatedAt DateTime?
   broadcastTarget  OrderBroadcastTarget @default(ALL)
   status           OrderStatus  @default(PENDING)
   driverId         String?
@@ -148,12 +228,18 @@ model Order {
   customerInfoSentAt DateTime?
   /** تاريخ إرسال الفاتورة للزبون عبر واتساب (منع الإرسال المكرر) */
   invoiceSentAt      DateTime?
+  customer         Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  promotion        Promotion?   @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  promoRedemption  PromotionRedemption?
   driver           Driver?      @relation(fields: [driverId], references: [id], onDelete: SetNull)
   coordinator      Coordinator  @relation("CreatedByCoordinator", fields: [coordinatorId], references: [id], onDelete: Restrict)
   commission       Commission?
   chatRoom         ChatRoom?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
+
+  @@index([customerId])
+  @@index([promotionId])
 }
 
 model ChatRoom {

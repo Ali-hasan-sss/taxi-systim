@@ -154,6 +154,22 @@
   border: 1px solid var(--brand-card-border);
 }
 
+.statTileClickable {
+  cursor: pointer;
+  text-align: right;
+  width: 100%;
+  font: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.statTileClickable:hover,
+.statTileClickable:focus-visible {
+  border-color: #f59e0b;
+  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.14);
+  outline: none;
+  transform: translateY(-1px);
+}
+
 .statValue {
   display: block;
   font-size: 1.25rem;
@@ -167,6 +183,14 @@
   font-size: 12px;
   font-weight: 700;
   color: var(--brand-text-muted);
+}
+
+.statHint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #b45309;
 }
 
 .filtersRow {

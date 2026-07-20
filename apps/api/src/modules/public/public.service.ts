@@ -4,6 +4,12 @@ import { OrderSource, Role } from "@prisma/client";
 import { socketEvents } from "@taxi/config";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
+import { linkCustomerToNewOrder } from "../customers/customer-phone";
+import {
+  applyPendingPromotionOnAmount,
+  findEligiblePromotion,
+  getCustomerOrdersCount
+} from "../promotions/promotion-apply";
 import { orderToSocketPayload } from "../orders/order-socket-payload";
 import type { PublicTaxiRequestDto, PublishWebInquiryDto } from "./public.dto";
 
@@ -50,17 +56,33 @@ export const publicBookingService = {
     const phone = payload.customerPhone.trim();
     const customerName = payload.customerName?.trim() || `زبون ${phone}`;
 
-    return prisma.order.create({
-      data: {
-        customerName,
-        customerPhone: phone,
-        pickupAddress: payload.pickupAddress.trim(),
-        dropoffAddress: payload.dropoffAddress.trim(),
-        notes: payload.notes?.trim() || undefined,
-        amount: 0,
-        source: OrderSource.WEB_PUBLIC,
-        coordinatorId
-      }
+    return prisma.$transaction(async (tx) => {
+      const customerId = await linkCustomerToNewOrder(tx, {
+        phone,
+        name: payload.customerName
+      });
+      const ordersCount = customerId ? await getCustomerOrdersCount(tx, customerId) : 0;
+      const promotion = await findEligiblePromotion(tx, {
+        customerId,
+        ordersCount,
+        channel: "WEB",
+        promoCode: payload.promoCode
+      });
+
+      return tx.order.create({
+        data: {
+          customerName,
+          customerPhone: phone,
+          customerId: customerId ?? undefined,
+          promotionId: promotion?.id,
+          pickupAddress: payload.pickupAddress.trim(),
+          dropoffAddress: payload.dropoffAddress.trim(),
+          notes: payload.notes?.trim() || undefined,
+          amount: 0,
+          source: OrderSource.WEB_PUBLIC,
+          coordinatorId
+        }
+      });
     });
   },
 
@@ -111,18 +133,21 @@ export const publicBookingService = {
       create: { userId: publisherUserId }
     });
 
-    return prisma.order.update({
-      where: { id: orderId },
-      data: {
-        amount,
-        coordinatorId: publisher.id,
-        vehicleRequirement: payload.vehicleRequirement ?? order.vehicleRequirement,
-        broadcastTarget: payload.broadcastTarget ?? order.broadcastTarget,
-        pickupLat: payload.pickupLat ?? order.pickupLat,
-        pickupLng: payload.pickupLng ?? order.pickupLng,
-        source: OrderSource.APP,
-        driversNotifiedAt: new Date()
-      }
+    return prisma.$transaction(async (tx) => {
+      const applied = await applyPendingPromotionOnAmount(tx, { orderId, amount });
+      return tx.order.update({
+        where: { id: orderId },
+        data: {
+          amount: applied.amount,
+          coordinatorId: publisher.id,
+          vehicleRequirement: payload.vehicleRequirement ?? order.vehicleRequirement,
+          broadcastTarget: payload.broadcastTarget ?? order.broadcastTarget,
+          pickupLat: payload.pickupLat ?? order.pickupLat,
+          pickupLng: payload.pickupLng ?? order.pickupLng,
+          source: OrderSource.APP,
+          driversNotifiedAt: new Date()
+        }
+      });
     });
   },
 

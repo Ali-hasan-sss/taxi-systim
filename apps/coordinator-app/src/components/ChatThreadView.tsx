@@ -584,7 +584,7 @@ export function ChatThreadView({
     }
   };
 
-  const handleVoiceSend = async (uri: string, durationMs: number) => {
+  const handleVoiceSend = useCallback(async (uri: string, durationMs: number) => {
     setSending(true);
     try {
       const msg = await uploadChatVoice(roomId, uri, durationMs);
@@ -595,7 +595,11 @@ export function ChatThreadView({
     } finally {
       setSending(false);
     }
-  };
+  }, [roomId, scrollToBottom]);
+
+  const handleVoiceError = useCallback((message: string) => {
+    feedback.error(message);
+  }, []);
 
   const renderItem = ({ item }: { item: ChatMessageRow }) => {
     const mine = !!myUserId && item.sender.id === myUserId;
@@ -668,7 +672,7 @@ export function ChatThreadView({
           overlayTextColor={theme.colors.textInverse}
           dangerColor={theme.colors.danger}
           onSend={handleVoiceSend}
-          onError={(message) => feedback.error(message)}
+          onError={handleVoiceError}
         />
         <TextInput
         style={styles.input}

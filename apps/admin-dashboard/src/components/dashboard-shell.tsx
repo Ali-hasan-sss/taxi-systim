@@ -8,6 +8,8 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
   "/": { title: "لوحة التحكم", subtitle: "نظرة عامة على العمليات والأداء" },
   "/orders-room": { title: "غرفة الطلبات", subtitle: "مراقبة مباشرة لحالات الطلبات والسائقين" },
   "/orders": { title: "جميع الطلبات", subtitle: "جدول الطلبات مع البحث والتعديل والحذف" },
+  "/customers": { title: "الزبائن", subtitle: "قائمة الزبائن حسب النشاط والانقطاع" },
+  "/promotions": { title: "العروض", subtitle: "خصومات الولاء وروابط الويب للزبائن" },
   "/chat": { title: "المحادثات", subtitle: "المحادثة العامة ومحادثات الطلبات" },
   "/employees": { title: "الموظفون", subtitle: "إدارة المستخدمين والأدوار" },
   "/drivers-distribution": { title: "توزع السائقين", subtitle: "خريطة مباشرة لمواقع السائقين وإجراءات سريعة" },
@@ -30,6 +32,10 @@ export const DashboardShell = ({ children }: { children: React.ReactNode }) => {
         ? titles["/orders-room"]
         : pathname === "/orders" || pathname.startsWith("/orders/")
           ? titles["/orders"]
+      : pathname.startsWith("/customers")
+        ? titles["/customers"]
+      : pathname.startsWith("/promotions")
+        ? titles["/promotions"]
       : pathname.startsWith("/employees")
       ? titles["/employees"]
       : pathname.startsWith("/drivers-distribution")

@@ -2,8 +2,11 @@ import type { NextFunction, Response } from "express";
 import {
   financeExportQueryDto,
   financeReportQueryDto,
+  listDriverFinesQueryDto,
   recordDriverCompensationDto,
+  recordDriverFineDto,
   recordPaymentDto,
+  settleDriverFineDto,
   settleFilteredCommissionsDto,
   settleOrderCommissionDto
 } from "./accounting.dto";
@@ -50,6 +53,36 @@ export const accountingController = {
       const dto = recordDriverCompensationDto.parse(req.body);
       const result = await accountingService.recordDriverCompensation(dto.driverId, dto.amount, req.auth!.userId, dto.notes);
       res.status(201).json({ message: "تم تسجيل التعويض", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async recordDriverFine(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = recordDriverFineDto.parse(req.body);
+      const result = await accountingService.recordDriverFine(dto.driverId, dto.amount, req.auth!.userId, dto.notes);
+      res.status(201).json({ message: "تم تسجيل الغرامة", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listDriverFines(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const query = listDriverFinesQueryDto.parse(req.query);
+      const data = await accountingService.listDriverFines(query);
+      res.json(data);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async settleDriverFine(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = settleDriverFineDto.parse(req.body);
+      const result = await accountingService.settleDriverFine(dto.fineId, req.auth!.userId, dto.notes);
+      res.status(201).json({ message: "تم تسديد الغرامة", ...result });
     } catch (err) {
       next(err);
     }
