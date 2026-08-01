@@ -125,11 +125,22 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    const onForceOffline = () => {
+      setOnline(false);
+      if (s.connected) {
+        s.emit("driver:offline", myDriverId);
+        s.disconnect();
+      }
+      setSocketConnected(false);
+    };
+
     s.on(socketEvents.NEW_ORDER, onNewOrder);
+    s.on(socketEvents.DRIVER_FORCE_OFFLINE, onForceOffline);
     return () => {
       s.off(socketEvents.NEW_ORDER, onNewOrder);
+      s.off(socketEvents.DRIVER_FORCE_OFFLINE, onForceOffline);
     };
-  }, [socket, myDriverId]);
+  }, [socket, myDriverId, setOnline]);
 
   useEffect(() => {
     if (!isOnline || !myDriverId || !socket) return;

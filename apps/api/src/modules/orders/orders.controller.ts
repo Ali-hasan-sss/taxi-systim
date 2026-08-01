@@ -21,7 +21,6 @@ import { AppError } from "../../shared/app-error";
 import { prisma } from "../../shared/prisma";
 import { accountingService } from "../accounting/accounting.service";
 import {
-  broadcastNewOrder,
   dispatchNewPendingOrderToDrivers,
   emitDriverClaimedOrder,
   emitOrderAssigned,
@@ -302,7 +301,14 @@ export const ordersController = {
       const dto = createOrderDto.parse(req.body);
       const order = await ordersService.createOrder(req.auth!.userId, dto);
       const io = req.app.get("io") as Server | undefined;
-      if (io) await dispatchNewPendingOrderToDrivers(io, order);
+      if (io) {
+        if (order.driverId && order.status !== OrderStatus.PENDING) {
+          emitOrderAssigned(io, order);
+          void notifyDriverOrderAssignedPush(order);
+        } else {
+          await dispatchNewPendingOrderToDrivers(io, order);
+        }
+      }
       res.status(201).json(order);
     } catch (e) {
       next(e);
@@ -387,7 +393,10 @@ export const ordersController = {
           ? await ordersService.assignByAdmin(req.params.orderId, body.driverId)
           : await ordersService.assignByCoordinator(req.auth!.userId, req.params.orderId, body.driverId);
       const io = req.app.get("io") as Server | undefined;
-      if (io) emitOrderAssigned(io, order);
+      if (io) {
+        emitPendingOrderCancelled(io, order.id);
+        emitOrderAssigned(io, order);
+      }
       void notifyDriverOrderAssignedPush(order);
       res.json(order);
     } catch (e) {

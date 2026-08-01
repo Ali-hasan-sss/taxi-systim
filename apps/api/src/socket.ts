@@ -289,7 +289,7 @@ export async function getPushTargetDriverUserIdsForNewOrder(
 
   if (driverIds.size === 0) return [];
   const drivers = await prisma.driver.findMany({
-    where: { id: { in: [...driverIds] } },
+    where: { id: { in: [...driverIds] }, user: { isActive: true } },
     select: { userId: true }
   });
   return [...new Set(drivers.map((d) => d.userId))];
@@ -310,6 +310,33 @@ export function emitOrderAssigned(io: Server, order: Order) {
     io.to(`driver:${order.driverId}`).emit(socketEvents.ORDER_ASSIGNED, payload);
   }
   io.emit(socketEvents.ORDER_ASSIGNED, payload);
+}
+
+/** إخراج سائق من غرف البث (تعطيل الحساب أو رفض الاتصال) */
+export async function forceDriverOffline(io: Server, driverDbId: string, opts?: { notifyDriver?: boolean }) {
+  if (!driverDbId) return;
+  memOnline.delete(driverDbId);
+  memLocations.delete(driverDbId);
+  memBusyState.delete(driverDbId);
+  memLastLocationAcceptedAt.delete(driverDbId);
+  await socketWrite(() => redis.hdel("drivers:online", driverDbId));
+  await socketWrite(() => redis.hdel("drivers:locations", driverDbId));
+  try {
+    await prisma.driver.update({ where: { id: driverDbId }, data: { isOnline: false } });
+  } catch {
+    /* تجاهل */
+  }
+  const sockets = await io.in(`driver:${driverDbId}`).fetchSockets();
+  for (const s of sockets) {
+    void s.leave(ROOM_DRIVERS_ONLINE);
+    void s.leave(ROOM_ORDER_VEHICLE_PUBLIC);
+    void s.leave(ROOM_ORDER_VEHICLE_PRIVATE);
+    void s.leave(ROOM_ORDER_VEHICLE_VIP);
+    if (opts?.notifyDriver !== false) {
+      s.emit(socketEvents.DRIVER_FORCE_OFFLINE, { driverId: driverDbId });
+    }
+  }
+  io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_OFFLINE, { driverId: driverDbId });
 }
 
 /** بعد قبول سائق لطلب معلق — نفس حمولة الإسناد ليزيل الطلب من قوائم البقية */
@@ -410,20 +437,31 @@ export const initSocket = (io: Server) => {
 
     socket.on("driver:online", async (driverId: string) => {
       if (typeof driverId !== "string" || !driverId) return;
-      memOnline.set(driverId, true);
-      void socket.join(ROOM_DRIVERS_ONLINE);
       let vehicleKind: VehicleKind | null = null;
       let isBusy = false;
+      let isActive = false;
       try {
         const row = await prisma.driver.findUnique({
           where: { id: driverId },
-          select: { vehicleKind: true, isBusy: true }
+          select: {
+            vehicleKind: true,
+            isBusy: true,
+            user: { select: { isActive: true } }
+          }
         });
-        vehicleKind = row?.vehicleKind ?? null;
-        isBusy = row?.isBusy ?? false;
+        if (!row?.user.isActive) {
+          await forceDriverOffline(io, driverId, { notifyDriver: true });
+          return;
+        }
+        isActive = true;
+        vehicleKind = row.vehicleKind ?? null;
+        isBusy = row.isBusy ?? false;
       } catch {
-        /* تجاهل */
+        return;
       }
+      if (!isActive) return;
+      memOnline.set(driverId, true);
+      void socket.join(ROOM_DRIVERS_ONLINE);
       setDriverBusyState(driverId, isBusy);
       syncOrderVehicleRooms(socket, vehicleKind);
       await socketWrite(() => redis.hset("drivers:online", driverId, "1"));

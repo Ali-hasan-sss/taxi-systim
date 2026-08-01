@@ -66,6 +66,14 @@ export const usersController = {
   async setStatus(req: Request, res: Response) {
     const dto = setStatusDto.parse(req.body);
     const user = await usersService.setStatus(req.params.userId, dto.isActive);
+    if (!dto.isActive && user.role === Role.DRIVER) {
+      const io = req.app.get("io") as Server | undefined;
+      const row = await prisma.driver.findUnique({ where: { userId: user.id }, select: { id: true } });
+      if (io && row?.id) {
+        const { forceDriverOffline } = await import("../../socket");
+        await forceDriverOffline(io, row.id);
+      }
+    }
     res.json(user);
   },
 

@@ -1,7 +1,7 @@
 {
   "name": "@taxi/driver-app",
   "private": true,
-  "version": "1.0.10",
+  "version": "1.0.11",
   "main": "index",
   "scripts": {
     "dev": "expo start --offline",

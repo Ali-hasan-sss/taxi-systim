@@ -100,6 +100,7 @@ async function tokensForUserIds(userIds: string[], roles?: Role[]): Promise<stri
   const users = await prisma.user.findMany({
     where: {
       id: { in: userIds },
+      isActive: true,
       expoPushToken: { not: null },
       ...(roles?.length ? { role: { in: roles } } : {})
     },
@@ -112,9 +113,9 @@ async function tokenForDriverId(driverId: string | null | undefined): Promise<st
   if (!driverId) return null;
   const row = await prisma.driver.findUnique({
     where: { id: driverId },
-    select: { user: { select: { expoPushToken: true, role: true } } }
+    select: { user: { select: { expoPushToken: true, role: true, isActive: true } } }
   });
-  if (!row?.user.expoPushToken || row.user.role !== Role.DRIVER) return null;
+  if (!row?.user.expoPushToken || row.user.role !== Role.DRIVER || !row.user.isActive) return null;
   return row.user.expoPushToken;
 }
 

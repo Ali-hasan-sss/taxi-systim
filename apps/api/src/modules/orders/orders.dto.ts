@@ -12,10 +12,15 @@ export const createOrderDto = z
     vehicleRequirement: z.nativeEnum(OrderVehicleRequirement).default(OrderVehicleRequirement.ANY),
     broadcastTarget: z.nativeEnum(OrderBroadcastTarget).default(OrderBroadcastTarget.ALL),
     pickupLat: z.number().finite().optional(),
-    pickupLng: z.number().finite().optional()
+    pickupLng: z.number().finite().optional(),
+    /** إسناد فوري لسائق معيّن — لا يُبث الطلب لغرفة السائقين */
+    assignToDriverId: z.string().min(1).optional()
   })
   .superRefine((data, ctx) => {
-    if (data.broadcastTarget === OrderBroadcastTarget.NEAREST_THREE) {
+    if (
+      !data.assignToDriverId &&
+      data.broadcastTarget === OrderBroadcastTarget.NEAREST_THREE
+    ) {
       if (data.pickupLat === undefined || data.pickupLng === undefined) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

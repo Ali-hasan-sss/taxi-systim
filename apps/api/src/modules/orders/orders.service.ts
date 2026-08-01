@@ -5,7 +5,8 @@ import {
   OrderSource,
   OrderStatus,
   Prisma,
-  Role
+  Role,
+  type VehicleKind
 } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
@@ -528,7 +529,27 @@ export const ordersService = {
       payload.customerName?.trim() ||
       (payload.customerPhone ? `زبون ${payload.customerPhone.trim()}` : "زبون");
 
+    const assignToDriverId = payload.assignToDriverId?.trim() || undefined;
+
     return prisma.$transaction(async (tx) => {
+      let assignDriver: { id: string; vehicleKind: VehicleKind | null; isBusy: boolean } | null = null;
+
+      if (assignToDriverId) {
+        const driver = await tx.driver.findFirst({
+          where: {
+            id: assignToDriverId,
+            user: { role: Role.DRIVER, isActive: true }
+          },
+          select: { id: true, vehicleKind: true, isBusy: true }
+        });
+        if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
+        if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
+        if (!driverMatchesOrderVehicle(payload.vehicleRequirement, driver.vehicleKind)) {
+          throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة/VIP)", 400);
+        }
+        assignDriver = driver;
+      }
+
       const customerId = await linkCustomerToNewOrder(tx, {
         phone: payload.customerPhone,
         name: payload.customerName
@@ -540,6 +561,7 @@ export const ordersService = {
         channel: "APP"
       });
 
+      const now = new Date();
       const order = await tx.order.create({
         data: {
           customerName,
@@ -556,9 +578,25 @@ export const ordersService = {
           pickupLng: payload.pickupLng,
           coordinatorId: coordinator.id,
           source: OrderSource.APP,
-          driversNotifiedAt: new Date()
+          ...(assignDriver
+            ? {
+                driverId: assignDriver.id,
+                status: OrderStatus.EN_ROUTE_TO_CUSTOMER,
+                acceptedAt: now,
+                driversNotifiedAt: null
+              }
+            : {
+                driversNotifiedAt: now
+              })
         }
       });
+
+      if (assignDriver) {
+        await tx.driver.update({
+          where: { id: assignDriver.id },
+          data: { isBusy: true }
+        });
+      }
 
       if (promotion && customerId) {
         await attachPromotionToOrder(tx, {
@@ -570,7 +608,10 @@ export const ordersService = {
         });
       }
 
-      return tx.order.findFirstOrThrow({ where: { id: order.id } });
+      return tx.order.findFirstOrThrow({
+        where: { id: order.id },
+        include: orderIncludeDriverUser
+      });
     });
   },
 
@@ -1537,8 +1578,11 @@ export const ordersService = {
 
   /** غرفة السائق: طلب قيد التنفيذ فقط إن وُجد، وإلا الطلبات المعلقة المتاحة له (بث). */
   async driverOrderRoom(driverUserId: string) {
-    const driver = await prisma.driver.findUnique({ where: { userId: driverUserId } });
-    if (!driver) {
+    const driver = await prisma.driver.findUnique({
+      where: { userId: driverUserId },
+      include: { user: { select: { isActive: true } } }
+    });
+    if (!driver || !driver.user.isActive) {
       return { inProgress: null, pending: [] };
     }
 
@@ -1565,8 +1609,13 @@ export const ordersService = {
 
   async acceptOrderByDriver(driverUserId: string, orderId: string) {
     return prisma.$transaction(async (tx) => {
-      const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
+      const driver = await tx.driver.findUnique({
+        where: { userId: driverUserId },
+        include: { user: { select: { isActive: true } } }
+      });
       if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+      if (!driver.user.isActive) throw new AppError("حسابك معطّل. تواصل مع الإدارة.", 403);
+      if (!driver.isOnline) throw new AppError("يجب أن تكون متصلاً لاستلام الطلبات من الغرفة", 400);
       if (driver.isBusy) throw new AppError("لديك طلب قيد التنفيذ. أنهِه أولًا.", 400);
 
       const busyOrder = await tx.order.findFirst({

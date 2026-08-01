@@ -981,6 +981,7 @@ export const api = {
       notes?: string;
       broadcastTarget?: OrderBroadcastTarget;
       vehicleRequirement?: OrderVehicleRequirement;
+      assignToDriverId?: string;
     }
   ) {
     const res = await authorizedFetch(

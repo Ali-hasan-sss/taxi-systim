@@ -159,6 +159,12 @@ export const authService = {
     }
     if (!matchedTokenId) throw new AppError("Invalid refresh token", 401);
 
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, role: true, isActive: true }
+    });
+    if (!user || !user.isActive) throw new AppError("User is inactive", 403);
+
     if (isPermanentSessions()) {
       await prisma.refreshToken.update({
         where: { id: matchedTokenId },
@@ -166,7 +172,7 @@ export const authService = {
       });
     }
 
-    const accessToken = signAccess(payload.sub, payload.role);
+    const accessToken = signAccess(user.id, user.role);
     return { accessToken };
   },
 

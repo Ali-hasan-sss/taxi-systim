@@ -557,6 +557,7 @@ export async function coordinatorCreateOrder(
     customerName?: string;
     pickupLat?: number;
     pickupLng?: number;
+    assignToDriverId?: string;
   }
 ): Promise<{
   id: string;

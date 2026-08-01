@@ -14,6 +14,8 @@ export const socketEvents = {
   DRIVER_LOCATION_UPDATED: "DRIVER_LOCATION_UPDATED",
   DRIVER_ONLINE: "DRIVER_ONLINE",
   DRIVER_OFFLINE: "DRIVER_OFFLINE",
+  /** المدير عطّل الحساب — التطبيق يفرض إيقاف الاتصال وإخلاء غرفة الطلبات */
+  DRIVER_FORCE_OFFLINE: "DRIVER_FORCE_OFFLINE",
   /** رسالة محادثة جديدة في غرفة */
   CHAT_MESSAGE: "CHAT_MESSAGE",
   /** الطرف الآخر يكتب */

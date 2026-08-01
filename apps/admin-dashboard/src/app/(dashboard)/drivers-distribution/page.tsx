@@ -499,16 +499,16 @@ export default function DriversDistributionPage() {
     setNotice(null);
 
     try {
-      const created = await api.createOrder(accessToken, {
+      await api.createOrder(accessToken, {
         customerName: form.customerName.trim() || undefined,
         customerPhone: form.customerPhone.trim() || undefined,
         pickupAddress: form.pickupAddress.trim(),
         dropoffAddress: form.dropoffAddress.trim(),
         amount,
         notes: form.notes.trim() || undefined,
-        broadcastTarget: "ALL"
+        broadcastTarget: "ALL",
+        assignToDriverId: modalDriver.driverId
       });
-      await api.assignOrder(accessToken, created.id, modalDriver.driverId);
       setNotice(`تم إنشاء الطلب وإسناده إلى ${modalDriver.fullName}.`);
       setModalDriver(null);
       setOrderModalMode("choose");

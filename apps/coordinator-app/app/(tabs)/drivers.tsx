@@ -18,7 +18,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { io, type Socket } from "socket.io-client";
 import {
-  coordinatorAssignOrder,
   coordinatorCreateOrder,
   coordinatorLiveDrivers,
   getSocketOrigin,
@@ -765,14 +764,14 @@ export default function DriversTab() {
 
     setQuickSubmitting(true);
     try {
-      const created = await coordinatorCreateOrder(session.accessToken, {
+      await coordinatorCreateOrder(session.accessToken, {
         pickupAddress: quickFrom.trim(),
         dropoffAddress: quickTo.trim(),
         customerPhone: quickPhone.trim(),
         amount,
-        broadcastTarget: "ALL"
+        broadcastTarget: "ALL",
+        assignToDriverId: quickDriver.driverId
       });
-      await coordinatorAssignOrder(session.accessToken, created.id, quickDriver.driverId);
       feedback.success(`تم إنشاء الطلب وإسناده إلى ${quickDriver.fullName}.`, "تم الإسناد");
       closeQuickOrder();
       refreshList("refresh");
