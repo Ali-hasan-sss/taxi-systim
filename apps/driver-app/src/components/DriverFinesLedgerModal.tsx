@@ -1,7 +1,6 @@
 import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -12,6 +11,7 @@ import {
 import { fetchDriverFines, type DriverFineRow, type DriverFinesLedger } from "../lib/api";
 import { rtlText } from "../lib/rtl-text";
 import { getDriverSession } from "../lib/session";
+import { DriverLedgerSkeleton } from "./driver-skeletons";
 
 function formatMoney(value: string | number) {
   const n = typeof value === "number" ? value : Number(value);
@@ -29,6 +29,25 @@ function formatDateTime(iso: string) {
   } catch {
     return iso;
   }
+}
+
+function extraNotes(reason: string, notes: string | null) {
+  if (!notes) return null;
+  const trimmed = notes.trim();
+  if (!trimmed) return null;
+  if (trimmed === reason || trimmed === `غرامة سائق: ${reason}` || trimmed === "غرامة سائق") return null;
+  if (trimmed.includes("إلغاء الطلب") && reason.includes("إلغاء الطلب")) return null;
+  return trimmed;
+}
+
+function displayFineReason(item: DriverFineRow) {
+  const reason = item.reason?.trim() || "";
+  const notes = item.notes ?? "";
+  if (reason.includes("إلغاء الطلب") || notes.includes("إلغاء الطلب")) {
+    if (/إلغاء الطلب\s*\(.+\)/.test(reason)) return reason;
+    return "إلغاء الطلب";
+  }
+  return reason || "—";
 }
 
 type Props = {
@@ -132,6 +151,16 @@ export function DriverFinesLedgerModal({ open, onClose, onAuthFailure }: Props) 
       ...rtlText,
       textAlign: "right" as const
     },
+    status: {
+      fontSize: 12,
+      fontWeight: "800" as const,
+      ...rtlText,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 8,
+      overflow: "hidden" as const,
+      marginTop: 2
+    },
     empty: {
       textAlign: "center" as const,
       color: t.colors.textMuted,
@@ -194,14 +223,30 @@ export function DriverFinesLedgerModal({ open, onClose, onAuthFailure }: Props) 
     };
   }, [onAuthFailure, open]);
 
-  const renderRow = ({ item }: { item: DriverFineRow }) => (
-    <View style={styles.row}>
-      <Text style={styles.rowAmount}>{formatMoney(item.amount)}</Text>
-      <Text style={styles.rowReason}>{item.reason}</Text>
-      <Text style={styles.rowMeta}>{formatDateTime(item.createdAt)}</Text>
-      {item.createdByName ? <Text style={styles.rowMeta}>بواسطة: {item.createdByName}</Text> : null}
-    </View>
-  );
+  const renderRow = ({ item }: { item: DriverFineRow }) => {
+    const paid = Boolean(item.isPaid);
+    const reason = displayFineReason(item);
+    const notes = extraNotes(reason, item.notes);
+    return (
+      <View style={styles.row}>
+        <Text style={styles.rowAmount}>{formatMoney(item.amount)}</Text>
+        <Text style={styles.rowReason}>السبب: {reason}</Text>
+        <Text
+          style={[
+            styles.status,
+            paid
+              ? { backgroundColor: theme.colors.successBg, color: theme.colors.successText }
+              : { backgroundColor: theme.colors.dangerBg, color: theme.colors.dangerText }
+          ]}
+        >
+          {paid ? "مسدد" : "غير مسدد"}
+        </Text>
+        {notes ? <Text style={styles.rowMeta}>ملاحظات: {notes}</Text> : null}
+        <Text style={styles.rowMeta}>{formatDateTime(item.createdAt)}</Text>
+        {item.createdByName ? <Text style={styles.rowMeta}>بواسطة: {item.createdByName}</Text> : null}
+      </View>
+    );
+  };
 
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
@@ -209,11 +254,11 @@ export function DriverFinesLedgerModal({ open, onClose, onAuthFailure }: Props) 
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>سجل الغرامات</Text>
-            <Text style={styles.subtitle}>جميع الغرامات المسجّلة على حسابك</Text>
+            <Text style={styles.subtitle}>جميع الغرامات السابقة وحالتها</Text>
           </View>
 
           {loading ? (
-            <ActivityIndicator style={styles.loader} color={theme.colors.primary} />
+            <DriverLedgerSkeleton />
           ) : error ? (
             <Text style={styles.error}>{error}</Text>
           ) : ledger ? (
@@ -224,7 +269,13 @@ export function DriverFinesLedgerModal({ open, onClose, onAuthFailure }: Props) 
                   <Text style={styles.summaryValue}>{ledger.count}</Text>
                 </View>
                 <View style={styles.summaryBox}>
-                  <Text style={styles.summaryLabel}>المجموع</Text>
+                  <Text style={styles.summaryLabel}>غير المسددة</Text>
+                  <Text style={styles.summaryValue}>
+                    {formatMoney(ledger.unpaidAmount ?? "0")}
+                  </Text>
+                </View>
+                <View style={styles.summaryBox}>
+                  <Text style={styles.summaryLabel}>المجموع الكلي</Text>
                   <Text style={styles.summaryValue}>{formatMoney(ledger.totalAmount)}</Text>
                 </View>
               </View>

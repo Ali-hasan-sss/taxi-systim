@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../shared/auth";
+import type { AuthRequest } from "../../shared/auth";
+import { getAppVersionSettings, updateAppVersionSettings } from "../../shared/app-version";
 import { prisma } from "../../shared/prisma";
 
 export const settingsRouter = Router();
@@ -35,4 +37,29 @@ settingsRouter.patch("/commission", requireAuth, requireRole("ADMIN"), async (re
     create: { key: "commission", commissionType, commissionValue }
   });
   res.json(setting);
+});
+
+/**
+ * @openapi
+ * /api/settings/app-versions:
+ *   get:
+ *     tags: [Settings]
+ *     summary: Get required mobile app versions
+ *   patch:
+ *     tags: [Settings]
+ *     summary: Update required mobile app versions
+ */
+settingsRouter.get("/app-versions", requireAuth, requireRole("ADMIN"), async (_req, res) => {
+  const setting = await getAppVersionSettings();
+  res.json(setting);
+});
+
+settingsRouter.patch("/app-versions", requireAuth, requireRole("ADMIN"), async (req: AuthRequest, res) => {
+  try {
+    const setting = await updateAppVersionSettings(req.body ?? {}, req.auth?.userId);
+    res.json(setting);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "فشل تحديث إعدادات النسخ";
+    res.status(400).json({ message });
+  }
 });

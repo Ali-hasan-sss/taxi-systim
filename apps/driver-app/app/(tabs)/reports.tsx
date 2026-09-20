@@ -1,4 +1,4 @@
-import { useTheme, useThemedStyles, type AppTheme } from "@taxi/expo-theme";
+import { themedRefreshProps, useTheme, useThemedStyles, type AppTheme } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -16,6 +16,7 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverOrderCard } from "../../src/components/DriverOrderCard";
+import { DriverReportsSkeleton } from "../../src/components/driver-skeletons";
 import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
 import {
   type DriverOrderRow,
@@ -636,10 +637,7 @@ export default function DriverReportsTab() {
     return (
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
         <DriverScreenBackground>
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>جاري تحميل التقرير…</Text>
-          </View>
+          <DriverReportsSkeleton />
         </DriverScreenBackground>
       </SafeAreaView>
     );
@@ -680,7 +678,13 @@ export default function DriverReportsTab() {
               ? [styles.emptyList, { paddingBottom: listBottomPad }]
               : [styles.list, { paddingBottom: listBottomPad }]
           }
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={theme.colors.primary} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void load(true)}
+              {...themedRefreshProps(theme)}
+            />
+          }
           onEndReached={() => void loadMore()}
           onEndReachedThreshold={0.35}
           ListHeaderComponent={

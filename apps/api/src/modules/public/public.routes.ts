@@ -1,6 +1,7 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { requireAuth, requireRole } from "../../shared/auth";
+import { getPublicAppConfig } from "../../shared/app-version";
 import { orderMutationRateLimit } from "../../shared/rate-limit";
 import { publicController } from "./public.controller";
 
@@ -14,6 +15,18 @@ const publicTaxiRequestRateLimit = rateLimit({
   keyGenerator: (req) => `ip:${req.ip}`,
   handler: (_req, res) => {
     res.status(429).json({ message: "طلبات كثيرة من نفس الشبكة. حاول بعد قليل." });
+  }
+});
+
+publicRouter.get("/app-config", async (_req, res) => {
+  try {
+    const config = await getPublicAppConfig();
+    res.json(config);
+  } catch {
+    res.json({
+      driver: { minVersion: "0.0.0", androidUrl: "", iosUrl: "" },
+      coordinator: { minVersion: "0.0.0", androidUrl: "", iosUrl: "" }
+    });
   }
 });
 

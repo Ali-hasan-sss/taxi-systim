@@ -21,7 +21,15 @@ import {
 import { SYRIA_TIME_ZONE, syriaCalendarDayIso } from "../../shared/syria-time";
 import { getDriverLocationsForNearest } from "../../socket";
 import type { CreateOrderDto } from "./orders.dto";
+import { applyDriverFineInTransaction } from "../accounting/accounting.service";
 import { driverMatchesOrderVehicle } from "./order-vehicle-filter";
+import {
+  assertDriverCanTakeWork,
+  driverDebtHomeCopy,
+  markDriverOfflineInTxIfDebtBlocked,
+  scheduleDriverDebtWorkSync
+} from "../../shared/driver-debt-block";
+import { notifyDriverCompensation, notifyDriverFine } from "../../shared/driver-notifications";
 
 const orderIncludeDriverUser = {
   driver: { include: { user: { select: { fullName: true, phone: true } } } }
@@ -342,6 +350,9 @@ const EN_ROUTE_LIKE: OrderStatus[] = [
   OrderStatus.ARRIVED
 ];
 
+/** غرامة إلغاء الطلب من السائق (ل.س) */
+const DRIVER_SELF_CANCEL_FINE = 100;
+
 /** مقارنة نصية حتى لا يفشل PostgreSQL إن لم تُضف قيمة STUCK للـ enum بعد (قبل migrate). */
 async function countStuckTodaySyriaForCoordinator(coordinatorId: string): Promise<number> {
   const rows = await prisma.$queryRaw<Array<{ c: bigint }>>`
@@ -395,18 +406,24 @@ async function sumCommissionDueTodaySyriaForDriver(driverId: string): Promise<nu
   return Number.isFinite(n) ? n : 0;
 }
 
-/** إجمالي العمولات غير المسددة + الغرامات − التعويضات (رصيد الدين الحالي للسائق). */
-async function sumUnpaidCommissionForDriver(driverId: string): Promise<number> {
-  const balance = await prisma.driverBalance.findUnique({
-    where: { driverId },
-    select: { remainingDebt: true }
-  });
-  if (balance) {
-    const n = Number(balance.remainingDebt);
-    return Number.isFinite(n) ? Math.max(0, n) : 0;
-  }
-
-  const [commissionAgg, fineAgg, compensationAgg] = await Promise.all([
+/**
+ * ملخص مالية السائق للرئيسية:
+ * - العمولة: المتبقي غير المدفوع فقط (لا تُحتسب العمولة المسددة مرتين)
+ * - الغرامات: غير المسددة فقط (referenceId = null) — لا تُدفع الغرامة مرتين
+ * - التعويضات: غير المستخدم في تسديد بعد (referenceId = null)
+ * - المترتب = remainingDebt (يُصفَّر عند تسديد المترتب لأن التعويض يُستهلك ضمن الفاتورة)
+ */
+async function sumDriverHomeFinance(driverId: string): Promise<{
+  unpaidCommissionAmount: number;
+  compensationAmount: number;
+  fineAmount: number;
+  amountOwed: number;
+}> {
+  const [balance, commissionAgg, unpaidFineAgg, compensationAgg] = await Promise.all([
+    prisma.driverBalance.findUnique({
+      where: { driverId },
+      select: { remainingDebt: true }
+    }),
     prisma.commission.aggregate({
       where: {
         driverId,
@@ -435,11 +452,19 @@ async function sumUnpaidCommissionForDriver(driverId: string): Promise<number> {
     })
   ]);
 
-  const due = Number(commissionAgg._sum.remainingAmount ?? 0);
-  const fines = Number(fineAgg._sum.amount ?? 0);
-  const compensation = Number(compensationAgg._sum.amount ?? 0);
-  const total = due - compensation + fines;
-  return Number.isFinite(total) ? Math.max(0, total) : 0;
+  const unpaidCommissionAmount = Number(commissionAgg._sum.remainingAmount ?? 0) || 0;
+  const fineAmount = Number(unpaidFineAgg._sum.amount ?? 0) || 0;
+  const recordedCompensation = Number(compensationAgg._sum.amount ?? 0) || 0;
+  const reconstructed = unpaidCommissionAmount + fineAmount - recordedCompensation;
+  const rawDebt = balance ? Number(balance.remainingDebt) : reconstructed;
+  const amountOwed = Number.isFinite(rawDebt) ? rawDebt : 0;
+
+  return {
+    unpaidCommissionAmount,
+    compensationAmount: recordedCompensation,
+    fineAmount,
+    amountOwed
+  };
 }
 
 async function sumDriverPeriodAdjustments(
@@ -544,6 +569,7 @@ export const ordersService = {
         });
         if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
         if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
+        await assertDriverCanTakeWork(tx, driver.id, "dispatcher");
         if (!driverMatchesOrderVehicle(payload.vehicleRequirement, driver.vehicleKind)) {
           throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة/VIP)", 400);
         }
@@ -759,6 +785,7 @@ export const ordersService = {
       });
       if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
       if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
+      await assertDriverCanTakeWork(tx, driver.id, "dispatcher");
       if (!driverMatchesOrderVehicle(order.vehicleRequirement, driver.vehicleKind)) {
         throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة)", 400);
       }
@@ -802,6 +829,7 @@ export const ordersService = {
       });
       if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
       if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
+      await assertDriverCanTakeWork(tx, driver.id, "dispatcher");
       if (!driverMatchesOrderVehicle(order.vehicleRequirement, driver.vehicleKind)) {
         throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة/VIP)", 400);
       }
@@ -1377,7 +1405,13 @@ export const ordersService = {
         stuckToday: 0,
         commissionDueTodaySyria: 0,
         unpaidCommissionAmount: 0,
+        compensationAmount: 0,
         fineAmount: 0,
+        amountOwed: 0,
+        workBlocked: false,
+        debtWarning: false,
+        workBlockMessage: null,
+        debtWarningMessage: null,
         summaryDaySyria: syriaCalendarDayIso()
       };
     }
@@ -1400,21 +1434,12 @@ export const ordersService = {
     const cancelled = count(OrderStatus.CANCELLED);
     const summaryDaySyria = syriaCalendarDayIso();
     const stuckToday = await countStuckTodaySyriaForDriver(driver.id);
-    const [commissionDueTodaySyria, unpaidCommissionAmount, fineAgg] = await Promise.all([
+    const [commissionDueTodaySyria, finance] = await Promise.all([
       sumCommissionDueTodaySyriaForDriver(driver.id),
-      sumUnpaidCommissionForDriver(driver.id),
-      prisma.financialTransaction.aggregate({
-        where: {
-          driverId: driver.id,
-          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
-          referenceId: null,
-          notes: { startsWith: "غرامة سائق" }
-        },
-        _sum: { amount: true }
-      })
+      sumDriverHomeFinance(driver.id)
     ]);
 
-    const fineAmount = Number(fineAgg._sum.amount ?? 0) || 0;
+    const debtCopy = driverDebtHomeCopy(finance.amountOwed);
 
     return {
       active,
@@ -1423,8 +1448,14 @@ export const ordersService = {
       cancelled,
       stuckToday,
       commissionDueTodaySyria,
-      unpaidCommissionAmount,
-      fineAmount,
+      unpaidCommissionAmount: finance.unpaidCommissionAmount,
+      compensationAmount: finance.compensationAmount,
+      fineAmount: finance.fineAmount,
+      amountOwed: finance.amountOwed,
+      workBlocked: debtCopy.workBlocked,
+      debtWarning: debtCopy.debtWarning,
+      workBlockMessage: debtCopy.workBlockMessage,
+      debtWarningMessage: debtCopy.debtWarningMessage,
       summaryDaySyria
     };
   },
@@ -1602,6 +1633,11 @@ export const ordersService = {
     if (!driver.isOnline) {
       return { inProgress: null, pending: [] };
     }
+    try {
+      await assertDriverCanTakeWork(prisma, driver.id, "self");
+    } catch {
+      return { inProgress: null, pending: [] };
+    }
 
     const pending = await listPendingVisibleToDriver(driver.id);
     return { inProgress: null, pending };
@@ -1616,6 +1652,7 @@ export const ordersService = {
       if (!driver) throw new AppError("ملف السائق غير موجود", 404);
       if (!driver.user.isActive) throw new AppError("حسابك معطّل. تواصل مع الإدارة.", 403);
       if (!driver.isOnline) throw new AppError("يجب أن تكون متصلاً لاستلام الطلبات من الغرفة", 400);
+      await assertDriverCanTakeWork(tx, driver.id, "self");
       if (driver.isBusy) throw new AppError("لديك طلب قيد التنفيذ. أنهِه أولًا.", 400);
 
       const busyOrder = await tx.order.findFirst({
@@ -1685,8 +1722,8 @@ export const ordersService = {
     });
   },
 
-  async reportCustomerNoShowByDriver(driverUserId: string, orderId: string) {
-    return prisma.$transaction(async (tx) => {
+  async cancelByDriver(driverUserId: string, orderId: string) {
+    const result = await prisma.$transaction(async (tx) => {
       const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
       if (!driver) throw new AppError("ملف السائق غير موجود", 404);
 
@@ -1698,24 +1735,41 @@ export const ordersService = {
         }
       });
       if (!order) {
-        throw new AppError("الطلب غير موجود أو لا يمكن تسجيل «لم أجد الزبون» في هذه المرحلة", 400);
+        throw new AppError("الطلب غير موجود أو لا يمكن إلغاؤه في هذه المرحلة", 400);
       }
+
+      await applyDriverFineInTransaction(tx, {
+        driverId: driver.id,
+        amount: DRIVER_SELF_CANCEL_FINE,
+        createdByUserId: driverUserId,
+        notes: `إلغاء الطلب (${order.pickupAddress.trim()} - ${order.dropoffAddress.trim()})`
+      });
+      await markDriverOfflineInTxIfDebtBlocked(tx, driver.id);
 
       await tx.driver.update({
         where: { id: driver.id },
         data: { isBusy: false }
       });
 
-      return tx.order.update({
+      await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.STUCK },
+        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
+      });
+
+      await chatService.archiveOrderRoomByOrderId(orderId, { tx, archivedByUserId: driverUserId });
+
+      return tx.order.findFirstOrThrow({
+        where: { id: orderId },
         include: orderIncludeDriverUser
       });
     });
+    scheduleDriverDebtWorkSync(result.driverId);
+    if (result.driverId) notifyDriverFine(result.driverId, DRIVER_SELF_CANCEL_FINE);
+    return result;
   },
 
   async completeOrder(orderId: string, driverUserId: string) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
       if (!driver) throw new AppError("ملف السائق غير موجود", 404);
 
@@ -1804,6 +1858,10 @@ export const ordersService = {
         });
       }
 
+      if (order.driverId) {
+        await markDriverOfflineInTxIfDebtBlocked(tx, order.driverId);
+      }
+
       await chatService.archiveOrderRoomByOrderId(orderId, { tx });
 
       return tx.order.findFirstOrThrow({
@@ -1811,6 +1869,12 @@ export const ordersService = {
         include: orderIncludeDriverUser
       });
     });
+    scheduleDriverDebtWorkSync(result.driverId);
+    const promoAmount = toNum(result.discountAmount ?? 0);
+    if (promoAmount > 0 && result.driverId) {
+      notifyDriverCompensation(result.driverId, promoAmount);
+    }
+    return result;
   },
 
   /** تعديل أجرة الطلب: للطلبات النشطة تحديث مباشر، وللمكتملة إعادة حساب العمولة. */
@@ -1854,7 +1918,7 @@ export const ordersService = {
       throw new AppError("المبلغ يجب أن يكون رقمًا أكبر من صفر", 400);
     }
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
         where: { id: orderId, coordinatorId: coordinator.id, status: OrderStatus.COMPLETED }
       });
@@ -1939,6 +2003,8 @@ export const ordersService = {
         include: orderIncludeDriverUser
       });
     });
+    scheduleDriverDebtWorkSync(result.driverId);
+    return result;
   },
 
   /** قائمة الطلبات للأدمن — جدول مع بحث وفلترة حسب الحالة وترقيم الصفحات */
@@ -2052,7 +2118,7 @@ export const ordersService = {
   },
 
   async deleteOrderByAdmin(orderId: string) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id: orderId },
         include: { commission: true }
@@ -2113,8 +2179,10 @@ export const ordersService = {
 
       await tx.order.delete({ where: { id: orderId } });
 
-      return { id: orderId };
+      return { id: orderId, driverId: order.driverId };
     });
+    scheduleDriverDebtWorkSync(result.driverId);
+    return { id: result.id };
   }
 };
 

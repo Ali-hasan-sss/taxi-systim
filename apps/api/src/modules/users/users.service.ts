@@ -72,6 +72,7 @@ export const usersService = {
       where: {
         role: filters.role,
         isActive: filters.isActive,
+        deletedAt: null,
         ...(searchWhere ?? {})
       },
       select: {
@@ -215,7 +216,7 @@ export const usersService = {
     }
   ) {
     const existing = await prisma.user.findUnique({ where: { id: userId } });
-    if (!existing) throw new AppError("المستخدم غير موجود", 404);
+    if (!existing || existing.deletedAt) throw new AppError("المستخدم غير موجود", 404);
 
     const nextRole = payload.role ?? existing.role;
     const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : undefined;
@@ -302,11 +303,13 @@ export const usersService = {
       select: {
         id: true,
         role: true,
+        deletedAt: true,
         coordinator: { select: { id: true } },
         driver: { select: { id: true } }
       }
     });
     if (!existing) throw new AppError("المستخدم غير موجود", 404);
+    if (existing.deletedAt) return { message: "تم حذف المستخدم" };
 
     if (existing.role === Role.COORDINATOR && existing.coordinator) {
       const orderCount = await prisma.order.count({
@@ -322,24 +325,37 @@ export const usersService = {
 
     if (existing.role === Role.DRIVER && existing.driver) {
       const driverId = existing.driver.id;
-      const [commissionRows, paymentRows, txRows] = await Promise.all([
-        prisma.commission.count({ where: { driverId } }),
-        prisma.commissionPayment.count({ where: { driverId } }),
-        prisma.financialTransaction.count({ where: { driverId } })
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: userId },
+          data: {
+            deletedAt: new Date(),
+            isActive: false,
+            expoPushToken: null
+          }
+        }),
+        prisma.driver.update({
+          where: { id: driverId },
+          data: { isOnline: false, isBusy: false }
+        }),
+        prisma.refreshToken.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() }
+        })
       ]);
-      if (commissionRows + paymentRows + txRows > 0) {
-        throw new AppError(
-          "لا يمكن حذف السائق لوجود عمولات أو معاملات مرتبطة به. عطّل الحساب بدل الحذف.",
-          409
-        );
-      }
+      return { message: "تم حذف السائق", driverId };
     }
 
     await prisma.user.delete({ where: { id: userId } });
-    return { message: "User deleted successfully" };
+    return { message: "تم حذف المستخدم" };
   },
 
   async setStatus(userId: string, isActive: boolean) {
+    const existing = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, deletedAt: true }
+    });
+    if (!existing || existing.deletedAt) throw new AppError("المستخدم غير موجود", 404);
     return prisma.user.update({
       where: { id: userId },
       data: { isActive },
@@ -357,6 +373,7 @@ export const usersService = {
         phone: true,
         role: true,
         isActive: true,
+        deletedAt: true,
         createdAt: true,
         expoPushToken: true,
         driver: {
@@ -373,8 +390,7 @@ export const usersService = {
         coordinator: { select: { id: true } }
       }
     });
-    if (!user) throw new AppError("المستخدم غير موجود", 404);
-
+    if (!user || user.deletedAt) throw new AppError("المستخدم غير موجود", 404);
     let coordinator = user.coordinator;
     if (user.role === Role.COORDINATOR && !coordinator) {
       coordinator = await prisma.coordinator.upsert({
@@ -471,6 +487,7 @@ export const usersService = {
 
   async buildEmployeesExportXlsx() {
     const users = await prisma.user.findMany({
+      where: { deletedAt: null },
       select: {
         fullName: true,
         phone: true,

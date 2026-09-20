@@ -13,7 +13,7 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
   "/chat": { title: "المحادثات", subtitle: "المحادثة العامة ومحادثات الطلبات" },
   "/employees": { title: "الموظفون", subtitle: "إدارة المستخدمين والأدوار" },
   "/drivers-distribution": { title: "توزع السائقين", subtitle: "خريطة مباشرة لمواقع السائقين وإجراءات سريعة" },
-  "/finance": { title: "المالية", subtitle: "الطلبات والعمولات والتسديدات" },
+  "/finance": { title: "المالية", subtitle: "تحصيل العمولات وأرصدة السائقين" },
   "/settings": { title: "الإعدادات", subtitle: "حساب الأدمن والعمولة وكلمة المرور" }
 };
 

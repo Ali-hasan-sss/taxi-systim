@@ -59,3 +59,21 @@ export function resolveExpoApiBase(): string {
 export function getSocketOriginFromApiBase(apiBase: string): string {
   return stripTrailingSlashes(apiBase.replace(/\/api$/i, ""));
 }
+
+export type NativeAppKind = "driver" | "coordinator";
+
+export function getInstalledAppVersion(): string {
+  const v = Constants.expoConfig?.version?.trim();
+  return v || "0.0.0";
+}
+
+export function nativeAppHeaders(kind: NativeAppKind): Record<string, string> {
+  return {
+    "X-App-Kind": kind,
+    "X-App-Version": getInstalledAppVersion()
+  };
+}
+
+export function nativeAppSocketAuth(kind: NativeAppKind): { appKind: NativeAppKind; appVersion: string } {
+  return { appKind: kind, appVersion: getInstalledAppVersion() };
+}

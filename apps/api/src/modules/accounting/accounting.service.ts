@@ -2,6 +2,8 @@ import { CommissionPaymentStatus, FinancialTransactionType, OrderStatus, Prisma 
 import ExcelJS from "exceljs";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
+import { scheduleDriverDebtWorkSync } from "../../shared/driver-debt-block";
+import { notifyDriverCommissionPaid, notifyDriverCompensation, notifyDriverFine } from "../../shared/driver-notifications";
 
 const toNum = (d: Prisma.Decimal | number) => Number(d);
 const FINANCE_REPORT_PAGE_DEFAULT = 25;
@@ -99,12 +101,16 @@ function nextYmdDay(ymd: string): string {
 }
 
 function todaySyriaYmd(): string {
+  return toSyriaYmd(new Date());
+}
+
+function toSyriaYmd(value: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Damascus",
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).format(new Date());
+  }).format(value);
 }
 
 function formatDamascusDateTime(value: Date | null | undefined): string {
@@ -147,6 +153,99 @@ function parseFineReason(notes: string | null | undefined): string {
   return trimmed;
 }
 
+function parseCompensationReason(notes: string | null | undefined): string {
+  if (!notes) return "—";
+  const trimmed = notes.trim();
+  if (trimmed === "تعويض سائق") return "—";
+  if (trimmed.startsWith("تعويض سائق:")) {
+    const reason = trimmed.slice("تعويض سائق:".length).trim();
+    return reason || "—";
+  }
+  return trimmed;
+}
+
+function isCancelOrderFineNotes(notes: string | null | undefined): boolean {
+  return Boolean(notes && notes.includes("إلغاء الطلب"));
+}
+
+function formatCancelOrderFineReason(pickup?: string | null, dropoff?: string | null): string {
+  const from = pickup?.trim() || "—";
+  const to = dropoff?.trim() || "—";
+  return `إلغاء الطلب (${from} - ${to})`;
+}
+
+function cancelFineReasonFromNotes(notes: string | null | undefined): string | null {
+  const reason = parseFineReason(notes);
+  const match = reason.match(/^إلغاء الطلب(?:\s+من السائق)?\s*\((.+)\)\s*$/);
+  if (match?.[1]?.trim()) return `إلغاء الطلب (${match[1].trim()})`;
+  return null;
+}
+
+async function resolveCancelFineReasons(
+  rows: Array<{ driverId: string; notes: string | null; createdAt: Date }>
+): Promise<Map<number, string>> {
+  const resolved = new Map<number, string>();
+  const needingLookup: number[] = [];
+  rows.forEach((row, index) => {
+    if (!isCancelOrderFineNotes(row.notes)) return;
+    const fromNotes = cancelFineReasonFromNotes(row.notes);
+    if (fromNotes) {
+      resolved.set(index, fromNotes);
+      return;
+    }
+    needingLookup.push(index);
+  });
+  if (needingLookup.length === 0) return resolved;
+
+  const subset = needingLookup.map((i) => rows[i]);
+  const driverIds = [...new Set(subset.map((row) => row.driverId))];
+  const times = subset.map((row) => row.createdAt.getTime());
+  const from = new Date(Math.min(...times) - 120_000);
+  const toExclusive = new Date(Math.max(...times) + 120_000);
+  const cancelled = await prisma.order.findMany({
+    where: {
+      driverId: { in: driverIds },
+      status: OrderStatus.CANCELLED,
+      cancelledAt: { gte: from, lt: toExclusive }
+    },
+    select: { driverId: true, pickupAddress: true, dropoffAddress: true, cancelledAt: true }
+  });
+
+  for (const index of needingLookup) {
+    const row = rows[index];
+    const match = cancelled
+      .filter((order) => order.driverId === row.driverId && order.cancelledAt)
+      .sort(
+        (a, b) =>
+          Math.abs((a.cancelledAt as Date).getTime() - row.createdAt.getTime()) -
+          Math.abs((b.cancelledAt as Date).getTime() - row.createdAt.getTime())
+      )[0];
+    if (match && Math.abs((match.cancelledAt as Date).getTime() - row.createdAt.getTime()) <= 120_000) {
+      resolved.set(index, formatCancelOrderFineReason(match.pickupAddress, match.dropoffAddress));
+    } else {
+      resolved.set(index, "إلغاء الطلب");
+    }
+  }
+  return resolved;
+}
+
+function compensationUsage(
+  notes: string | null | undefined,
+  referenceId: string | null | undefined
+): { isUsed: boolean; status: "unused" | "used" | "promo"; statusLabel: string } {
+  if (notes?.includes("عرض من المدير")) {
+    return { isUsed: true, status: "promo", statusLabel: "مطبّق عبر عرض" };
+  }
+  if (referenceId) {
+    return { isUsed: true, status: "used", statusLabel: "مستخدم في تسديد" };
+  }
+  return { isUsed: false, status: "unused", statusLabel: "غير مستخدم" };
+}
+
+function compensationSource(notes: string | null | undefined): "promo" | "manual" {
+  return notes?.includes("عرض من المدير") ? "promo" : "manual";
+}
+
 function driverCompensationWhere(opts: { fromUtc: Date; toExclusive: Date; driverId?: string | null }): Prisma.FinancialTransactionWhereInput {
   return {
     type: FinancialTransactionType.MANUAL_ADJUSTMENT,
@@ -182,6 +281,20 @@ function driverFineLedgerWhere(opts: {
   };
 }
 
+/** كل تعويضات السجل (إدارية وعروض ترويجية). */
+function driverCompensationLedgerWhere(opts: {
+  fromUtc: Date;
+  toExclusive: Date;
+  driverId?: string | null;
+}): Prisma.FinancialTransactionWhereInput {
+  return {
+    type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+    notes: { startsWith: "تعويض سائق" },
+    createdAt: { gte: opts.fromUtc, lt: opts.toExclusive },
+    ...(opts.driverId ? { driverId: opts.driverId } : {})
+  };
+}
+
 type FinePaymentShape = {
   id: string;
   driverId: string;
@@ -190,6 +303,38 @@ type FinePaymentShape = {
   notes: string | null;
   type: FinancialTransactionType;
 };
+
+export async function applyDriverFineInTransaction(
+  tx: PrismaTx,
+  opts: { driverId: string; amount: number; createdByUserId?: string | null; notes?: string }
+) {
+  const amount = opts.amount;
+  if (!(amount > 0)) throw new AppError("قيمة الغرامة غير صالحة", 400);
+
+  const currentBalance =
+    (await tx.driverBalance.findUnique({ where: { driverId: opts.driverId } })) ??
+    (await tx.driverBalance.create({ data: { driverId: opts.driverId } }));
+
+  await tx.financialTransaction.create({
+    data: {
+      driverId: opts.driverId,
+      type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+      amount: new Prisma.Decimal(amount.toFixed(2)),
+      notes: fineNotes(opts.notes),
+      createdByUserId: opts.createdByUserId ?? undefined
+    }
+  });
+
+  await tx.driverBalance.update({
+    where: { driverId: opts.driverId },
+    data: {
+      remainingDebt: new Prisma.Decimal((toNum(currentBalance.remainingDebt) + amount).toFixed(2)),
+      availableBalance: new Prisma.Decimal(Math.max(0, toNum(currentBalance.availableBalance) - amount).toFixed(2))
+    }
+  });
+
+  return { driverId: opts.driverId, amount };
+}
 
 async function applyFinePayment(tx: PrismaTx, fine: FinePaymentShape, adminUserId: string, notes?: string) {
   if (fine.type !== FinancialTransactionType.MANUAL_ADJUSTMENT) {
@@ -226,13 +371,41 @@ async function applyFinePayment(tx: PrismaTx, fine: FinePaymentShape, adminUserI
     await tx.driverBalance.update({
       where: { driverId: fine.driverId },
       data: {
-        remainingDebt: new Prisma.Decimal(Math.max(0, toNum(balance.remainingDebt) - amount).toFixed(2)),
+        remainingDebt: new Prisma.Decimal((toNum(balance.remainingDebt) - amount).toFixed(2)),
         availableBalance: new Prisma.Decimal((toNum(balance.availableBalance) + amount).toFixed(2))
       }
     });
   }
 
   return { amount, paymentId: payment.id };
+}
+
+async function consumeCompensationOnSettlement(
+  tx: PrismaTx,
+  compensation: { id: string; driverId: string; amount: Prisma.Decimal | number; referenceId: string | null; notes: string | null },
+  adminUserId: string,
+  notes?: string
+) {
+  if (!compensation.notes?.startsWith("تعويض سائق")) {
+    throw new AppError("المعاملة المحددة ليست تعويضًا", 400);
+  }
+  if (compensation.referenceId) return;
+
+  const consume = await tx.financialTransaction.create({
+    data: {
+      driverId: compensation.driverId,
+      type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+      amount: new Prisma.Decimal(toNum(compensation.amount).toFixed(2)),
+      referenceId: compensation.id,
+      notes: notes?.trim() || "استهلاك تعويض سائق عند التسديد",
+      createdByUserId: adminUserId
+    }
+  });
+
+  await tx.financialTransaction.update({
+    where: { id: compensation.id },
+    data: { referenceId: consume.id }
+  });
 }
 
 function syriaDayRangeUtc(fromYmd: string, toYmd: string): { from: Date; toExclusive: Date } {
@@ -312,7 +485,7 @@ async function applyCommissionPayment(
       where: { driverId: commission.driverId },
       data: {
         totalPaidCommissions: toNum(balance.totalPaidCommissions) + amount,
-        remainingDebt: Math.max(0, toNum(balance.remainingDebt) - amount)
+        remainingDebt: toNum(balance.remainingDebt) - amount
       }
     });
   }
@@ -330,7 +503,7 @@ async function applyCommissionPayment(
 
 export const accountingService = {
   async recordDriverCompensation(driverId: string, amount: number, adminUserId: string, notes?: string) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const driver = await tx.driver.findUnique({
         where: { id: driverId },
         select: { id: true }
@@ -338,13 +511,6 @@ export const accountingService = {
       if (!driver) throw new AppError("السائق غير موجود", 404);
 
       const currentBalance = (await tx.driverBalance.findUnique({ where: { driverId } })) ?? (await tx.driverBalance.create({ data: { driverId } }));
-      const maxCompensation = Math.max(0, toNum(currentBalance.remainingDebt));
-      if (maxCompensation <= 0) {
-        throw new AppError("لا توجد عمولة مستحقة حالية لهذا السائق ليتم خصم التعويض منها", 400);
-      }
-      if (amount > maxCompensation) {
-        throw new AppError(`قيمة التعويض أكبر من العمولة المستحقة الحالية (${maxCompensation.toFixed(2)})`, 400);
-      }
 
       await tx.financialTransaction.create({
         data: {
@@ -359,45 +525,35 @@ export const accountingService = {
       await tx.driverBalance.update({
         where: { driverId },
         data: {
-          remainingDebt: new Prisma.Decimal(Math.max(0, toNum(currentBalance.remainingDebt) - amount).toFixed(2)),
+          remainingDebt: new Prisma.Decimal((toNum(currentBalance.remainingDebt) - amount).toFixed(2)),
           availableBalance: new Prisma.Decimal((toNum(currentBalance.availableBalance) + amount).toFixed(2))
         }
       });
 
       return { driverId, amount };
     });
+    scheduleDriverDebtWorkSync(driverId);
+    notifyDriverCompensation(driverId, amount);
+    return result;
   },
 
   async recordDriverFine(driverId: string, amount: number, adminUserId: string, notes?: string) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const driver = await tx.driver.findUnique({
         where: { id: driverId },
         select: { id: true }
       });
       if (!driver) throw new AppError("السائق غير موجود", 404);
-
-      const currentBalance = (await tx.driverBalance.findUnique({ where: { driverId } })) ?? (await tx.driverBalance.create({ data: { driverId } }));
-
-      await tx.financialTransaction.create({
-        data: {
-          driverId,
-          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
-          amount: new Prisma.Decimal(amount.toFixed(2)),
-          notes: fineNotes(notes),
-          createdByUserId: adminUserId
-        }
+      return applyDriverFineInTransaction(tx, {
+        driverId,
+        amount,
+        createdByUserId: adminUserId,
+        notes
       });
-
-      await tx.driverBalance.update({
-        where: { driverId },
-        data: {
-          remainingDebt: new Prisma.Decimal((toNum(currentBalance.remainingDebt) + amount).toFixed(2)),
-          availableBalance: new Prisma.Decimal(Math.max(0, toNum(currentBalance.availableBalance) - amount).toFixed(2))
-        }
-      });
-
-      return { driverId, amount };
     });
+    scheduleDriverDebtWorkSync(driverId);
+    notifyDriverFine(driverId, amount);
+    return result;
   },
 
   async listDriverFines(opts: { driverId?: string | null; from?: string | null; to?: string | null }) {
@@ -472,6 +628,7 @@ export const accountingService = {
           })
         : [];
     const creatorById = new Map(creators.map((u) => [u.id, u.fullName]));
+    const cancelReasons = await resolveCancelFineReasons(rows);
 
     return {
       driver,
@@ -481,10 +638,10 @@ export const accountingService = {
       count: aggregate._count._all,
       unpaidAmount: toNum(unpaidAggregate._sum.amount ?? new Prisma.Decimal(0)).toFixed(2),
       unpaidCount: unpaidAggregate._count._all,
-      rows: rows.map((row) => ({
+      rows: rows.map((row, index) => ({
         id: row.id,
         amount: row.amount.toString(),
-        reason: parseFineReason(row.notes),
+        reason: cancelReasons.get(index) ?? parseFineReason(row.notes),
         notes: row.notes,
         createdAt: row.createdAt.toISOString(),
         createdByName: row.createdByUserId ? creatorById.get(row.createdByUserId) ?? null : null,
@@ -495,8 +652,112 @@ export const accountingService = {
     };
   },
 
+  async listDriverCompensations(opts: { driverId?: string | null; from?: string | null; to?: string | null }) {
+    let driver: { id: string; fullName: string; phone: string | null } | null = null;
+    if (opts.driverId) {
+      const row = await prisma.driver.findUnique({
+        where: { id: opts.driverId },
+        select: {
+          id: true,
+          user: { select: { fullName: true, phone: true } }
+        }
+      });
+      if (!row) throw new AppError("السائق غير موجود", 404);
+      driver = {
+        id: row.id,
+        fullName: row.user.fullName ?? "",
+        phone: row.user.phone ?? null
+      };
+    }
+
+    const from = opts.from?.trim() || undefined;
+    const to = opts.to?.trim() || from;
+    const range = from && to ? syriaDayRangeUtc(from, to) : null;
+    const rangeOpts = {
+      fromUtc: range?.from ?? new Date(0),
+      toExclusive: range?.toExclusive ?? new Date("9999-12-31T00:00:00.000Z"),
+      driverId: opts.driverId
+    };
+
+    const ledgerWhere = driverCompensationLedgerWhere(rangeOpts);
+
+    const unusedWhere = driverCompensationWhere(rangeOpts);
+
+    const [rows, aggregate, unusedAggregate] = await Promise.all([
+      prisma.financialTransaction.findMany({
+        where: ledgerWhere,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 300,
+        select: {
+          id: true,
+          amount: true,
+          notes: true,
+          createdAt: true,
+          createdByUserId: true,
+          driverId: true,
+          referenceId: true,
+          driver: {
+            select: {
+              id: true,
+              user: { select: { fullName: true, phone: true } }
+            }
+          }
+        }
+      }),
+      prisma.financialTransaction.aggregate({
+        where: ledgerWhere,
+        _sum: { amount: true },
+        _count: { _all: true }
+      }),
+      prisma.financialTransaction.aggregate({
+        where: unusedWhere,
+        _sum: { amount: true },
+        _count: { _all: true }
+      })
+    ]);
+
+    const creatorIds = [...new Set(rows.map((r) => r.createdByUserId).filter((id): id is string => !!id))];
+    const creators =
+      creatorIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: creatorIds } },
+            select: { id: true, fullName: true }
+          })
+        : [];
+    const creatorById = new Map(creators.map((u) => [u.id, u.fullName]));
+
+    return {
+      driver,
+      from: from ?? null,
+      to: to ?? null,
+      totalAmount: toNum(aggregate._sum.amount ?? new Prisma.Decimal(0)).toFixed(2),
+      count: aggregate._count._all,
+      unusedAmount: toNum(unusedAggregate._sum.amount ?? new Prisma.Decimal(0)).toFixed(2),
+      unusedCount: unusedAggregate._count._all,
+      rows: rows.map((row) => {
+        const source = compensationSource(row.notes);
+        const usage = compensationUsage(row.notes, row.referenceId);
+        return {
+          id: row.id,
+          amount: row.amount.toString(),
+          reason: parseCompensationReason(row.notes),
+          notes: row.notes,
+          createdAt: row.createdAt.toISOString(),
+          createdByName: row.createdByUserId ? creatorById.get(row.createdByUserId) ?? null : null,
+          driverId: row.driverId,
+          driverName: row.driver?.user.fullName ?? "—",
+          source,
+          sourceLabel: source === "promo" ? "عرض ترويجي" : "تعويض إداري",
+          isUsed: usage.isUsed,
+          status: usage.status,
+          statusLabel: usage.statusLabel
+        };
+      })
+    };
+  },
+
   async settleDriverFine(fineId: string, adminUserId: string, notes?: string) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const fine = await tx.financialTransaction.findUnique({
         where: { id: fineId },
         select: {
@@ -512,15 +773,21 @@ export const accountingService = {
       const result = await applyFinePayment(tx, fine, adminUserId, notes);
       return { fineId: fine.id, driverId: fine.driverId, amount: result.amount };
     });
+    scheduleDriverDebtWorkSync(result.driverId);
+    notifyDriverCommissionPaid(result.driverId, result.amount);
+    return result;
   },
 
   async recordCommissionPayment(commissionId: string, amount: number, adminUserId: string, notes?: string) {
-    return prisma.$transaction(async (tx) => {
+    const driverId = await prisma.$transaction(async (tx) => {
       const commission = await tx.commission.findUnique({ where: { id: commissionId } });
       if (!commission) throw new AppError("Commission not found", 404);
       if (amount > toNum(commission.remainingAmount)) throw new AppError("Amount exceeds remaining", 400);
       await applyCommissionPayment(tx, commission, amount, adminUserId, notes);
+      return commission.driverId;
     });
+    scheduleDriverDebtWorkSync(driverId);
+    notifyDriverCommissionPaid(driverId, amount);
   },
 
   async financeReport(opts?: {
@@ -991,7 +1258,7 @@ export const accountingService = {
   },
 
   async settleOrderCommission(orderId: string, adminUserId: string, notes?: string) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id: orderId },
         select: {
@@ -1008,8 +1275,11 @@ export const accountingService = {
       }
       const amount = toNum(order.commission.remainingAmount);
       await applyCommissionPayment(tx, order.commission, amount, adminUserId, notes ?? `تسديد عمولة الطلب ${order.id}`);
-      return { paidCount: 1, totalPaid: amount };
+      return { paidCount: 1, totalPaid: amount, driverId: order.commission.driverId };
     });
+    scheduleDriverDebtWorkSync(result.driverId);
+    notifyDriverCommissionPaid(result.driverId, result.totalPaid);
+    return { paidCount: result.paidCount, totalPaid: result.totalPaid };
   },
 
   async settleFilteredCommissions(
@@ -1017,7 +1287,7 @@ export const accountingService = {
     opts?: { from?: string | null; to?: string | null; driverId?: string | null; coordinatorId?: string | null; notes?: string }
   ) {
     const { baseWhere, fromUtc, toExclusive } = buildOrderRangeWhere(opts);
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const commissions = await tx.commission.findMany({
         where: {
           remainingAmount: { gt: 0 },
@@ -1037,9 +1307,14 @@ export const accountingService = {
       });
 
       let totalPaid = 0;
+      const paidByDriver = new Map<string, number>();
+      const addPaid = (id: string, n: number) => {
+        paidByDriver.set(id, (paidByDriver.get(id) ?? 0) + n);
+      };
       for (const commission of commissions) {
         const amount = toNum(commission.remainingAmount);
         totalPaid += amount;
+        addPaid(commission.driverId, amount);
         // eslint-disable-next-line no-await-in-loop
         await applyCommissionPayment(
           tx,
@@ -1077,14 +1352,246 @@ export const accountingService = {
           opts?.notes ?? "تسديد جماعي للغرامات حسب الفلتر"
         );
         finesTotalPaid += paid.amount;
+        addPaid(fine.driverId, paid.amount);
       }
 
       return {
         paidCount: commissions.length,
         totalPaid,
         finesPaidCount: unpaidFines.length,
-        finesTotalPaid
+        finesTotalPaid,
+        driverIds: [...paidByDriver.keys()],
+        paidByDriver: [...paidByDriver.entries()].map(([driverId, amount]) => ({ driverId, amount }))
       };
     });
+    for (const driverId of result.driverIds) {
+      scheduleDriverDebtWorkSync(driverId);
+    }
+    for (const row of result.paidByDriver) {
+      if (row.amount > 0) notifyDriverCommissionPaid(row.driverId, row.amount);
+    }
+    return {
+      paidCount: result.paidCount,
+      totalPaid: result.totalPaid,
+      finesPaidCount: result.finesPaidCount,
+      finesTotalPaid: result.finesTotalPaid
+    };
+  },
+
+  async listDriverBalances() {
+    const drivers = await prisma.driver.findMany({
+      select: {
+        id: true,
+        userId: true,
+        user: { select: { fullName: true, phone: true, isActive: true } },
+        balances: { select: { remainingDebt: true }, take: 1 }
+      }
+    });
+
+    const rows = drivers
+      .map((driver) => {
+        const remainingDebt = toNum(driver.balances[0]?.remainingDebt ?? 0);
+        return {
+          driverId: driver.id,
+          userId: driver.userId,
+          fullName: driver.user.fullName ?? "",
+          phone: driver.user.phone ?? null,
+          isActive: driver.user.isActive,
+          remainingDebt: remainingDebt.toFixed(2)
+        };
+      })
+      .sort((a, b) => Number(b.remainingDebt) - Number(a.remainingDebt) || a.fullName.localeCompare(b.fullName, "ar"));
+
+    return { rows };
+  },
+
+  async settleDriverBalance(driverId: string, adminUserId: string, notes?: string) {
+    const result = await prisma.$transaction(async (tx) => {
+      const driver = await tx.driver.findUnique({
+        where: { id: driverId },
+        select: { id: true, user: { select: { fullName: true, phone: true } } }
+      });
+      if (!driver) throw new AppError("السائق غير موجود", 404);
+
+      const balance = await tx.driverBalance.findUnique({ where: { driverId } });
+      const remainingDebt = toNum(balance?.remainingDebt ?? 0);
+      if (remainingDebt <= 0) {
+        throw new AppError("لا يوجد مبلغ مترتب للتسديد على هذا السائق", 400);
+      }
+
+      const commissions = await tx.commission.findMany({
+        where: {
+          driverId,
+          remainingAmount: { gt: 0 },
+          order: { status: OrderStatus.COMPLETED }
+        },
+        select: {
+          id: true,
+          driverId: true,
+          paidAmount: true,
+          remainingAmount: true,
+          order: { select: { id: true, completedAt: true, createdAt: true } }
+        },
+        orderBy: [{ id: "asc" }]
+      });
+
+      const unpaidFines = await tx.financialTransaction.findMany({
+        where: {
+          driverId,
+          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+          referenceId: null,
+          notes: { startsWith: "غرامة سائق" }
+        },
+        select: {
+          id: true,
+          driverId: true,
+          amount: true,
+          referenceId: true,
+          notes: true,
+          type: true,
+          createdAt: true
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+      });
+
+      if (commissions.length === 0 && unpaidFines.length === 0) {
+        throw new AppError("لا توجد عمولات أو غرامات غير مسددة للتسديد", 400);
+      }
+
+      const itemDates = [
+        ...commissions.map((c) => c.order.completedAt ?? c.order.createdAt),
+        ...unpaidFines.map((f) => f.createdAt)
+      ].filter((d): d is Date => d instanceof Date && !Number.isNaN(d.getTime()));
+      const periodFromDate = itemDates.length > 0 ? new Date(Math.min(...itemDates.map((d) => d.getTime()))) : new Date();
+      const settledAt = new Date();
+
+      const unusedCompensationRows = await tx.financialTransaction.findMany({
+        where: {
+          driverId,
+          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+          referenceId: null,
+          notes: { startsWith: "تعويض سائق" }
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true, driverId: true, amount: true, notes: true, createdAt: true, referenceId: true }
+      });
+
+      const periodCompensationRows = await tx.financialTransaction.findMany({
+        where: {
+          driverId,
+          type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+          notes: { startsWith: "تعويض سائق" },
+          createdAt: { gte: periodFromDate, lte: settledAt }
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true, driverId: true, amount: true, notes: true, createdAt: true, referenceId: true }
+      });
+
+      const compensationById = new Map<string, (typeof unusedCompensationRows)[number]>();
+      for (const row of [...unusedCompensationRows, ...periodCompensationRows]) {
+        compensationById.set(row.id, row);
+      }
+      const compensationRows = [...compensationById.values()].sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)
+      );
+
+      const invoicePeriodDates = [
+        ...itemDates,
+        ...compensationRows.map((row) => row.createdAt)
+      ];
+      const invoicePeriodFrom =
+        invoicePeriodDates.length > 0 ? new Date(Math.min(...invoicePeriodDates.map((d) => d.getTime()))) : periodFromDate;
+
+      const invoiceCommissions = commissions.map((row) => ({
+        orderId: row.order.id,
+        completedAt: (row.order.completedAt ?? row.order.createdAt).toISOString(),
+        amount: toNum(row.remainingAmount).toFixed(2)
+      }));
+      const invoiceFines = unpaidFines.map((row) => ({
+        id: row.id,
+        reason: parseFineReason(row.notes),
+        createdAt: row.createdAt.toISOString(),
+        amount: toNum(row.amount).toFixed(2)
+      }));
+      const invoiceCompensations = compensationRows.map((row) => ({
+        id: row.id,
+        reason: parseCompensationReason(row.notes),
+        createdAt: row.createdAt.toISOString(),
+        amount: toNum(row.amount).toFixed(2)
+      }));
+
+      let totalPaid = 0;
+      for (const commission of commissions) {
+        const amount = toNum(commission.remainingAmount);
+        totalPaid += amount;
+        // eslint-disable-next-line no-await-in-loop
+        await applyCommissionPayment(
+          tx,
+          commission,
+          amount,
+          adminUserId,
+          notes ?? `تسديد عمولات السائق ${driver.user.fullName}`
+        );
+      }
+
+      let finesTotalPaid = 0;
+      for (const fine of unpaidFines) {
+        // eslint-disable-next-line no-await-in-loop
+        const paid = await applyFinePayment(
+          tx,
+          fine,
+          adminUserId,
+          notes ?? `تسديد غرامات السائق ${driver.user.fullName}`
+        );
+        finesTotalPaid += paid.amount;
+      }
+
+      for (const compensation of unusedCompensationRows) {
+        // eslint-disable-next-line no-await-in-loop
+        await consumeCompensationOnSettlement(
+          tx,
+          compensation,
+          adminUserId,
+          notes ?? `استهلاك تعويض السائق ${driver.user.fullName} عند التسديد`
+        );
+      }
+
+      await tx.driverBalance.update({
+        where: { driverId },
+        data: { remainingDebt: new Prisma.Decimal("0.00") }
+      });
+
+      const compensationAmount = compensationRows.reduce((sum, row) => sum + toNum(row.amount), 0);
+
+      return {
+        driverId,
+        paidCount: commissions.length,
+        totalPaid,
+        finesPaidCount: unpaidFines.length,
+        finesTotalPaid,
+        remainingDebt: "0.00",
+        invoice: {
+          driverId,
+          driverName: driver.user.fullName ?? "",
+          driverPhone: driver.user.phone ?? null,
+          settledAt: settledAt.toISOString(),
+          periodFrom: toSyriaYmd(invoicePeriodFrom),
+          periodTo: toSyriaYmd(settledAt),
+          commissions: invoiceCommissions,
+          fines: invoiceFines,
+          compensations: invoiceCompensations,
+          totals: {
+            commissionAmount: totalPaid.toFixed(2),
+            fineAmount: finesTotalPaid.toFixed(2),
+            compensationAmount: compensationAmount.toFixed(2),
+            netAmount: remainingDebt.toFixed(2)
+          }
+        }
+      };
+    });
+    scheduleDriverDebtWorkSync(driverId);
+    const settledNet = Number(result.invoice.totals.netAmount);
+    if (settledNet > 0) notifyDriverCommissionPaid(driverId, settledNet);
+    return result;
   }
 };

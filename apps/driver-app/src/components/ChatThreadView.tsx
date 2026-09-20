@@ -1,14 +1,14 @@
 import {
-  useTheme,
-  useThemedStyles,
   ChatHeaderPeer,
   ChatImageZoomModal,
+  ChatVoiceMicButton,
+  ChatVoiceMessage,
   KeyboardAvoidingView,
-  useKeyboardOpen,
   MessageReceipt,
   TypingIndicator,
-  ChatVoiceMicButton,
-  ChatVoiceMessage
+  useKeyboardOpen,
+  useTheme,
+  useThemedStyles
 } from "@taxi/expo-theme";
 import { chatSocketEvents, formatChatSenderLabel, socketEvents, type ChatReceiptStatus } from "@taxi/config";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -25,6 +25,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import {
   type ChatMessageRow,
@@ -41,6 +42,7 @@ import { resolveAuthedChatImageUri, resolveAuthedChatVoiceUri } from "../lib/cha
 import { captureCompressedChatPhoto } from "../lib/chat-image";
 import { getSocketOrigin } from "../lib/api";
 import { feedback } from "../lib/feedback";
+import { DriverChatThreadSkeleton } from "./driver-skeletons";
 import { rtlText } from "../lib/rtl-text";
 import { useDriverStore } from "../store";
 
@@ -349,7 +351,7 @@ export function ChatThreadView({
   }, [scrollToBottom]);
 
   useEffect(() => {
-    const socket = io(getSocketOrigin(), { transports: ["websocket"] });
+    const socket = io(getSocketOrigin(), { transports: ["websocket"], auth: nativeAppSocketAuth("driver") });
     socketRef.current = socket;
     const onConnect = () => {
       if (myUserId) socket.emit(chatSocketEvents.REGISTER, myUserId);
@@ -617,9 +619,7 @@ export function ChatThreadView({
         ) : null}
       </View>
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.accent} />
-        </View>
+        <DriverChatThreadSkeleton />
       ) : (
         <FlatList
           ref={listRef}

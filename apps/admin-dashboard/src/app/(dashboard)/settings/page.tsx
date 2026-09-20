@@ -14,6 +14,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [commissionSaving, setCommissionSaving] = useState(false);
+  const [versionsSaving, setVersionsSaving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -23,6 +24,13 @@ export default function SettingsPage() {
 
   const [commissionType, setCommissionType] = useState<CommissionType>("PERCENTAGE");
   const [commissionValue, setCommissionValue] = useState("0");
+
+  const [driverMinVersion, setDriverMinVersion] = useState("0.0.0");
+  const [driverAndroidUrl, setDriverAndroidUrl] = useState("");
+  const [driverIosUrl, setDriverIosUrl] = useState("");
+  const [coordinatorMinVersion, setCoordinatorMinVersion] = useState("0.0.0");
+  const [coordinatorAndroidUrl, setCoordinatorAndroidUrl] = useState("");
+  const [coordinatorIosUrl, setCoordinatorIosUrl] = useState("");
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -52,11 +60,21 @@ export default function SettingsPage() {
       setLoading(true);
       setError(null);
       try {
-        const [setting, me] = await Promise.all([api.getCommissionSettings(token), api.me(token)]);
+        const [setting, versions, me] = await Promise.all([
+          api.getCommissionSettings(token),
+          api.getAppVersionSettings(token),
+          api.me(token)
+        ]);
         if (setting) {
           setCommissionType(setting.commissionType);
           setCommissionValue(String(setting.commissionValue ?? "0"));
         }
+        setDriverMinVersion(versions.driverMinVersion || "0.0.0");
+        setDriverAndroidUrl(versions.driverAndroidUrl || "");
+        setDriverIosUrl(versions.driverIosUrl || "");
+        setCoordinatorMinVersion(versions.coordinatorMinVersion || "0.0.0");
+        setCoordinatorAndroidUrl(versions.coordinatorAndroidUrl || "");
+        setCoordinatorIosUrl(versions.coordinatorIosUrl || "");
         setAdminName(me.fullName);
         setAdminEmail(me.email ?? "");
       } catch (err) {
@@ -133,6 +151,41 @@ export default function SettingsPage() {
     }
   };
 
+  const submitAppVersions = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+
+    setVersionsSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await api.updateAppVersionSettings(token, {
+        driverMinVersion: driverMinVersion.trim() || "0.0.0",
+        driverAndroidUrl: driverAndroidUrl.trim(),
+        driverIosUrl: driverIosUrl.trim(),
+        coordinatorMinVersion: coordinatorMinVersion.trim() || "0.0.0",
+        coordinatorAndroidUrl: coordinatorAndroidUrl.trim(),
+        coordinatorIosUrl: coordinatorIosUrl.trim()
+      });
+      setDriverMinVersion(updated.driverMinVersion);
+      setDriverAndroidUrl(updated.driverAndroidUrl);
+      setDriverIosUrl(updated.driverIosUrl);
+      setCoordinatorMinVersion(updated.coordinatorMinVersion);
+      setCoordinatorAndroidUrl(updated.coordinatorAndroidUrl);
+      setCoordinatorIosUrl(updated.coordinatorIosUrl);
+      setNotice("تم تحديث إعدادات نسخ التطبيقات. أي نسخة أقل من الحد الأدنى ستُوقف حتى التحديث.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "فشل تحديث إعدادات النسخ";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setVersionsSaving(false);
+    }
+  };
+
   const submitPassword = async (e: FormEvent) => {
     e.preventDefault();
     if (!token) return;
@@ -179,7 +232,7 @@ export default function SettingsPage() {
       <section className="card settings-hero">
         <h2 className="settings-hero__title">إعدادات النظام</h2>
         <p className="settings-hero__text">
-          من هنا يمكن للأدمن تعديل اسم حسابه، إعدادات العمولة، وتغيير كلمة المرور بشكل آمن.
+          من هنا يمكن للأدمن تعديل اسم حسابه، إعدادات العمولة، الحد الأدنى لنسخ التطبيقات، وتغيير كلمة المرور بشكل آمن.
         </p>
       </section>
 
@@ -259,6 +312,98 @@ export default function SettingsPage() {
             <div className="settings-actions">
               <button type="submit" className="btn btn-primary" disabled={commissionSaving}>
                 {commissionSaving ? "جارٍ الحفظ..." : "حفظ العمولة"}
+              </button>
+            </div>
+          </form>
+        </article>
+
+        <article className="card settings-card settings-card--wide">
+          <h3 className="settings-card__title">إيقاف التطبيق عند عدم التحديث</h3>
+          <p className="settings-card__hint">
+            إذا كانت نسخة تطبيق السائق أو المنسق أقل من الرقم أدناه يُوقف التطبيق بالكامل حتى يحدّث. استخدم{" "}
+            <strong>0.0.0</strong> لتعطيل الإيقاف الإجباري لتطبيق معيّن. ضع رابط متجر بلاي أو ملف التحميل حتى يعمل زر
+            «تحديث الآن».
+          </p>
+
+          <form className="settings-form" onSubmit={submitAppVersions}>
+            <div className="settings-versions-grid">
+              <div className="settings-versions-col">
+                <h4 className="settings-versions-col__title">تطبيق السائق</h4>
+                <label className="settings-field">
+                  <span>الحد الأدنى للنسخة</span>
+                  <input
+                    className="input-styled"
+                    value={driverMinVersion}
+                    onChange={(e) => setDriverMinVersion(e.target.value)}
+                    placeholder="مثال: 1.0.11"
+                    dir="ltr"
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>رابط أندرويد</span>
+                  <input
+                    className="input-styled"
+                    value={driverAndroidUrl}
+                    onChange={(e) => setDriverAndroidUrl(e.target.value)}
+                    placeholder="https://play.google.com/store/apps/details?id=..."
+                    dir="ltr"
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>رابط آيفون</span>
+                  <input
+                    className="input-styled"
+                    value={driverIosUrl}
+                    onChange={(e) => setDriverIosUrl(e.target.value)}
+                    placeholder="https://apps.apple.com/..."
+                    dir="ltr"
+                  />
+                </label>
+              </div>
+
+              <div className="settings-versions-col">
+                <h4 className="settings-versions-col__title">تطبيق المنسق</h4>
+                <label className="settings-field">
+                  <span>الحد الأدنى للنسخة</span>
+                  <input
+                    className="input-styled"
+                    value={coordinatorMinVersion}
+                    onChange={(e) => setCoordinatorMinVersion(e.target.value)}
+                    placeholder="مثال: 1.0.15"
+                    dir="ltr"
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>رابط أندرويد</span>
+                  <input
+                    className="input-styled"
+                    value={coordinatorAndroidUrl}
+                    onChange={(e) => setCoordinatorAndroidUrl(e.target.value)}
+                    placeholder="https://play.google.com/store/apps/details?id=..."
+                    dir="ltr"
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>رابط آيفون</span>
+                  <input
+                    className="input-styled"
+                    value={coordinatorIosUrl}
+                    onChange={(e) => setCoordinatorIosUrl(e.target.value)}
+                    placeholder="https://apps.apple.com/..."
+                    dir="ltr"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="settings-inline-note">
+              النسخة الحالية في المشروع: السائق <strong>1.0.11</strong> — المنسق <strong>1.0.15</strong>. ارفع الحد الأدنى
+              بعد نشر نسخة جديدة لإيقاف النسخ القديمة.
+            </div>
+
+            <div className="settings-actions">
+              <button type="submit" className="btn btn-primary" disabled={versionsSaving}>
+                {versionsSaving ? "جارٍ الحفظ..." : "حفظ إعدادات النسخ"}
               </button>
             </div>
           </form>

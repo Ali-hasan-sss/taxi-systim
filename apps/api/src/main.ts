@@ -11,6 +11,7 @@ import { buildSwaggerSpec } from "./swagger";
 import { errorMiddleware } from "./shared/error-middleware";
 import { initSocket } from "./socket";
 import { generalApiRateLimit } from "./shared/rate-limit";
+import { mobileAppVersionGuard } from "./shared/mobile-app-version-guard";
 import { startChatImageCleanupJob } from "./modules/chat/chat-cleanup";
 import { chatService } from "./modules/chat/chat.service";
 import { authService } from "./modules/auth/auth.service";
@@ -32,6 +33,7 @@ app.use("/api", (_req, res, next) => {
   next();
 });
 app.use("/api", generalApiRateLimit);
+app.use("/api", mobileAppVersionGuard);
 app.use("/api", apiRouter);
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(buildSwaggerSpec()));
 app.use(errorMiddleware);

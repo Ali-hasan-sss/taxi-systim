@@ -50,6 +50,17 @@ async function main() {
     }
   });
 
+  await prisma.appVersionSettings.upsert({
+    where: { id: "default" },
+    update: {},
+    create: {
+      id: "default",
+      driverMinVersion: "0.0.0",
+      coordinatorMinVersion: "0.0.0",
+      updatedByUserId: admin.id
+    }
+  });
+
   const coordEmail = process.env.SEED_COORDINATOR_EMAIL ?? "coordinator@taxi.local";
   const coordPhone = normalizePhoneDigits(process.env.SEED_COORDINATOR_PHONE ?? "07700000001");
   const coordPassword = process.env.SEED_COORDINATOR_PASSWORD ?? "secret123";

@@ -1,4 +1,6 @@
-import { ThemeProvider, useTheme, SystemChrome, KeyboardInsetsProvider, NetworkOfflineBanner } from "@taxi/expo-theme";
+import { ThemeProvider, useTheme, SystemChrome, KeyboardInsetsProvider, NetworkOfflineBanner, ForceUpdateGate } from "@taxi/expo-theme";
+import { resolveExpoApiBase } from "@taxi/expo-api-base";
+import Constants from "expo-constants";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -19,6 +21,11 @@ function RootLayoutInner() {
     <View style={{ flex: 1, direction: "rtl" as const, backgroundColor: theme.colors.background }}>
       <StatusBar style={theme.statusBar} />
       <NetworkOfflineBanner />
+      <ForceUpdateGate
+        apiBase={resolveExpoApiBase()}
+        app="coordinator"
+        currentVersion={Constants.expoConfig?.version ?? "0.0.0"}
+      />
       <SystemChrome />
       <CoordinatorPushBootstrap />
       <ChatSocketProvider>

@@ -1,12 +1,14 @@
-import { useTheme, useThemedStyles, ChatPeerAvatar } from "@taxi/expo-theme";
+import { ChatPeerAvatar, themedRefreshProps, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io } from "socket.io-client";
 import { chatSocketEvents, socketEvents } from "@taxi/config";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
+import { DriverChatListSkeleton } from "../../src/components/driver-skeletons";
 import { type ChatRoomRow, archiveChatRoom, chatRoomHref, chatRoomListTitle, listChatRooms } from "../../src/lib/chat";
 import { getSocketOrigin } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
@@ -21,6 +23,7 @@ export default function ChatTab() {
   const { theme } = useTheme();
   const [rooms, setRooms] = useState<ChatRoomRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const unreadByRoom = useDriverStore((s) => s.unreadByRoom);
 
@@ -69,14 +72,16 @@ export default function ChatTab() {
     centered: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const }
   }));
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isPull = false) => {
+    if (isPull) setRefreshing(true);
+    else setLoading(true);
     try {
       setRooms(await listChatRooms());
     } catch (e) {
       Alert.alert("خطأ", e instanceof Error ? e.message : "تعذر تحميل المحادثات");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -104,7 +109,7 @@ export default function ChatTab() {
     void (async () => {
       const session = await getDriverSession();
       if (!session || cancelled) return;
-      socket = io(getSocketOrigin(), { transports: ["websocket"] });
+      socket = io(getSocketOrigin(), { transports: ["websocket"], auth: nativeAppSocketAuth("driver") });
       socket.on("connect", () => socket?.emit(chatSocketEvents.REGISTER, session.user.id));
       socket.on(socketEvents.CHAT_USER_PRESENCE, (p: { userId?: string; online?: boolean }) => {
         if (!p.userId) return;
@@ -126,13 +131,18 @@ export default function ChatTab() {
           <Text style={styles.title}>المحادثات</Text>
           <Text style={styles.subtitle}>المحادثة العامة للجميع، ومحادثات طلباتك مع المنسق.</Text>
           {loading && rooms.length === 0 ? (
-            <View style={styles.centered}>
-              <ActivityIndicator color={theme.colors.accent} />
-            </View>
+            <DriverChatListSkeleton />
           ) : (
             <FlatList
               data={rooms}
               keyExtractor={(r) => r.id}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={() => void load(true)}
+                  {...themedRefreshProps(theme)}
+                />
+              }
               renderItem={({ item }) => (
                 <View style={[styles.row, item.type === "GLOBAL" && styles.rowGlobal]}>
                   <Pressable

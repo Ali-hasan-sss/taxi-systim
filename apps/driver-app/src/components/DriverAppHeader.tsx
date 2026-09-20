@@ -1,20 +1,22 @@
 import { ThemeToggleRow, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Dimensions, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getDriverLocationAccessState, isDriverLocationReady } from "../lib/location-access";
 import { shouldLoadExpoPushModule } from "../lib/push-environment";
 import { rtlText } from "../lib/rtl-text";
 import { clearDriverSession, getDriverSession } from "../lib/session";
+import { tryStartDriverWork } from "../lib/start-work";
 import { useDriverStore } from "../store";
+import { DriverNotificationsButton } from "./DriverNotificationsButton";
 
 export function DriverAppHeader() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { isOnline, setOnline } = useDriverStore();
+  const { isOnline, setOnline, workBlocked } = useDriverStore();
   const avatarAnchorRef = useRef<View>(null);
   const [userMenuAnchor, setUserMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(
     null
@@ -175,6 +177,13 @@ export function DriverAppHeader() {
       color: t.colors.danger,
       ...rtlText,
       flex: 1
+    },
+    dropdownVersion: {
+      marginTop: 2,
+      fontSize: 12,
+      fontWeight: "600" as const,
+      color: t.colors.menuTextMuted,
+      textAlign: "center" as const
     }
   }));
 
@@ -202,14 +211,12 @@ export function DriverAppHeader() {
   };
 
   const startWork = async () => {
-    const locationState = await getDriverLocationAccessState();
-    if (!isDriverLocationReady(locationState)) {
-      setOnline(false);
+    const result = await tryStartDriverWork();
+    if (result === "need-location") {
       closeMenu();
       router.replace("/location-access");
       return;
     }
-    setOnline(true);
     closeMenu();
   };
 
@@ -257,6 +264,7 @@ export function DriverAppHeader() {
           />
         </View>
         <View style={styles.topBarActions}>
+          <DriverNotificationsButton />
           <View ref={avatarAnchorRef} collapsable={false} style={styles.avatarAnchor}>
             <Pressable
               onPress={openUserMenu}
@@ -295,7 +303,7 @@ export function DriverAppHeader() {
                   {phoneDisplay}
                 </Text>
                 <Text style={styles.dropdownStatus}>
-                  الحالة: {isOnline ? "متصل" : "غير متصل"}
+                  الحالة: {workBlocked ? "موقوف بسبب المترتب" : isOnline ? "متصل" : "غير متصل"}
                 </Text>
                 <View style={styles.dropdownDivider} />
                 <Pressable
@@ -382,6 +390,10 @@ export function DriverAppHeader() {
                   <Text style={styles.dropdownLogoutText}>تسجيل الخروج</Text>
                   <Ionicons name="log-out-outline" size={22} color={theme.colors.danger} />
                 </Pressable>
+                <View style={styles.dropdownDivider} />
+                <Text style={styles.dropdownVersion}>
+                  الإصدار {Constants.expoConfig?.version ?? "—"}
+                </Text>
               </View>
             ) : null}
           </View>

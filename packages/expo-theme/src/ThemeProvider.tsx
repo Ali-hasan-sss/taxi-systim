@@ -8,8 +8,7 @@ import {
   useState,
   type ReactNode
 } from "react";
-import { useColorScheme } from "react-native";
-import { StyleSheet } from "react-native";
+import { StyleSheet, useColorScheme } from "react-native";
 import { type AppAccent, type AppTheme, type ThemeMode, buildTheme } from "./colors";
 
 const STORAGE_PREFIX = "taxi_theme_mode_";

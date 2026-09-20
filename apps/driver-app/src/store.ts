@@ -16,9 +16,22 @@ export type ChatIncomingToast = {
   hasVoice?: boolean;
 };
 
+export type DriverAppNotification = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+};
+
 interface DriverState {
   isOnline: boolean;
   setOnline: (v: boolean) => void;
+  workBlocked: boolean;
+  workBlockMessage: string | null;
+  setWorkBlocked: (blocked: boolean, message?: string | null) => void;
+  applyDebtWorkState: (stats: { workBlocked?: boolean; workBlockMessage?: string | null }) => void;
   /** عدد الطلبات المعلّقة في غرفة الطلبات (للبادج على التاب) */
   roomPendingCount: number;
   setRoomPendingCount: (n: number) => void;
@@ -38,6 +51,11 @@ interface DriverState {
   incrementUnreadChat: (roomId: string) => void;
   markChatRoomRead: (roomId: string) => void;
   incrementRoomPendingCount: () => void;
+  notifications: DriverAppNotification[];
+  unreadNotificationCount: number;
+  setNotifications: (rows: DriverAppNotification[], unreadCount: number) => void;
+  prependNotification: (row: DriverAppNotification) => void;
+  markNotificationsRead: () => void;
 }
 
 function sumUnread(map: Record<string, number>) {
@@ -59,6 +77,18 @@ function pruneHandledChatMessageIds(handled: Record<string, true>): Record<strin
 export const useDriverStore = create<DriverState>((set, get) => ({
   isOnline: false,
   setOnline: (v) => set({ isOnline: v }),
+  workBlocked: false,
+  workBlockMessage: null,
+  setWorkBlocked: (blocked, message) =>
+    set({
+      workBlocked: blocked,
+      workBlockMessage: blocked ? (message ?? get().workBlockMessage) : null
+    }),
+  applyDebtWorkState: (stats) =>
+    set({
+      workBlocked: Boolean(stats.workBlocked),
+      workBlockMessage: stats.workBlocked ? (stats.workBlockMessage ?? get().workBlockMessage) : null
+    }),
   roomPendingCount: 0,
   setRoomPendingCount: (n) => set({ roomPendingCount: Math.max(0, n) }),
   unreadChatCount: 0,
@@ -111,5 +141,28 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     set({ unreadByRoom: next, unreadChatCount: sumUnread(next) });
   },
   incrementRoomPendingCount: () =>
-    set((s) => ({ roomPendingCount: s.roomPendingCount + 1 }))
+    set((s) => ({ roomPendingCount: s.roomPendingCount + 1 })),
+  notifications: [],
+  unreadNotificationCount: 0,
+  setNotifications: (rows, unreadCount) =>
+    set({
+      notifications: rows,
+      unreadNotificationCount: Math.max(0, unreadCount)
+    }),
+  prependNotification: (row) => {
+    const state = get();
+    if (state.notifications.some((n) => n.id === row.id)) return;
+    const unread = row.readAt ? state.unreadNotificationCount : state.unreadNotificationCount + 1;
+    set({
+      notifications: [row, ...state.notifications].slice(0, 50),
+      unreadNotificationCount: unread
+    });
+  },
+  markNotificationsRead: () => {
+    const now = new Date().toISOString();
+    set((s) => ({
+      unreadNotificationCount: 0,
+      notifications: s.notifications.map((n) => (n.readAt ? n : { ...n, readAt: now }))
+    }));
+  }
 }));

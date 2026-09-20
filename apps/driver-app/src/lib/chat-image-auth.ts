@@ -1,4 +1,4 @@
-import { resolveExpoApiBase } from "@taxi/expo-api-base";
+import { nativeAppHeaders, resolveExpoApiBase } from "@taxi/expo-api-base";
 
 /** يُعيد رابط الصورة على نفس قاعدة API الحالية (يتجاوز مضيفًا قديمًا من الخادم) */
 export function normalizeChatImageUrl(imageUrl: string | null): string | null {
@@ -27,7 +27,7 @@ export async function resolveAuthedChatImageUri(
 ): Promise<string | null> {
   const remote = normalizeChatImageUrl(imageUrl) ?? imageUrl;
   try {
-    const res = await fetch(remote, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(remote, { headers: { Authorization: `Bearer ${token}`, ...nativeAppHeaders("driver") } });
     if (!res.ok) return null;
     return await blobToDataUri(await res.blob());
   } catch {
@@ -50,7 +50,7 @@ export async function resolveAuthedChatVoiceUri(
 ): Promise<string | null> {
   const remote = normalizeChatVoiceUrl(voiceUrl) ?? voiceUrl;
   try {
-    const res = await fetch(remote, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(remote, { headers: { Authorization: `Bearer ${token}`, ...nativeAppHeaders("driver") } });
     if (!res.ok) return null;
     return await blobToDataUri(await res.blob());
   } catch {

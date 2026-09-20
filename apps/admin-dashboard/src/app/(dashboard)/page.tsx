@@ -1,10 +1,16 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DriverFinesModal } from "../../components/driver-fines-modal";
 import { api, type AdminDashboardStats } from "../../lib/api";
+
+const RevenueWeekChart = dynamic(
+  () => import("../../components/revenue-week-chart").then((mod) => mod.RevenueWeekChart),
+  { ssr: false }
+);
 
 type KpiIconProps = React.SVGProps<SVGSVGElement>;
 
@@ -12,6 +18,20 @@ const ProfitIcon = (props: KpiIconProps) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" {...props}>
     <path d="M12 2v20" />
     <path d="M17 7H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6" />
+  </svg>
+);
+
+const MonthIcon = (props: KpiIconProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M8 3v4" />
+    <path d="M16 3v4" />
+    <path d="M3 10h18" />
+    <path d="M8 14h.01" />
+    <path d="M12 14h.01" />
+    <path d="M16 14h.01" />
+    <path d="M8 18h.01" />
+    <path d="M12 18h.01" />
   </svg>
 );
 
@@ -43,15 +63,6 @@ const DriversIcon = (props: KpiIconProps) => (
 const TripsIcon = (props: KpiIconProps) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" {...props}>
     <path d="M3 12h3l2.5-7L14 20l2.5-7H21" />
-  </svg>
-);
-
-const EmployeesIcon = (props: KpiIconProps) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
   </svg>
 );
 
@@ -115,19 +126,50 @@ function formatSyriaDate(ymd: string): string {
   }).format(new Date(Date.UTC(year, month - 1, day, 12, 0, 0)));
 }
 
+function formatSyriaMonth(ym: string): string {
+  const [year, month] = ym.split("-").map(Number);
+  if (!year || !month) return ym;
+  return new Intl.DateTimeFormat("ar-SY", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "long"
+  }).format(new Date(Date.UTC(year, month - 1, 15, 12, 0, 0)));
+}
+
+function revenueBreakdown(commission: string, fines: string, compensations: string): string {
+  return `عمولات ${formatSyrianMoney(commission)} + غرامات ${formatSyrianMoney(fines)} − تعويضات ${formatSyrianMoney(compensations)}`;
+}
+
 function buildKpiCards(stats: AdminDashboardStats) {
   return [
     {
       title: "إيرادات اليوم",
       value: formatSyrianMoney(stats.revenueToday),
-      diff: `${stats.completedOrdersToday} رحلة مكتملة · عمولة ${formatSyrianMoney(stats.commissionToday)}`,
+      diff: `${stats.completedOrdersToday} رحلة مكتملة · ${revenueBreakdown(
+        stats.commissionToday,
+        stats.fineToday ?? "0",
+        stats.compensationToday ?? "0"
+      )}`,
       icon: ProfitIcon,
+      clickable: false
+    },
+    {
+      title: "إيرادات الشهر",
+      value: formatSyrianMoney(stats.revenueMonth ?? "0"),
+      diff: stats.month
+        ? `${formatSyriaMonth(stats.month)} · ${revenueBreakdown(
+            stats.commissionMonth ?? "0",
+            stats.fineMonth ?? "0",
+            stats.compensationMonth ?? "0"
+          )}`
+        : revenueBreakdown(stats.commissionMonth ?? "0", stats.fineMonth ?? "0", stats.compensationMonth ?? "0"),
+      icon: MonthIcon,
       clickable: false
     },
     {
       title: "العمولات غير المسددة",
       value: formatSyrianMoney(stats.dueCommission),
-      diff: `يشمل الغرامات · تعويضات ${formatSyrianMoney(stats.compensationAmount ?? "0")}`,
+      diff: `يشمل الغرامات غير المسددة · تعويضات غير مستخدمة ${formatSyrianMoney(stats.compensationAmount ?? "0")}`,
       icon: CommissionIcon,
       clickable: false
     },
@@ -143,13 +185,6 @@ function buildKpiCards(stats: AdminDashboardStats) {
       value: String(stats.activeDriversOnline),
       diff: `من ${stats.totalDrivers} سائق مسجّل`,
       icon: DriversIcon,
-      clickable: false
-    },
-    {
-      title: "الموظفون",
-      value: String(stats.employeesTotal),
-      diff: `${stats.employeesByRole.coordinator} منسق · ${stats.employeesByRole.driver} سائق · ${stats.employeesByRole.admin} أدمن`,
-      icon: EmployeesIcon,
       clickable: false
     },
     {
@@ -219,8 +254,8 @@ export default function DashboardPage() {
       <section className="card dashboard-welcome">
         <h2 className="dashboard-welcome__heading">{welcome}</h2>
         <p className="dashboard-welcome__text">
-          مركز تحكم Taxi Bro — إحصائيات اليوم{" "}
-          {stats ? `(${formatSyriaDate(stats.today)})` : ""} بتوقيت دمشق.
+          مركز تحكم Taxi Bro — الإيرادات = العمولات + الغرامات − التعويضات (كل تعويض يُحسب مرة واحدة) ليوم{" "}
+          {stats ? formatSyriaDate(stats.today) : ""} بتوقيت دمشق.
         </p>
       </section>
 
@@ -262,6 +297,8 @@ export default function DashboardPage() {
         })}
       </section>
 
+      {stats?.revenueWeek?.length ? <RevenueWeekChart days={stats.revenueWeek} /> : null}
+
       <section className="dashboard-two-col">
         <article className="card dashboard-panel">
           <h3 className="dashboard-panel__title">لمحة تشغيلية</h3>
@@ -270,6 +307,10 @@ export default function DashboardPage() {
             <li>
               <span>إيرادات اليوم</span>
               <strong>{stats ? formatSyrianMoney(stats.revenueToday) : "—"}</strong>
+            </li>
+            <li>
+              <span>إيرادات الشهر</span>
+              <strong>{stats ? formatSyrianMoney(stats.revenueMonth ?? "0") : "—"}</strong>
             </li>
             <li>
               <span>عمولات غير مسددة</span>

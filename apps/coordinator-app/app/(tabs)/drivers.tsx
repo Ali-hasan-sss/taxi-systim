@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import {
   coordinatorCreateOrder,
@@ -665,7 +666,7 @@ export default function DriversTab() {
   useEffect(() => {
     const origin = getSocketOrigin();
     setSocketStatus("connecting");
-    const socket: Socket = io(origin, { transports: ["websocket"] });
+    const socket: Socket = io(origin, { transports: ["websocket"], auth: nativeAppSocketAuth("coordinator") });
 
     const onConnect = () => setSocketStatus("connected");
     const onDisconnect = (reason: string) => {

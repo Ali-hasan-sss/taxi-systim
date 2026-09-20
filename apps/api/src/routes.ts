@@ -10,6 +10,7 @@ import { adminRouter } from "./modules/admin/admin.routes";
 import { publicRouter } from "./modules/public/public.routes";
 import { customersRouter } from "./modules/customers/customers.routes";
 import { promotionsRouter } from "./modules/promotions/promotions.routes";
+import { notificationsRouter } from "./modules/notifications/notifications.routes";
 
 export const apiRouter = Router();
 
@@ -23,4 +24,5 @@ apiRouter.use("/accounting", accountingRouter);
 apiRouter.use("/settings", settingsRouter);
 apiRouter.use("/users", usersRouter);
 apiRouter.use("/chat", chatRouter);
+apiRouter.use("/notifications", notificationsRouter);
 apiRouter.use("/admin", adminRouter);

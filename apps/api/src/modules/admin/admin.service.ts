@@ -1,5 +1,5 @@
 import type { Server } from "socket.io";
-import { FinancialTransactionType, OrderStatus, Role } from "@prisma/client";
+import { FinancialTransactionType, OrderStatus, Prisma, Role } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { syriaCalendarDayIso } from "../../shared/syria-time";
 import { getConnectedOnlineDriverIds } from "../../socket";
@@ -61,36 +61,197 @@ function zonedToUtc(year: number, month: number, day: number, hour: number, minu
   return new Date(utcTs);
 }
 
+function toNum(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function money(value: number): string {
+  return value.toFixed(2);
+}
+
+function addCalendarDaysYmd(ymd: string, delta: number): string {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const utc = Date.UTC(year, month - 1, day + delta, 12, 0, 0);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(utc));
+}
+
+function listYmdRange(fromYmd: string, toYmdInclusive: string): string[] {
+  const days: string[] = [];
+  let cursor = fromYmd;
+  for (let i = 0; i < 62; i += 1) {
+    days.push(cursor);
+    if (cursor === toYmdInclusive) break;
+    cursor = addCalendarDaysYmd(cursor, 1);
+  }
+  return days;
+}
+
+function emptyRevenue() {
+  return { commissions: 0, fines: 0, compensations: 0, revenue: 0 };
+}
+
+function withRevenue(parts: { commissions: number; fines: number; compensations: number }) {
+  return {
+    ...parts,
+    revenue: parts.commissions + parts.fines - parts.compensations
+  };
+}
+
+function serializeRevenue(parts: { commissions: number; fines: number; compensations: number; revenue: number }) {
+  return {
+    commissions: money(parts.commissions),
+    fines: money(parts.fines),
+    compensations: money(parts.compensations),
+    revenue: money(parts.revenue)
+  };
+}
+
+/** صف التعويض الأصلي فقط (استهلاك التسديد ملاحظته مختلفة فلا يُحسب مرتين). */
+function compensationGrantWhere(from: Date, toExclusive: Date): Prisma.FinancialTransactionWhereInput {
+  return {
+    type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+    notes: { startsWith: "تعويض سائق" },
+    createdAt: { gte: from, lt: toExclusive }
+  };
+}
+
+function fineGrantWhere(from: Date, toExclusive: Date): Prisma.FinancialTransactionWhereInput {
+  return {
+    type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+    notes: { startsWith: "غرامة سائق" },
+    createdAt: { gte: from, lt: toExclusive }
+  };
+}
+
+async function sumRevenueInRange(from: Date, toExclusive: Date) {
+  const [commissionAgg, fineAgg, compensationAgg] = await Promise.all([
+    prisma.commission.aggregate({
+      where: {
+        order: {
+          is: {
+            status: OrderStatus.COMPLETED,
+            completedAt: { gte: from, lt: toExclusive }
+          }
+        }
+      },
+      _sum: { calculatedCommission: true }
+    }),
+    prisma.financialTransaction.aggregate({
+      where: fineGrantWhere(from, toExclusive),
+      _sum: { amount: true }
+    }),
+    prisma.financialTransaction.aggregate({
+      where: compensationGrantWhere(from, toExclusive),
+      _sum: { amount: true }
+    })
+  ]);
+
+  return withRevenue({
+    commissions: toNum(commissionAgg._sum.calculatedCommission),
+    fines: toNum(fineAgg._sum.amount),
+    compensations: toNum(compensationAgg._sum.amount)
+  });
+}
+
+async function dailyRevenueSeries(fromYmd: string, toYmdInclusive: string) {
+  const { from } = syriaDayUtcRange(fromYmd);
+  const { toExclusive } = syriaDayUtcRange(toYmdInclusive);
+  const days = listYmdRange(fromYmd, toYmdInclusive);
+  const buckets = new Map(days.map((ymd) => [ymd, emptyRevenue()]));
+
+  const [commissions, fines, compensations] = await Promise.all([
+    prisma.commission.findMany({
+      where: {
+        order: {
+          is: {
+            status: OrderStatus.COMPLETED,
+            completedAt: { gte: from, lt: toExclusive }
+          }
+        }
+      },
+      select: {
+        id: true,
+        calculatedCommission: true,
+        order: { select: { completedAt: true } }
+      }
+    }),
+    prisma.financialTransaction.findMany({
+      where: fineGrantWhere(from, toExclusive),
+      select: { id: true, amount: true, createdAt: true }
+    }),
+    prisma.financialTransaction.findMany({
+      where: compensationGrantWhere(from, toExclusive),
+      select: { id: true, amount: true, createdAt: true }
+    })
+  ]);
+
+  const seenCompensationIds = new Set<string>();
+
+  for (const row of commissions) {
+    const at = row.order.completedAt;
+    if (!at) continue;
+    const ymd = syriaCalendarDayIso(at);
+    const bucket = buckets.get(ymd);
+    if (!bucket) continue;
+    bucket.commissions += toNum(row.calculatedCommission);
+  }
+
+  for (const row of fines) {
+    const ymd = syriaCalendarDayIso(row.createdAt);
+    const bucket = buckets.get(ymd);
+    if (!bucket) continue;
+    bucket.fines += toNum(row.amount);
+  }
+
+  for (const row of compensations) {
+    if (seenCompensationIds.has(row.id)) continue;
+    seenCompensationIds.add(row.id);
+    const ymd = syriaCalendarDayIso(row.createdAt);
+    const bucket = buckets.get(ymd);
+    if (!bucket) continue;
+    bucket.compensations += toNum(row.amount);
+  }
+
+  return days.map((date) => {
+    const parts = withRevenue(buckets.get(date) ?? emptyRevenue());
+    return { date, ...serializeRevenue(parts) };
+  });
+}
+
 export const adminService = {
   async dashboardStats(io?: Server) {
     const today = syriaCalendarDayIso();
-    const { from, toExclusive } = syriaDayUtcRange(today);
-
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const weekStart = addCalendarDaysYmd(today, -6);
+    const { from: todayFrom, toExclusive: todayToExclusive } = syriaDayUtcRange(today);
+    const monthFrom = syriaDayUtcRange(monthStart).from;
     const completedTodayWhere = {
       status: OrderStatus.COMPLETED,
-      completedAt: { gte: from, lt: toExclusive }
+      completedAt: { gte: todayFrom, lt: todayToExclusive }
     };
 
     const [
-      revenueTodayAgg,
-      commissionTodayAgg,
+      todayRevenue,
+      monthRevenue,
+      weekSeries,
       dueCommissionAgg,
-      fineAgg,
-      compensationAgg,
+      unpaidFineAgg,
+      unusedCompensationAgg,
       completedTodayCount,
       activeTrips,
       totalDrivers,
       employeesByRole,
       connectedIds
     ] = await Promise.all([
-      prisma.order.aggregate({
-        where: completedTodayWhere,
-        _sum: { amount: true }
-      }),
-      prisma.commission.aggregate({
-        where: { order: { is: completedTodayWhere } },
-        _sum: { calculatedCommission: true }
-      }),
+      sumRevenueInRange(todayFrom, todayToExclusive),
+      sumRevenueInRange(monthFrom, todayToExclusive),
+      dailyRevenueSeries(weekStart, today),
       prisma.commission.aggregate({
         where: {
           order: { status: OrderStatus.COMPLETED },
@@ -147,25 +308,33 @@ export const adminService = {
     }
 
     const employeesTotal = roleCounts.admin + roleCounts.coordinator + roleCounts.driver;
-
-    const dueCommissionRaw = Number(dueCommissionAgg._sum.remainingAmount ?? 0) || 0;
-    const fineAmount = Number(fineAgg._sum.amount ?? 0) || 0;
-    const compensationAmount = Number(compensationAgg._sum.amount ?? 0) || 0;
-    const dueCommission = Math.max(0, dueCommissionRaw - compensationAmount + fineAmount);
+    const dueCommissionRaw = toNum(dueCommissionAgg._sum.remainingAmount);
+    const unpaidFines = toNum(unpaidFineAgg._sum.amount);
+    const unusedCompensations = toNum(unusedCompensationAgg._sum.amount);
+    const dueCommission = dueCommissionRaw - unusedCompensations + unpaidFines;
 
     return {
       today,
-      revenueToday: (revenueTodayAgg._sum.amount ?? 0).toString(),
-      commissionToday: (commissionTodayAgg._sum.calculatedCommission ?? 0).toString(),
+      month: today.slice(0, 7),
+      weekStart,
+      revenueToday: money(todayRevenue.revenue),
+      commissionToday: money(todayRevenue.commissions),
+      fineToday: money(todayRevenue.fines),
+      compensationToday: money(todayRevenue.compensations),
+      revenueMonth: money(monthRevenue.revenue),
+      commissionMonth: money(monthRevenue.commissions),
+      fineMonth: money(monthRevenue.fines),
+      compensationMonth: money(monthRevenue.compensations),
       dueCommission: dueCommission.toFixed(2),
-      fineAmount: fineAmount.toFixed(2),
-      compensationAmount: compensationAmount.toFixed(2),
+      fineAmount: unpaidFines.toFixed(2),
+      compensationAmount: unusedCompensations.toFixed(2),
       completedOrdersToday: completedTodayCount,
       activeTrips,
       activeDriversOnline,
       totalDrivers,
       employeesTotal,
-      employeesByRole: roleCounts
+      employeesByRole: roleCounts,
+      revenueWeek: weekSeries
     };
   }
 };

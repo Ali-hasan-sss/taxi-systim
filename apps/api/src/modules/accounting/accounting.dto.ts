@@ -26,6 +26,8 @@ export const listDriverFinesQueryDto = z.object({
   to: ymdField.optional()
 });
 
+export const listDriverCompensationsQueryDto = listDriverFinesQueryDto;
+
 export const financeReportQueryDto = z.object({
   from: ymdField.optional(),
   to: ymdField.optional(),
@@ -57,5 +59,10 @@ export const settleFilteredCommissionsDto = z.object({
   to: ymdField.optional(),
   driverId: z.string().cuid().optional(),
   coordinatorId: z.string().cuid().optional(),
+  notes: z.string().optional()
+});
+
+export const settleDriverBalanceDto = z.object({
+  driverId: z.string().cuid(),
   notes: z.string().optional()
 });

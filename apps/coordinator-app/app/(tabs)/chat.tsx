@@ -3,6 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io } from "socket.io-client";
 import { chatSocketEvents, socketEvents } from "@taxi/config";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -123,7 +124,7 @@ export default function ChatTab() {
     void (async () => {
       const session = await getSession();
       if (!session || cancelled) return;
-      socket = io(getSocketOrigin(), { transports: ["websocket"] });
+      socket = io(getSocketOrigin(), { transports: ["websocket"], auth: nativeAppSocketAuth("coordinator") });
       socket.on("connect", () => socket?.emit(chatSocketEvents.REGISTER, session.user.id));
       const patchDriver = (driverId: string, online: boolean) => {
         setRooms((prev) =>

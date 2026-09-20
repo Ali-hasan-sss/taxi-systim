@@ -1,4 +1,4 @@
-import type { Server } from "socket.io";
+import type { Server, Socket } from "socket.io";
 import { OrderBroadcastTarget, OrderStatus, OrderVehicleRequirement, VehicleKind, type Order } from "@prisma/client";
 import { chatSocketEvents, socketEvents } from "@taxi/config";
 import { CHAT_GLOBAL_ROOM, emitChatReceipt } from "./modules/chat/chat-socket";
@@ -6,6 +6,13 @@ import { chatService } from "./modules/chat/chat.service";
 import { setChatUserConnected } from "./modules/chat/chat-presence";
 import { prisma } from "./shared/prisma";
 import { AppError } from "./shared/app-error";
+import {
+  APP_UPDATE_REQUIRED_CODE,
+  evaluateMobileAppVersion,
+  evaluateUnknownMobileAppVersion,
+  type MobileAppKind
+} from "./shared/app-version";
+import { isNativeMobileUserAgent, readHandshakeAppMeta } from "./shared/mobile-app-version-guard";
 import { redis, redisEnabled } from "./shared/redis";
 import { orderToSocketPayload } from "./modules/orders/order-socket-payload";
 import { driverMatchesOrderVehicle, driverWhereMatchesOrderVehicle } from "./modules/orders/order-vehicle-filter";
@@ -302,18 +309,22 @@ export async function dispatchNewPendingOrderToDrivers(io: Server, order: Order)
   await notifyDriversNewOrderPush(order, io);
 }
 
-/** إسناد من المنسق: للسائق المختار + بث عام لتحديث واجهات المنسق */
+/** إسناد من المنسق/المدير: للسائق المختار والمنسقين فقط — دون إظهار الطلب لبقية السائقين */
 export function emitOrderAssigned(io: Server, order: Order) {
   syncBusyStateFromOrder(order);
   const payload = orderToSocketPayload(order);
   if (order.driverId) {
     io.to(`driver:${order.driverId}`).emit(socketEvents.ORDER_ASSIGNED, payload);
   }
-  io.emit(socketEvents.ORDER_ASSIGNED, payload);
+  io.to(ROOM_COORDINATORS).emit(socketEvents.ORDER_ASSIGNED, payload);
 }
 
-/** إخراج سائق من غرف البث (تعطيل الحساب أو رفض الاتصال) */
-export async function forceDriverOffline(io: Server, driverDbId: string, opts?: { notifyDriver?: boolean }) {
+/** إخراج سائق من غرف البث (تعطيل الحساب أو تجاوز حد المترتب) */
+export async function forceDriverOffline(
+  io: Server,
+  driverDbId: string,
+  opts?: { notifyDriver?: boolean; reason?: "disabled" | "debt" }
+) {
   if (!driverDbId) return;
   memOnline.delete(driverDbId);
   memLocations.delete(driverDbId);
@@ -333,10 +344,28 @@ export async function forceDriverOffline(io: Server, driverDbId: string, opts?: 
     void s.leave(ROOM_ORDER_VEHICLE_PRIVATE);
     void s.leave(ROOM_ORDER_VEHICLE_VIP);
     if (opts?.notifyDriver !== false) {
-      s.emit(socketEvents.DRIVER_FORCE_OFFLINE, { driverId: driverDbId });
+      s.emit(socketEvents.DRIVER_FORCE_OFFLINE, {
+        driverId: driverDbId,
+        reason: opts?.reason ?? "disabled"
+      });
     }
   }
   io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_OFFLINE, { driverId: driverDbId });
+}
+
+export function emitDriverDebtCleared(io: Server, driverDbId: string, remainingDebt: number) {
+  io.to(`driver:${driverDbId}`).emit(socketEvents.DRIVER_DEBT_CLEARED, {
+    driverId: driverDbId,
+    remainingDebt
+  });
+}
+
+export function emitDriverNotification(
+  io: Server,
+  driverDbId: string,
+  payload: { id: string; type: string; title: string; body: string; readAt: string | null; createdAt: string }
+) {
+  io.to(`driver:${driverDbId}`).emit(socketEvents.DRIVER_NOTIFICATION, payload);
 }
 
 /** بعد قبول سائق لطلب معلق — نفس حمولة الإسناد ليزيل الطلب من قوائم البقية */
@@ -355,15 +384,59 @@ export function emitOrderStatusUpdated(io: Server, order: Order) {
   io.emit(socketEvents.ORDER_STATUS_UPDATED, orderToSocketPayload(order));
 }
 
+let socketServer: Server | null = null;
+
+export function getSocketServer(): Server | null {
+  return socketServer;
+}
+
+async function rejectOutdatedSocket(socket: Socket, kind: MobileAppKind): Promise<boolean> {
+  if (socket.data.appVersionOk === true) return false;
+  const meta = readHandshakeAppMeta(socket.handshake);
+  const result = await evaluateMobileAppVersion(kind, meta.version);
+  if (result.ok) {
+    socket.data.appVersionOk = true;
+    return false;
+  }
+  socket.emit("app:update-required", { message: result.message, code: APP_UPDATE_REQUIRED_CODE });
+  socket.disconnect(true);
+  return true;
+}
+
 export const initSocket = (io: Server) => {
+  socketServer = io;
+  io.use(async (socket, next) => {
+    const meta = readHandshakeAppMeta(socket.handshake);
+    const ua = String(socket.handshake.headers["user-agent"] ?? "");
+    if (meta.kind) {
+      const result = await evaluateMobileAppVersion(meta.kind, meta.version);
+      if (!result.ok) {
+        next(new Error(result.message));
+        return;
+      }
+      socket.data.appVersionOk = true;
+      next();
+      return;
+    }
+    if (isNativeMobileUserAgent(ua)) {
+      const result = await evaluateUnknownMobileAppVersion(meta.version);
+      if (!result.ok) {
+        next(new Error(result.message));
+        return;
+      }
+    }
+    next();
+  });
   io.on("connection", (socket) => {
-    socket.on("driver:register", (driverId: string) => {
+    socket.on("driver:register", async (driverId: string) => {
       if (typeof driverId !== "string" || !driverId) return;
+      if (await rejectOutdatedSocket(socket, "driver")) return;
       void socket.join(`driver:${driverId}`);
       void socket.join("drivers");
     });
 
-    socket.on("coordinator:register", (_coordinatorId: string) => {
+    socket.on("coordinator:register", async (_coordinatorId: string) => {
+      if (await rejectOutdatedSocket(socket, "coordinator")) return;
       void socket.join(ROOM_COORDINATORS);
     });
 
@@ -371,8 +444,16 @@ export const initSocket = (io: Server) => {
       void socket.join(ROOM_COORDINATORS);
     });
 
-    socket.on(chatSocketEvents.REGISTER, (userId: string) => {
+    socket.on(chatSocketEvents.REGISTER, async (userId: string) => {
       if (typeof userId !== "string" || !userId) return;
+      try {
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+        if (user?.role === "DRIVER" && (await rejectOutdatedSocket(socket, "driver"))) return;
+        if (user?.role === "COORDINATOR" && (await rejectOutdatedSocket(socket, "coordinator"))) return;
+      } catch {
+        socket.disconnect(true);
+        return;
+      }
       socket.data.chatUserId = userId;
       void socket.join(`user:${userId}`);
       void socket.join(CHAT_GLOBAL_ROOM);
@@ -437,6 +518,7 @@ export const initSocket = (io: Server) => {
 
     socket.on("driver:online", async (driverId: string) => {
       if (typeof driverId !== "string" || !driverId) return;
+      if (await rejectOutdatedSocket(socket, "driver")) return;
       let vehicleKind: VehicleKind | null = null;
       let isBusy = false;
       let isActive = false;
@@ -450,7 +532,14 @@ export const initSocket = (io: Server) => {
           }
         });
         if (!row?.user.isActive) {
-          await forceDriverOffline(io, driverId, { notifyDriver: true });
+          await forceDriverOffline(io, driverId, { notifyDriver: true, reason: "disabled" });
+          return;
+        }
+        const { isDriverBlockedByDebt, readDriverRemainingDebt, rememberDriverDebtSuspended } = await import("./shared/driver-debt-block");
+        const remainingDebt = await readDriverRemainingDebt(prisma, driverId);
+        if (isDriverBlockedByDebt(remainingDebt)) {
+          rememberDriverDebtSuspended(driverId);
+          await forceDriverOffline(io, driverId, { notifyDriver: true, reason: "debt" });
           return;
         }
         isActive = true;
@@ -474,6 +563,7 @@ export const initSocket = (io: Server) => {
     });
 
     socket.on("driver:location", async (payload: { driverId: string; lat: number; lng: number }) => {
+      if (await rejectOutdatedSocket(socket, "driver")) return;
       if (
         typeof payload?.driverId !== "string" ||
         !payload.driverId ||

@@ -88,7 +88,7 @@ function toPublicUser(u: {
 export const authService = {
   async loginByEmail(email: string, password: string) {
     const user = await prisma.user.findFirst({
-      where: { email: email.trim().toLowerCase() }
+      where: { email: email.trim().toLowerCase(), deletedAt: null }
     });
     if (!user) throw new AppError("Invalid credentials", 401);
     const valid = await bcrypt.compare(password, user.passwordHash);
@@ -102,7 +102,7 @@ export const authService = {
   async loginByPhone(phoneRaw: string, password: string) {
     const phone = normalizePhoneDigits(phoneRaw);
     if (!phone) throw new AppError("Invalid credentials", 401);
-    const user = await prisma.user.findFirst({ where: { phone } });
+    const user = await prisma.user.findFirst({ where: { phone, deletedAt: null } });
     if (!user) throw new AppError("Invalid credentials", 401);
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw new AppError("Invalid credentials", 401);
@@ -161,9 +161,9 @@ export const authService = {
 
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, role: true, isActive: true }
+      select: { id: true, role: true, isActive: true, deletedAt: true }
     });
-    if (!user || !user.isActive) throw new AppError("User is inactive", 403);
+    if (!user || !user.isActive || user.deletedAt) throw new AppError("User is inactive", 403);
 
     if (isPermanentSessions()) {
       await prisma.refreshToken.update({

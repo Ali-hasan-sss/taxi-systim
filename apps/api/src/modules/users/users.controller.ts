@@ -5,6 +5,7 @@ import { resyncDriverOrderVehicleRooms } from "../../socket";
 import { prisma } from "../../shared/prisma";
 import { createUserDto, bulkCreateDriversDto, listUsersQueryDto, setStatusDto, updateUserDto } from "./users.dto";
 import { usersService } from "./users.service";
+import { createAndEmitDriverNotification, DRIVER_NOTIFICATION_TYPE } from "../../shared/driver-notifications";
 
 function buildSafeContentDisposition(filename: string): string {
   const asciiFallback = filename
@@ -57,6 +58,13 @@ export const usersController = {
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await usersService.remove(req.params.userId);
+      if ("driverId" in result && result.driverId) {
+        const io = req.app.get("io") as Server | undefined;
+        if (io) {
+          const { forceDriverOffline } = await import("../../socket");
+          await forceDriverOffline(io, result.driverId);
+        }
+      }
       res.json(result);
     } catch (err) {
       next(err);
@@ -66,12 +74,27 @@ export const usersController = {
   async setStatus(req: Request, res: Response) {
     const dto = setStatusDto.parse(req.body);
     const user = await usersService.setStatus(req.params.userId, dto.isActive);
-    if (!dto.isActive && user.role === Role.DRIVER) {
-      const io = req.app.get("io") as Server | undefined;
-      const row = await prisma.driver.findUnique({ where: { userId: user.id }, select: { id: true } });
-      if (io && row?.id) {
-        const { forceDriverOffline } = await import("../../socket");
-        await forceDriverOffline(io, row.id);
+    if (user.role === Role.DRIVER) {
+      if (!dto.isActive) {
+        await createAndEmitDriverNotification({
+          userId: user.id,
+          type: DRIVER_NOTIFICATION_TYPE.DISABLED,
+          title: "إيقاف عن العمل",
+          body: "تم إيقافك عن العمل من الإدارة."
+        });
+        const io = req.app.get("io") as Server | undefined;
+        const row = await prisma.driver.findUnique({ where: { userId: user.id }, select: { id: true } });
+        if (io && row?.id) {
+          const { forceDriverOffline } = await import("../../socket");
+          await forceDriverOffline(io, row.id);
+        }
+      } else {
+        await createAndEmitDriverNotification({
+          userId: user.id,
+          type: DRIVER_NOTIFICATION_TYPE.ENABLED,
+          title: "العودة للعمل",
+          body: "تمت إعادة تفعيل حسابك ويمكنك بدء العمل."
+        });
       }
     }
     res.json(user);

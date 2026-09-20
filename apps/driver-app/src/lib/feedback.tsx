@@ -260,16 +260,16 @@ export const feedback = {
     openDialog({ variant: "alert", tone: "info", title, body: message });
   },
 
-  /** نفس شكل نافذة التأكيد — عنوان ونص وأزرار رجوع / إلغاء */
-  confirmCancelOrder(onConfirm: () => void) {
+  /** تأكيد إلغاء الطلب من السائق مع غرامة ثابتة */
+  confirmDriverCancelOrder(onConfirm: () => void) {
     openDialog({
       variant: "confirm",
       title: "تأكيد إلغاء الطلب",
-      body:
-        "سيتم إلغاء الطلب وإبلاغ السائقين المعنيّين. هذا الإجراء نهائي ضمن التطبيق.\n\nهل تريد المتابعة؟",
-      cancelLabel: "رجوع",
+      body: "سيتم تغريمك بمبلغ 100 ل.س في حال إلغاء الطلب",
+      cancelLabel: "تراجع",
       confirmLabel: "إلغاء الطلب",
       destructive: true,
+      tone: "warning",
       onConfirm
     });
   },

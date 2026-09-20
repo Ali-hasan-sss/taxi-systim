@@ -1,4 +1,4 @@
-import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import { themedRefreshProps, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -13,6 +13,7 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
+import { DriverOrdersSkeleton } from "../../src/components/driver-skeletons";
 import { DriverOrderCard } from "../../src/components/DriverOrderCard";
 import { useDriverSocket } from "../../src/driver-socket-context";
 import {
@@ -20,20 +21,21 @@ import {
   type DriverSocketOrderPayload,
   driverAcceptOrder,
   driverCompleteOrder,
+  driverCancelOrder,
   driverMarkCustomerBoarded,
-  driverReportCustomerNoShow,
   fetchDriverOrderRoom,
   socketPayloadToDriverOrderRow
 } from "../../src/lib/api";
 import { SOCKET_EVENTS } from "../../src/lib/socket-events";
-import { getDriverLocationAccessState, isDriverLocationReady } from "../../src/lib/location-access";
 import { clearDriverSession, getDriverSession } from "../../src/lib/session";
+import { tryStartDriverWork } from "../../src/lib/start-work";
 import { useDriverStore } from "../../src/store";
 import { rtlText } from "../../src/lib/rtl-text";
 import { driverTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { playDriverOrderPushSound } from "../../src/lib/order-push-sound";
 import { playOrderResumedSound } from "../../src/lib/order-resumed-sound";
 import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
+import { feedback } from "../../src/lib/feedback";
 
 function authFailureMessage(msg: string): boolean {
   return /Unauthorized|غير مصرح|Forbidden|401|403|تجديد الجلسة|انتهت صلاحية الجلسة|Invalid refresh/i.test(msg);
@@ -48,7 +50,8 @@ export default function DriverOrdersTab() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const isOnline = useDriverStore((s) => s.isOnline);
-  const setOnline = useDriverStore((s) => s.setOnline);
+  const workBlocked = useDriverStore((s) => s.workBlocked);
+  const workBlockMessage = useDriverStore((s) => s.workBlockMessage);
   const setRoomPendingCount = useDriverStore((s) => s.setRoomPendingCount);
   const isOnlineRef = useRef(isOnline);
   isOnlineRef.current = isOnline;
@@ -309,7 +312,7 @@ export default function DriverOrdersTab() {
     }
   };
 
-  const onNoShow = async (orderId: string) => {
+  const runCancelOrder = async (orderId: string) => {
     const session = await getDriverSession();
     if (!session?.accessToken) {
       await goToLogin();
@@ -318,17 +321,22 @@ export default function DriverOrdersTab() {
     setActionOrderId(orderId);
     setError(null);
     try {
-      await driverReportCustomerNoShow(session.accessToken, orderId);
+      await driverCancelOrder(session.accessToken, orderId);
       setInProgress(null);
+      feedback.success("تم إلغاء الطلب وتسجيل غرامة 100 ل.س.", "تم الإلغاء");
       await loadRoom(false);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "تعذر تسجيل الحالة";
+      const msg = e instanceof Error ? e.message : "تعذر إلغاء الطلب";
       setError(msg);
-      Alert.alert("تعذر التسجيل", msg);
+      feedback.error(msg, "تعذر الإلغاء");
       if (authFailureMessage(msg)) await goToLogin();
     } finally {
       setActionOrderId(null);
     }
+  };
+
+  const onCancelOrder = (orderId: string) => {
+    feedback.confirmDriverCancelOrder(() => void runCancelOrder(orderId));
   };
 
   const onComplete = async (orderId: string) => {
@@ -354,13 +362,10 @@ export default function DriverOrdersTab() {
   };
 
   const onStartWork = async () => {
-    const locationState = await getDriverLocationAccessState();
-    if (!isDriverLocationReady(locationState)) {
-      setOnline(false);
+    const result = await tryStartDriverWork();
+    if (result === "need-location") {
       router.replace("/location-access");
-      return;
     }
-    setOnline(true);
   };
 
   const listBottomPad = driverTabBarOuterHeight(insets.bottom) + 24;
@@ -561,7 +566,7 @@ export default function DriverOrdersTab() {
     btnWarning: {
       flex: 1,
       minWidth: 140,
-      backgroundColor: t.colors.busy,
+      backgroundColor: t.colors.danger,
       paddingVertical: 14,
       borderRadius: 12,
       alignItems: "center" as const
@@ -682,9 +687,8 @@ export default function DriverOrdersTab() {
             {connectionStatusRow}
             <Text style={styles.title}>غرفة الطلبات</Text>
           </View>
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>جاري تحميل غرفة الطلبات…</Text>
+          <View style={{ flex: 1 }}>
+            <DriverOrdersSkeleton />
           </View>
         </DriverScreenBackground>
       </SafeAreaView>
@@ -701,7 +705,11 @@ export default function DriverOrdersTab() {
           <Text style={styles.title}>غرفة الطلبات</Text>
          
           {!isOnline ? (
-            <Text style={styles.offlineHint}>فعّل بدء العمل من القائمة لاستلام الطلبات.</Text>
+            <Text style={styles.offlineHint}>
+              {workBlocked
+                ? workBlockMessage ?? "تم إيقافك عن العمل بسبب تجاوز المبلغ المترتب. سدّد لتعود للعمل."
+                : "فعّل بدء العمل من القائمة لاستلام الطلبات."}
+            </Text>
           ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
@@ -725,12 +733,12 @@ export default function DriverOrdersTab() {
                       <Pressable
                         style={[styles.btnWarning, busy && styles.btnDisabled]}
                         disabled={!!busy}
-                        onPress={() => void onNoShow(item.id)}
+                        onPress={() => onCancelOrder(item.id)}
                       >
                         {busy ? (
                           <ActivityIndicator color={theme.colors.textInverse} />
                         ) : (
-                          <Text style={styles.btnWarningText}>لم أجد الزبون</Text>
+                          <Text style={styles.btnWarningText}>إلغاء الطلب</Text>
                         )}
                       </Pressable>
                       <Pressable
@@ -837,20 +845,36 @@ export default function DriverOrdersTab() {
               ? [styles.emptyList, { paddingBottom: listBottomPad }]
               : [styles.list, { paddingBottom: listBottomPad }]
           }
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadRoom(true)} tintColor={theme.colors.primary} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void loadRoom(true)}
+              {...themedRefreshProps(theme)}
+            />
+          }
           ListEmptyComponent={
             isOnline ? (
               <Text style={styles.empty}>لا توجد طلبات معلقة حاليًا. انتظر إشعار طلب جديد.</Text>
             ) : (
               <View style={styles.offlineCenterCard}>
-                <Ionicons name="play-circle-outline" size={42} color={theme.colors.success} />
-                <Text style={styles.offlineCenterTitle}>أنت متوقف عن العمل</Text>
-                <Text style={styles.offlineCenterText}>
-                  اضغط الزر أدناه لبدء العمل مباشرة واستلام الطلبات الجديدة.
+                <Ionicons
+                  name={workBlocked ? "alert-circle-outline" : "play-circle-outline"}
+                  size={42}
+                  color={workBlocked ? theme.colors.danger : theme.colors.success}
+                />
+                <Text style={styles.offlineCenterTitle}>
+                  {workBlocked ? "موقوف عن العمل" : "أنت متوقف عن العمل"}
                 </Text>
-                <Pressable style={styles.offlineCenterBtn} onPress={() => void onStartWork()}>
-                  <Text style={styles.offlineCenterBtnText}>بدء العمل</Text>
-                </Pressable>
+                <Text style={styles.offlineCenterText}>
+                  {workBlocked
+                    ? workBlockMessage ?? "سدّد العمولات والغرامات لتعود للعمل تلقائياً."
+                    : "اضغط الزر أدناه لبدء العمل مباشرة واستلام الطلبات الجديدة."}
+                </Text>
+                {workBlocked ? null : (
+                  <Pressable style={styles.offlineCenterBtn} onPress={() => void onStartWork()}>
+                    <Text style={styles.offlineCenterBtnText}>بدء العمل</Text>
+                  </Pressable>
+                )}
               </View>
             )
           }

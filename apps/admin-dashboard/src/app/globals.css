@@ -440,6 +440,54 @@ body {
   color: var(--brand-success);
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.45;
+}
+
+.dashboard-chart {
+  padding: 18px 18px 8px;
+}
+
+.dashboard-chart__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dashboard-chart__canvas {
+  width: 100%;
+  height: 280px;
+  direction: ltr;
+}
+
+.dashboard-chart__tooltip {
+  background: #fff;
+  border: 1px solid var(--brand-card-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: var(--shadow-sm);
+  direction: rtl;
+  text-align: right;
+  min-width: 180px;
+}
+
+.dashboard-chart__tooltip strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--brand-text);
+}
+
+.dashboard-chart__tooltip p {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.dashboard-chart__tooltip span {
+  display: block;
+  font-size: 12px;
+  color: var(--brand-text-muted);
+  line-height: 1.5;
 }
 
 .dashboard-two-col {
@@ -784,6 +832,31 @@ body {
   gap: 14px;
 }
 
+.settings-card--wide {
+  grid-column: 1 / -1;
+}
+
+.settings-versions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settings-versions-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--brand-border);
+  background: var(--brand-bg-muted);
+}
+
+.settings-versions-col__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
 .settings-card__title {
   margin: 0;
   font-size: 1.05rem;
@@ -829,6 +902,10 @@ body {
 
 @media (max-width: 960px) {
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-versions-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -939,6 +1016,32 @@ body {
   min-width: 172px;
 }
 
+.finance-balance-search {
+  max-width: 280px;
+}
+
+.finance-balance-copy {
+  font-weight: 800;
+}
+
+.finance-balance-copy--owe {
+  color: #b91c1c;
+}
+
+.finance-balance-copy--credit {
+  color: #15803d;
+}
+
+.finance-balance-copy--zero {
+  color: var(--brand-text-muted);
+}
+
+.finance-balance-inactive {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--brand-text-muted);
+}
+
 .finance-date-input::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 0.78;
@@ -951,7 +1054,7 @@ body {
 }
 
 .finance-summary-grid--with-fines {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .finance-summary-card {
@@ -1039,6 +1142,21 @@ body {
 
 .finance-fine-status--unpaid {
   color: #b45309;
+  font-weight: 700;
+}
+
+.finance-compensation-status--unused {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.finance-compensation-status--used {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.finance-compensation-status--promo {
+  color: #1d4ed8;
   font-weight: 700;
 }
 
@@ -1233,6 +1351,109 @@ body {
   justify-content: flex-end;
 }
 
+.finance-invoice-card {
+  width: min(640px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: hidden;
+}
+
+.finance-invoice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  max-height: min(62vh, 640px);
+  padding-inline-end: 4px;
+}
+
+.finance-invoice-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.finance-invoice-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+
+.finance-invoice-meta span {
+  color: var(--brand-text-muted);
+  font-size: 13px;
+}
+
+.finance-invoice-meta strong {
+  color: #9a3412;
+  font-size: 15px;
+}
+
+.finance-invoice-body section h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.finance-invoice-body ul {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.finance-invoice-body p {
+  margin: 0;
+  color: var(--brand-text-muted);
+}
+
+.finance-invoice-total {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 800;
+  font-size: 1.15rem;
+}
+
+.finance-invoice-actions {
+  flex-wrap: wrap;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .finance-invoice-card,
+  .finance-invoice-card * {
+    visibility: visible !important;
+  }
+
+  .finance-invoice-card {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    max-height: none;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .finance-invoice-body {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .finance-export-modal__backdrop,
+  .finance-invoice-actions,
+  .finance-export-modal__header .btn {
+    display: none !important;
+  }
+}
+
 .promo-modal__card {
   max-width: 640px;
   width: min(640px, calc(100vw - 32px));
@@ -1409,6 +1630,10 @@ body {
   .finance-export-modal__actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .finance-invoice-meta {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1765,6 +1990,76 @@ body {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.confirm-modal-backdrop {
+  z-index: 1300;
+}
+
+.confirm-modal {
+  max-width: 460px;
+  text-align: center;
+  align-items: center;
+}
+
+.confirm-modal__icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 24px;
+  font-weight: 800;
+  border: 1px solid #fed7aa;
+}
+
+.confirm-modal h3 {
+  margin: 0;
+}
+
+.confirm-modal__text {
+  margin: 0;
+  color: var(--brand-muted, var(--brand-text-muted));
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-line;
+}
+
+.confirm-modal__details {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  text-align: start;
+  font-size: 13px;
+}
+
+.confirm-modal__details div {
+  display: grid;
+  gap: 2px;
+}
+
+.confirm-modal__details span {
+  color: var(--brand-muted, var(--brand-text-muted));
+}
+
+.confirm-modal__details strong {
+  color: var(--brand-text);
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.confirm-modal__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
 }
 
 .spinner {

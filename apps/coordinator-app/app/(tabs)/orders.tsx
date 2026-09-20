@@ -17,6 +17,7 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import { CoordinatorOrderCard } from "../../src/components/CoordinatorOrderCard";
 import {
@@ -566,7 +567,7 @@ export default function OrdersTab() {
     const origin = getSocketOrigin();
     let socket: Socket | null = null;
     try {
-      socket = io(origin, { transports: ["websocket"] });
+      socket = io(origin, { transports: ["websocket"], auth: nativeAppSocketAuth("coordinator") });
       coordinatorSocketRef.current = socket;
       const registerCoordinator = () => {
         const id = myCoordinatorIdRef.current;

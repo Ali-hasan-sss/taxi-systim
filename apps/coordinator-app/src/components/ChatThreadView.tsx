@@ -26,6 +26,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import {
   type ChatMessageRow,
@@ -431,7 +432,7 @@ export function ChatThreadView({
   }, [scrollToBottom]);
 
   useEffect(() => {
-    const socket = io(getSocketOrigin(), { transports: ["websocket"] });
+    const socket = io(getSocketOrigin(), { transports: ["websocket"], auth: nativeAppSocketAuth("coordinator") });
     socketRef.current = socket;
     const onConnect = () => {
       if (myUserId) socket.emit(chatSocketEvents.REGISTER, myUserId);

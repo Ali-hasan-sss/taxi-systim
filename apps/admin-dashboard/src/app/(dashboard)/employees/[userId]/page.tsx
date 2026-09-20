@@ -4,16 +4,21 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Bell } from "lucide-react";
+import { ConfirmModal } from "../../../../components/confirm-modal";
+import { DriverCompensationsModal } from "../../../../components/driver-compensations-modal";
 import { DriverFinesModal } from "../../../../components/driver-fines-modal";
+import { DriverSettlementInvoiceModal } from "../../../../components/driver-settlement-invoice-modal";
 import {
   api,
   type DriverCoordinatorOption,
+  type DriverSettlementInvoice,
   type EmployeeProfile,
   type FinanceOrderRow,
   type FinanceOrderStatus,
   type FinancePaymentStatus,
   type VehicleKind
 } from "../../../../lib/api";
+import { remainingBalanceCopy } from "../../../../lib/remaining-balance";
 import styles from "./page.module.css";
 
 const REPORT_PAGE_SIZE = 25;
@@ -47,6 +52,11 @@ const PAYMENT_STATUS_LABELS: Record<FinancePaymentStatus, string> = {
   PARTIAL: "مدفوعة جزئيًا",
   PAID: "مدفوعة"
 };
+
+type PendingCommissionPayment =
+  | { kind: "driver" }
+  | { kind: "order"; row: FinanceOrderRow }
+  | { kind: "period" };
 
 function syriaTodayYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -137,6 +147,11 @@ export default function EmployeeDetailPage() {
   const [fineNotes, setFineNotes] = useState("");
   const [recordingFine, setRecordingFine] = useState(false);
   const [finesLedgerOpen, setFinesLedgerOpen] = useState(false);
+  const [compensationsLedgerOpen, setCompensationsLedgerOpen] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [settlingBalance, setSettlingBalance] = useState(false);
+  const [settlementInvoice, setSettlementInvoice] = useState<DriverSettlementInvoice | null>(null);
+  const [pendingPayment, setPendingPayment] = useState<PendingCommissionPayment | null>(null);
 
   const canViewOrders = profile?.role === "DRIVER" || profile?.role === "COORDINATOR";
   const driverId = profile?.driver?.id ?? null;
@@ -241,9 +256,9 @@ export default function EmployeeDetailPage() {
   }, [loadDriverCoordinators, profile]);
 
   useEffect(() => {
-    if (!profile || !canViewOrders) return;
+    if (!profile || !canViewOrders || !showReport) return;
     void loadReport();
-  }, [canViewOrders, filters.coordinatorId, filters.from, filters.to, loadReport, profile]);
+  }, [canViewOrders, filters.coordinatorId, filters.from, filters.to, loadReport, profile, showReport]);
 
   const applyFilters = (event: FormEvent) => {
     event.preventDefault();
@@ -324,14 +339,47 @@ export default function EmployeeDetailPage() {
     }
   };
 
+  const settleDriverBalance = async () => {
+    if (!token || !driverId || !profile) return;
+    const copy = remainingBalanceCopy(profile.stats.dueCommissionAmount);
+    if (copy.kind !== "owe") {
+      setPendingPayment(null);
+      return;
+    }
+    setSettlingBalance(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.settleDriverBalance(token, { driverId });
+      setSettlementInvoice(result.invoice);
+      setNotice("تم تسديد المبلغ المترتب. يمكنك إرسال الفاتورة الآن.");
+      await loadProfile();
+      if (showReport) await loadReport();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر تسديد المبلغ المترتب";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setSettlingBalance(false);
+      setPendingPayment(null);
+    }
+  };
+
   const settleSingleOrder = async (row: FinanceOrderRow) => {
-    if (!token || !row.commission) return;
+    if (!token || !row.commission || Number(row.commission.remainingAmount) <= 0) {
+      setPendingPayment(null);
+      return;
+    }
     setSettlingOrderId(row.id);
     setError(null);
     try {
       await api.settleOrderCommission(token, { orderId: row.id });
       setNotice("تم تسديد عمولة الطلب.");
-      await Promise.all([loadProfile(), loadReport()]);
+      await loadProfile();
+      if (showReport) await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تسديد العمولة";
       if (message === "SESSION_EXPIRED") {
@@ -341,12 +389,15 @@ export default function EmployeeDetailPage() {
       setError(message);
     } finally {
       setSettlingOrderId(null);
+      setPendingPayment(null);
     }
   };
 
   const settleAllInPeriod = async () => {
-    if (!token || !driverId) return;
-    if (!confirm("تسديد كل العمولات والغرامات المستحقة ضمن الفترة المحددة؟")) return;
+    if (!token || !driverId) {
+      setPendingPayment(null);
+      return;
+    }
     setSettlingAll(true);
     setError(null);
     try {
@@ -362,7 +413,8 @@ export default function EmployeeDetailPage() {
           (finesPaidCount > 0 ? ` (شمل ${finesPaidCount} غرامة)` : "") +
           "."
       );
-      await Promise.all([loadProfile(), loadReport()]);
+      await loadProfile();
+      if (showReport) await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر التسديد الجماعي";
       if (message === "SESSION_EXPIRED") {
@@ -372,6 +424,7 @@ export default function EmployeeDetailPage() {
       setError(message);
     } finally {
       setSettlingAll(false);
+      setPendingPayment(null);
     }
   };
 
@@ -395,7 +448,8 @@ export default function EmployeeDetailPage() {
       setCompensationOpen(false);
       setCompensationAmount("");
       setCompensationNotes("");
-      await Promise.all([loadProfile(), loadReport()]);
+      await loadProfile();
+      if (showReport) await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تسجيل التعويض";
       if (message === "SESSION_EXPIRED") {
@@ -428,7 +482,8 @@ export default function EmployeeDetailPage() {
       setFineOpen(false);
       setFineAmount("");
       setFineNotes("");
-      await Promise.all([loadProfile(), loadReport()]);
+      await loadProfile();
+      if (showReport) await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تسجيل الغرامة";
       if (message === "SESSION_EXPIRED") {
@@ -475,6 +530,43 @@ export default function EmployeeDetailPage() {
           .filter(Boolean)
           .join(" · ") || "—"
       : "—";
+
+  const remainingCopy = remainingBalanceCopy(profile.stats.dueCommissionAmount);
+  const paymentConfirm =
+    pendingPayment?.kind === "driver"
+      ? {
+          title: "تأكيد تسديد المبلغ المترتب",
+          description: "سيتم تحويل العمولات والغرامات غير المسددة إلى مسددة.",
+          details: [
+            { label: "السائق", value: profile.fullName },
+            { label: "المبلغ المترتب", value: `${remainingCopy.amountText} ل.س` }
+          ],
+          confirmLabel: "تسديد المبلغ",
+          busy: settlingBalance
+        }
+      : pendingPayment?.kind === "order"
+        ? {
+            title: "تأكيد تسديد العمولة",
+            description: "سيتم تسديد عمولة هذا الطلب وتحويلها إلى مسددة.",
+            details: [
+              { label: "الطلب", value: pendingPayment.row.id.slice(0, 8) },
+              {
+                label: "المتبقي",
+                value: `${formatMoney(pendingPayment.row.commission?.remainingAmount ?? 0)} ل.س`
+              }
+            ],
+            confirmLabel: "تسديد العمولة",
+            busy: settlingOrderId === pendingPayment.row.id
+          }
+        : pendingPayment?.kind === "period"
+          ? {
+              title: "تأكيد التسديد الجماعي",
+              description: "سيتم تسديد كل العمولات والغرامات المستحقة ضمن الفترة المحددة.",
+              details: [{ label: "الفترة", value: `من ${filters.from} إلى ${filters.to}` }],
+              confirmLabel: "تسديد الكل",
+              busy: settlingAll
+            }
+          : null;
 
   return (
     <div className={`dashboard-page ${styles.page}`}>
@@ -524,10 +616,34 @@ export default function EmployeeDetailPage() {
                 <button type="button" className="btn btn-sm" onClick={() => setFineOpen(true)}>
                   إضافة غرامة
                 </button>
+                {remainingCopy.kind === "owe" ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    disabled={settlingBalance}
+                    onClick={() => setPendingPayment({ kind: "driver" })}
+                  >
+                    {settlingBalance ? "جارٍ التسديد..." : "تسديد المبلغ المترتب عليه"}
+                  </button>
+                ) : null}
               </>
             ) : null}
           </div>
         </div>
+        {profile.role === "DRIVER" ? (
+          <div
+            className={`${styles.debtBanner} ${
+              remainingCopy.kind === "owe"
+                ? styles.debtBanner_owe
+                : remainingCopy.kind === "credit"
+                  ? styles.debtBanner_credit
+                  : styles.debtBanner_zero
+            }`}
+          >
+            <span className={styles.debtBannerTitle}>{remainingCopy.title}</span>
+            <strong className={styles.debtBannerAmount}>({remainingCopy.amountText})</strong>
+          </div>
+        ) : null}
       </section>
 
       <div className={styles.grid2}>
@@ -573,8 +689,8 @@ export default function EmployeeDetailPage() {
             {profile.role === "DRIVER" ? (
               <>
                 <div className={styles.statTile}>
-                  <span className={styles.statValue}>{formatMoney(profile.stats.dueCommissionAmount)}</span>
-                  <span className={styles.statLabel}>عمولة مستحقة (الإجمالي)</span>
+                  <span className={styles.statValue}>{remainingCopy.sentence}</span>
+                  <span className={styles.statLabel}>المبلغ المترتب (الرصيد الحالي)</span>
                 </div>
                 <div className={styles.statTile}>
                   <span className={styles.statValue}>{formatMoney(profile.stats.totalPaidCommissions)}</span>
@@ -588,10 +704,21 @@ export default function EmployeeDetailPage() {
 
       {canViewOrders && (driverId || coordinatorId) ? (
         <section className={`card ${styles.reportCard}`}>
-          <h2 className={styles.sectionTitle}>
-            {profile.role === "DRIVER" ? "طلبات السائق المنفذة" : "طلبات المنسق المنفذة"}
-          </h2>
+          <div className={styles.reportHead}>
+            <h2 className={styles.sectionTitle}>
+              {profile.role === "DRIVER" ? "تقرير الطلبات" : "طلبات المنسق المنفذة"}
+            </h2>
+            <button
+              type="button"
+              className={showReport ? "btn btn-ghost" : "btn btn-primary"}
+              onClick={() => setShowReport((prev) => !prev)}
+            >
+              {showReport ? "إخفاء التقرير" : "عرض تقرير الطلبات"}
+            </button>
+          </div>
 
+          {showReport ? (
+            <>
           <form className={styles.filtersRow} onSubmit={applyFilters}>
             <label className={styles.field}>
               <span className={styles.fieldLabel}>من</span>
@@ -625,7 +752,7 @@ export default function EmployeeDetailPage() {
               {exporting ? "جاري التصدير..." : "تصدير Excel"}
             </button>
             {profile.role === "DRIVER" && driverId ? (
-              <button type="button" className="btn btn-ghost" disabled={settlingAll} onClick={() => void settleAllInPeriod()}>
+              <button type="button" className="btn btn-ghost" disabled={settlingAll} onClick={() => setPendingPayment({ kind: "period" })}>
                 {settlingAll ? "جارٍ التسديد..." : "تسديد عمولات الفترة"}
               </button>
             ) : null}
@@ -648,12 +775,17 @@ export default function EmployeeDetailPage() {
                 </div>
                 <div className={styles.statTile}>
                   <span className={styles.statValue}>{formatMoney(summary.dueCommissionAmount)}</span>
-                  <span className={styles.statLabel}>المبلغ المترتب</span>
+                  <span className={styles.statLabel}>مبلغ الفترة (حسب الفلتر)</span>
                 </div>
-                <div className={styles.statTile}>
+                <button
+                  type="button"
+                  className={`${styles.statTile} ${styles.statTileClickable}`}
+                  onClick={() => setCompensationsLedgerOpen(true)}
+                  aria-label="عرض سجل التعويضات"
+                >
                   <span className={styles.statValue}>{formatMoney(summary.compensationAmount)}</span>
                   <span className={styles.statLabel}>تعويضات الفترة</span>
-                </div>
+                </button>
                 <button
                   type="button"
                   className={`${styles.statTile} ${styles.statTileClickable}`}
@@ -734,7 +866,7 @@ export default function EmployeeDetailPage() {
                                 Number(row.commission.remainingAmount) <= 0 ||
                                 settlingOrderId === row.id
                               }
-                              onClick={() => void settleSingleOrder(row)}
+                              onClick={() => setPendingPayment({ kind: "order", row })}
                             >
                               {settlingOrderId === row.id ? "جارٍ..." : "تسديد"}
                             </button>
@@ -758,6 +890,8 @@ export default function EmployeeDetailPage() {
               ) : null}
             </>
           )}
+            </>
+          ) : null}
         </section>
       ) : null}
 
@@ -771,6 +905,7 @@ export default function EmployeeDetailPage() {
               </button>
             </div>
             <form className="modal-form" onSubmit={submitCompensation}>
+              <p className="settings-card__hint">يمكن أن يتجاوز التعويض العمولة المستحقة فيصبح المترتب سالباً (للسائق على المنصة).</p>
               <input
                 className="input-styled"
                 value={compensationAmount}
@@ -846,7 +981,43 @@ export default function EmployeeDetailPage() {
           to={filters.to}
           onClose={() => setFinesLedgerOpen(false)}
           onSessionExpired={handleSessionExpired}
-          onSettled={() => void Promise.all([loadProfile(), loadReport()])}
+          onSettled={() => void Promise.all([loadProfile(), showReport ? loadReport() : Promise.resolve()])}
+        />
+      ) : null}
+
+      {compensationsLedgerOpen && token && driverId ? (
+        <DriverCompensationsModal
+          open={compensationsLedgerOpen}
+          token={token}
+          driverId={driverId}
+          from={filters.from}
+          to={filters.to}
+          onClose={() => setCompensationsLedgerOpen(false)}
+          onSessionExpired={handleSessionExpired}
+        />
+      ) : null}
+
+      {settlementInvoice ? (
+        <DriverSettlementInvoiceModal invoice={settlementInvoice} onClose={() => setSettlementInvoice(null)} />
+      ) : null}
+
+      {pendingPayment && paymentConfirm ? (
+        <ConfirmModal
+          open
+          title={paymentConfirm.title}
+          description={paymentConfirm.description}
+          details={paymentConfirm.details}
+          confirmLabel={paymentConfirm.confirmLabel}
+          busy={paymentConfirm.busy}
+          busyLabel="جارٍ التسديد..."
+          onCancel={() => {
+            if (!paymentConfirm.busy) setPendingPayment(null);
+          }}
+          onConfirm={() => {
+            if (pendingPayment.kind === "driver") void settleDriverBalance();
+            else if (pendingPayment.kind === "order") void settleSingleOrder(pendingPayment.row);
+            else void settleAllInPeriod();
+          }}
         />
       ) : null}
     </div>

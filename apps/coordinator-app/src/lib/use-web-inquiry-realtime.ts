@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import { socketEvents } from "@taxi/config";
 import { coordinatorMe, getSocketOrigin, listWebInquiries } from "./api";
@@ -33,7 +34,7 @@ export function useWebInquiryRealtime(enabled = true) {
       const me = await coordinatorMe(session.accessToken);
       if (!me.coordinatorId || cancelled) return;
 
-      socket = io(getSocketOrigin(), { transports: ["websocket", "polling"] });
+      socket = io(getSocketOrigin(), { transports: ["websocket", "polling"], auth: nativeAppSocketAuth("coordinator") });
       socket.on("connect", () => {
         socket?.emit("coordinator:register", me.coordinatorId);
       });

@@ -1,4 +1,4 @@
-import { getSocketOriginFromApiBase, resolveExpoApiBase } from "@taxi/expo-api-base";
+import { getSocketOriginFromApiBase, nativeAppHeaders, resolveExpoApiBase } from "@taxi/expo-api-base";
 import { mapCoordinatorLoginError, mapRefreshTokenError } from "./auth-errors";
 
 const API_BASE = resolveExpoApiBase();
@@ -6,6 +6,7 @@ const API_BASE = resolveExpoApiBase();
 /** يمنع التخزين المؤقت وطلبات If-None-Match التي تُرجع 304 بدون جسم (مشكلة شائعة مع OkHttp على أندرويد) */
 function noStoreAuthHeaders(accessToken: string): HeadersInit {
   return {
+    ...nativeAppHeaders("coordinator"),
     Authorization: `Bearer ${accessToken}`,
     "Cache-Control": "no-cache",
     Pragma: "no-cache"
@@ -70,7 +71,7 @@ export async function coordinatorRefreshAccessToken(refreshToken: string): Promi
   try {
     res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("coordinator") },
       body: JSON.stringify({ refreshToken })
     });
   } catch {
@@ -91,7 +92,7 @@ export async function coordinatorLogin(phone: string, password: string): Promise
   try {
     res = await fetch(`${API_BASE}/auth/coordinator/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("coordinator") },
       body: JSON.stringify({ phone, password })
     });
   } catch {
@@ -149,7 +150,7 @@ export async function coordinatorChangePassword(
     "/auth/coordinator/change-password",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("coordinator") },
       body: JSON.stringify(payload)
     },
     accessToken
@@ -369,7 +370,7 @@ export async function coordinatorAssignOrder(
     `/orders/${encodeURIComponent(orderId)}/assign`,
     {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("coordinator") },
       body: JSON.stringify({ driverId })
     },
     accessToken
@@ -391,7 +392,7 @@ export async function coordinatorUpdateCompletedOrderAmount(
     `/orders/${encodeURIComponent(orderId)}/amount`,
     {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("coordinator") },
       body: JSON.stringify({ amount })
     },
     accessToken
@@ -572,7 +573,7 @@ export async function coordinatorCreateOrder(
     `/orders`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("coordinator") },
       body: JSON.stringify(body)
     },
     accessToken
@@ -597,7 +598,7 @@ export async function registerExpoPushToken(accessToken: string, expoToken: stri
     "/auth/push-token",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("coordinator") },
       body: JSON.stringify({ token: expoToken })
     },
     accessToken
@@ -642,7 +643,7 @@ export async function publishWebInquiry(
     `/public/web-inquiries/${encodeURIComponent(orderId)}/publish`,
     {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("coordinator") },
       body: JSON.stringify(payload)
     },
     accessToken

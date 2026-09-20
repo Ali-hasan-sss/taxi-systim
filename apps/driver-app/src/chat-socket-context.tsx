@@ -1,5 +1,6 @@
 import { chatSocketEvents, socketEvents } from "@taxi/config";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import { getSocketOrigin } from "./lib/api";
 import type { ChatMessageRow } from "./lib/chat";
@@ -23,7 +24,7 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
       const session = await getDriverSession();
       if (!session || cancelled) return;
 
-      socket = io(getSocketOrigin(), { transports: ["websocket"] });
+      socket = io(getSocketOrigin(), { transports: ["websocket"], auth: nativeAppSocketAuth("driver") });
       const myUserId = session.user.id;
 
       const onConnect = () => {

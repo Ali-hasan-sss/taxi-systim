@@ -4,7 +4,6 @@ import { OrderStatus, Role } from "@prisma/client";
 import {
   notifyCoordinatorNeedsInfoPush,
   notifyCoordinatorOrderCompletedPush,
-  notifyCoordinatorOrderStuckPush,
   notifyDriverOrderAssignedPush,
   notifyDriverOrderResumedPush
 } from "../../shared/expo-push";
@@ -172,6 +171,20 @@ export const ordersController = {
     }
   },
 
+  async driverCompensations(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const driver = await prisma.driver.findUnique({
+        where: { userId: req.auth!.userId },
+        select: { id: true }
+      });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+      const data = await accountingService.listDriverCompensations({ driverId: driver.id });
+      res.json(data);
+    } catch (e) {
+      next(e);
+    }
+  },
+
   async driverReport(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const limitRaw = req.query.limit;
@@ -325,12 +338,11 @@ export const ordersController = {
     }
   },
 
-  async reportCustomerNoShow(req: AuthRequest, res: Response, next: NextFunction) {
+  async cancelByDriver(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const order = await ordersService.reportCustomerNoShowByDriver(req.auth!.userId, req.params.orderId);
+      const order = await ordersService.cancelByDriver(req.auth!.userId, req.params.orderId);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderStatusUpdated(io, order);
-      if (order.status === OrderStatus.STUCK) void notifyCoordinatorOrderStuckPush(order);
       res.json(ordersService.serializeDriverOrderRow(order));
     } catch (e) {
       next(e);

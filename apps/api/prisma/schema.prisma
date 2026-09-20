@@ -93,6 +93,8 @@ model User {
   phone          String?        @unique
   role           Role
   isActive       Boolean        @default(true)
+  /** إخفاء الموظف من الجداول دون مسح سجلاته المالية */
+  deletedAt      DateTime?
   /** رمز Expo Push لجهاز واحد (آخر تسجيل من تطبيق السائق/المنسق) */
   expoPushToken  String?
   refreshTokens  RefreshToken[]
@@ -103,6 +105,8 @@ model User {
   chatReceipts   ChatMessageReceipt[]
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+
+  @@index([deletedAt])
 }
 
 model Driver {
@@ -115,6 +119,8 @@ model Driver {
   vehicleColor     String?
   isOnline         Boolean                 @default(false)
   isBusy           Boolean                 @default(false)
+  /** ok | warn | block — لتفادي تكرار إشعارات عتبة المترتب */
+  lastDebtNotifyBand String?
   user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   orders           Order[]
   locationHistory  DriverLocationHistory[]
@@ -289,13 +295,17 @@ model ChatMessageReceipt {
 }
 
 model Notification {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   userId     String
+  type       String    @default("GENERAL")
   title      String
   body       String
   readAt     DateTime?
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }
 
 model DriverLocationHistory {
@@ -315,6 +325,20 @@ model SystemSettings {
   updatedByUserId String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
+}
+
+/** الحد الأدنى لنسخة التطبيق — إن كانت النسخة أقل يُوقف التطبيق حتى التحديث */
+model AppVersionSettings {
+  id                     String   @id @default("default")
+  driverMinVersion       String   @default("0.0.0")
+  driverAndroidUrl       String   @default("")
+  driverIosUrl           String   @default("")
+  coordinatorMinVersion  String   @default("0.0.0")
+  coordinatorAndroidUrl  String   @default("")
+  coordinatorIosUrl      String   @default("")
+  updatedByUserId        String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 }
 
 model RefreshToken {

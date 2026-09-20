@@ -2,10 +2,12 @@ import type { NextFunction, Response } from "express";
 import {
   financeExportQueryDto,
   financeReportQueryDto,
+  listDriverCompensationsQueryDto,
   listDriverFinesQueryDto,
   recordDriverCompensationDto,
   recordDriverFineDto,
   recordPaymentDto,
+  settleDriverBalanceDto,
   settleDriverFineDto,
   settleFilteredCommissionsDto,
   settleOrderCommissionDto
@@ -53,6 +55,16 @@ export const accountingController = {
       const dto = recordDriverCompensationDto.parse(req.body);
       const result = await accountingService.recordDriverCompensation(dto.driverId, dto.amount, req.auth!.userId, dto.notes);
       res.status(201).json({ message: "تم تسجيل التعويض", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listDriverCompensations(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const query = listDriverCompensationsQueryDto.parse(req.query);
+      const data = await accountingService.listDriverCompensations(query);
+      res.json(data);
     } catch (err) {
       next(err);
     }
@@ -113,6 +125,25 @@ export const accountingController = {
       const dto = settleFilteredCommissionsDto.parse(req.body);
       const result = await accountingService.settleFilteredCommissions(req.auth!.userId, dto);
       res.status(201).json({ message: "تم تنفيذ التسديد الجماعي", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listDriverBalances(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await accountingService.listDriverBalances();
+      res.json(data);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async settleDriverBalance(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = settleDriverBalanceDto.parse(req.body);
+      const result = await accountingService.settleDriverBalance(dto.driverId, req.auth!.userId, dto.notes);
+      res.status(201).json({ message: "تم تسديد المبلغ المترتب على السائق", ...result });
     } catch (err) {
       next(err);
     }

@@ -1,11 +1,13 @@
-import { getSocketOriginFromApiBase, resolveExpoApiBase } from "@taxi/expo-api-base";
+import { getSocketOriginFromApiBase, nativeAppHeaders, resolveExpoApiBase } from "@taxi/expo-api-base";
 import { mapDriverLoginError, mapRefreshTokenError } from "./auth-errors";
 import type { DriverSession } from "./session";
+import type { DriverAppNotification } from "../store";
 
 const API_BASE = resolveExpoApiBase();
 
 function noStoreAuthHeaders(accessToken: string): HeadersInit {
   return {
+    ...nativeAppHeaders("driver"),
     Authorization: `Bearer ${accessToken}`,
     "Cache-Control": "no-cache",
     Pragma: "no-cache"
@@ -42,10 +44,18 @@ export interface DriverOrderStats {
   stuckToday: number;
   /** مجموع العمولة المستحقة (غير المسددة) لطلبات أُكملت اليوم بتوقيت سوريا */
   commissionDueTodaySyria: number;
-  /** إجمالي العمولات غير المسددة للسائق */
+  /** العمولة غير المدفوعة فقط (بدون غرامات وتعويضات) */
   unpaidCommissionAmount: number;
-  /** مجموع الغرامات المسجّلة على السائق */
+  /** مجموع التعويضات التي أُضيفت للسائق */
+  compensationAmount: number;
+  /** الغرامات غير المسددة بعد آخر تسديد */
   fineAmount: number;
+  /** المبلغ المترتب = عمولات غير مدفوعة + غرامات − تعويضات مطبّقة */
+  amountOwed: number;
+  workBlocked?: boolean;
+  debtWarning?: boolean;
+  workBlockMessage?: string | null;
+  debtWarningMessage?: string | null;
   summaryDaySyria?: string;
 }
 
@@ -54,7 +64,7 @@ export async function driverRefreshAccessToken(refreshToken: string): Promise<{ 
   try {
     res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("driver") },
       body: JSON.stringify({ refreshToken })
     });
   } catch {
@@ -75,7 +85,7 @@ export async function driverLogin(phone: string, password: string): Promise<Driv
   try {
     res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("driver") },
       body: JSON.stringify({ phone, password })
     });
   } catch {
@@ -139,7 +149,13 @@ export async function fetchDriverOrderStats(accessToken: string): Promise<Driver
     commissionDueTodaySyria:
       typeof data.commissionDueTodaySyria === "number" ? data.commissionDueTodaySyria : 0,
     unpaidCommissionAmount: typeof data.unpaidCommissionAmount === "number" ? data.unpaidCommissionAmount : 0,
+    compensationAmount: typeof data.compensationAmount === "number" ? data.compensationAmount : 0,
     fineAmount: typeof data.fineAmount === "number" ? data.fineAmount : 0,
+    amountOwed: typeof data.amountOwed === "number" ? data.amountOwed : 0,
+    workBlocked: Boolean(data.workBlocked),
+    debtWarning: Boolean(data.debtWarning),
+    workBlockMessage: typeof data.workBlockMessage === "string" ? data.workBlockMessage : null,
+    debtWarningMessage: typeof data.debtWarningMessage === "string" ? data.debtWarningMessage : null,
     summaryDaySyria: typeof data.summaryDaySyria === "string" ? data.summaryDaySyria : undefined
   };
 }
@@ -151,6 +167,7 @@ export interface DriverFineRow {
   notes: string | null;
   createdAt: string;
   createdByName: string | null;
+  isPaid?: boolean;
 }
 
 export interface DriverFinesLedger {
@@ -159,6 +176,8 @@ export interface DriverFinesLedger {
   to: string | null;
   totalAmount: string;
   count: number;
+  unpaidAmount?: string;
+  unpaidCount?: number;
   rows: DriverFineRow[];
 }
 
@@ -175,6 +194,56 @@ export async function fetchDriverFines(accessToken: string): Promise<DriverFines
     to: typeof data.to === "string" ? data.to : null,
     totalAmount: typeof data.totalAmount === "string" ? data.totalAmount : "0.00",
     count: typeof data.count === "number" ? data.count : 0,
+    unpaidAmount: typeof data.unpaidAmount === "string" ? data.unpaidAmount : undefined,
+    unpaidCount: typeof data.unpaidCount === "number" ? data.unpaidCount : undefined,
+    rows: Array.isArray(data.rows) ? data.rows : []
+  };
+}
+
+export interface DriverCompensationRow {
+  id: string;
+  amount: string;
+  reason: string;
+  notes: string | null;
+  createdAt: string;
+  createdByName: string | null;
+  source?: "promo" | "manual";
+  sourceLabel?: string;
+  isUsed?: boolean;
+  status?: "unused" | "used" | "promo";
+  statusLabel?: string;
+}
+
+export interface DriverCompensationsLedger {
+  driver: { id: string; fullName: string; phone: string | null } | null;
+  from: string | null;
+  to: string | null;
+  totalAmount: string;
+  count: number;
+  unusedAmount?: string;
+  unusedCount?: number;
+  rows: DriverCompensationRow[];
+}
+
+export async function fetchDriverCompensations(accessToken: string): Promise<DriverCompensationsLedger> {
+  const res = await driverFetchWithRefresh(
+    `/orders/driver/compensations?t=${Date.now()}`,
+    { cache: "no-store" },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر تحميل سجل التعويضات");
+  }
+  const data = (await res.json()) as Partial<DriverCompensationsLedger>;
+  return {
+    driver: data.driver ?? null,
+    from: typeof data.from === "string" ? data.from : null,
+    to: typeof data.to === "string" ? data.to : null,
+    totalAmount: typeof data.totalAmount === "string" ? data.totalAmount : "0.00",
+    count: typeof data.count === "number" ? data.count : 0,
+    unusedAmount: typeof data.unusedAmount === "string" ? data.unusedAmount : undefined,
+    unusedCount: typeof data.unusedCount === "number" ? data.unusedCount : undefined,
     rows: Array.isArray(data.rows) ? data.rows : []
   };
 }
@@ -192,15 +261,15 @@ export async function driverMarkCustomerBoarded(accessToken: string, orderId: st
   return res.json() as Promise<DriverOrderRow>;
 }
 
-export async function driverReportCustomerNoShow(accessToken: string, orderId: string): Promise<DriverOrderRow> {
+export async function driverCancelOrder(accessToken: string, orderId: string): Promise<DriverOrderRow> {
   const res = await driverFetchWithRefresh(
-    `/orders/${encodeURIComponent(orderId)}/no-show`,
+    `/orders/${encodeURIComponent(orderId)}/driver-cancel`,
     { method: "PATCH" },
     accessToken
   );
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? "تعذر تسجيل عدم العثور على الزبون");
+    throw new Error(body.message ?? "تعذر إلغاء الطلب");
   }
   return res.json() as Promise<DriverOrderRow>;
 }
@@ -433,12 +502,61 @@ export function getSocketOrigin(): string {
   return getSocketOriginFromApiBase(API_BASE);
 }
 
+export async function fetchDriverNotifications(
+  accessToken: string
+): Promise<{ notifications: DriverAppNotification[]; unreadCount: number }> {
+  const res = await driverFetchWithRefresh(`/notifications?t=${Date.now()}`, { cache: "no-store" }, accessToken);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر تحميل الإشعارات");
+  }
+  const data = (await res.json()) as {
+    notifications?: Array<{
+      id?: string;
+      type?: string;
+      title?: string;
+      body?: string;
+      readAt?: string | null;
+      createdAt?: string;
+    }>;
+    unreadCount?: number;
+  };
+  const notifications = (Array.isArray(data.notifications) ? data.notifications : [])
+    .filter((row): row is { id: string; title: string; body: string; createdAt: string } =>
+      typeof row.id === "string" && typeof row.title === "string" && typeof row.body === "string" && typeof row.createdAt === "string"
+    )
+    .map((row) => ({
+      id: row.id,
+      type: typeof row.type === "string" ? row.type : "GENERAL",
+      title: row.title,
+      body: row.body,
+      readAt: typeof row.readAt === "string" ? row.readAt : null,
+      createdAt: row.createdAt
+    }));
+  return {
+    notifications,
+    unreadCount: typeof data.unreadCount === "number" ? data.unreadCount : notifications.filter((n) => !n.readAt).length
+  };
+}
+
+export async function markDriverNotificationsRead(accessToken: string): Promise<void> {
+  await driverFetchWithRefresh(
+    "/notifications/read",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("driver") },
+      body: JSON.stringify({})
+    },
+    accessToken
+  );
+}
+
 export async function registerExpoPushToken(accessToken: string, expoToken: string): Promise<void> {
   const res = await driverFetchWithRefresh(
     "/auth/push-token",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("driver") },
       body: JSON.stringify({ token: expoToken })
     },
     accessToken
@@ -461,7 +579,7 @@ export async function driverChangePassword(
     "/auth/driver/change-password",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...nativeAppHeaders("driver") },
       body: JSON.stringify(payload)
     },
     accessToken

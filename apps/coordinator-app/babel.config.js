@@ -1,6 +1,6 @@
 module.exports = function (api) {
-  api.cache(true);
+  api.cache.using(() => "no-reanimated-worklets");
   return {
-    presets: ["babel-preset-expo"]
+    presets: [["babel-preset-expo", { reanimated: false, worklets: false }]]
   };
 };

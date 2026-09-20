@@ -29,6 +29,48 @@
   gap: 14px;
 }
 
+.debtBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-weight: 800;
+}
+
+.debtBanner_owe {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.debtBanner_credit {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.debtBanner_zero {
+  background: var(--brand-bg-muted);
+  color: var(--brand-text-muted);
+}
+
+.debtBannerTitle {
+  font-size: 15px;
+}
+
+.debtBannerAmount {
+  font-size: 1.25rem;
+}
+
+.reportHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .heroHead {
   display: flex;
   justify-content: space-between;

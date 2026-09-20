@@ -1,4 +1,4 @@
-import { resolveExpoApiBase } from "@taxi/expo-api-base";
+import { nativeAppHeaders, resolveExpoApiBase } from "@taxi/expo-api-base";
 import { getDriverSession, tryRefreshDriverSession } from "./session";
 
 const API_BASE = resolveExpoApiBase();
@@ -65,6 +65,9 @@ async function chatFetch(path: string, init: RequestInit, accessToken: string): 
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);
     headers.set("Cache-Control", "no-cache");
+    const appHeaders = nativeAppHeaders("driver");
+    headers.set("X-App-Kind", appHeaders["X-App-Kind"]);
+    headers.set("X-App-Version", appHeaders["X-App-Version"]);
     return fetch(url, { ...init, headers });
   };
   let res = await run(accessToken);

@@ -1,6 +1,7 @@
 import { chatSocketEvents, socketEvents } from "@taxi/config";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { AppState, type AppStateStatus } from "react-native";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import { getSocketOrigin } from "./lib/api";
 import type { ChatMessageRow } from "./lib/chat";
@@ -40,7 +41,7 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
       if (!session || cancelled) return;
 
       socket?.disconnect();
-      socket = io(getSocketOrigin(), { transports: ["websocket", "polling"] });
+      socket = io(getSocketOrigin(), { transports: ["websocket", "polling"], auth: nativeAppSocketAuth("coordinator") });
       const myUserId = session.user.id;
 
       const onConnect = () => {

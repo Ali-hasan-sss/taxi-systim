@@ -13,7 +13,7 @@ export type LiveDriversStatusFilter = "all" | "available" | "busy";
 
 async function syncMissingDriverRows() {
   const orphans = await prisma.user.findMany({
-    where: { role: Role.DRIVER, isActive: true, driver: { is: null } },
+    where: { role: Role.DRIVER, isActive: true, deletedAt: null, driver: { is: null } },
     select: { id: true }
   });
   if (orphans.length === 0) return;
@@ -48,6 +48,7 @@ export const driversService = {
         user: {
           role: Role.DRIVER,
           isActive: true,
+          deletedAt: null,
           OR: [
             { fullName: { contains: q, mode: "insensitive" } },
             { phone: { contains: q, mode: "insensitive" } }

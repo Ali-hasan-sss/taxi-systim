@@ -4,7 +4,7 @@
   "version": "1.0.11",
   "main": "index",
   "scripts": {
-    "dev": "expo start --offline",
+    "dev": "expo start --offline --port 8081",
     "eas:android:preview": "node ../../scripts/verify-google-services.cjs apps/driver-app && eas build --platform android --profile preview",
     "eas:android:production": "node ../../scripts/verify-google-services.cjs apps/driver-app && eas build --platform android --profile production",
     "android:local": "powershell -ExecutionPolicy Bypass -File ../../scripts/build-android-local.ps1 -App driver",

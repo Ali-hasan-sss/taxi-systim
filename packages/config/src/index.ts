@@ -16,6 +16,10 @@ export const socketEvents = {
   DRIVER_OFFLINE: "DRIVER_OFFLINE",
   /** المدير عطّل الحساب — التطبيق يفرض إيقاف الاتصال وإخلاء غرفة الطلبات */
   DRIVER_FORCE_OFFLINE: "DRIVER_FORCE_OFFLINE",
+  /** المبلغ المترتب انخفض تحت حد الإيقاف — يمكن للسائق العودة للعمل */
+  DRIVER_DEBT_CLEARED: "DRIVER_DEBT_CLEARED",
+  /** إشعار داخل التطبيق للسائق */
+  DRIVER_NOTIFICATION: "DRIVER_NOTIFICATION",
   /** رسالة محادثة جديدة في غرفة */
   CHAT_MESSAGE: "CHAT_MESSAGE",
   /** الطرف الآخر يكتب */

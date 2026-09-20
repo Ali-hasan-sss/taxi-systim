@@ -1,4 +1,4 @@
-import { useTheme, useThemedStyles } from "@taxi/expo-theme";
+import { themedRefreshProps, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -11,6 +11,7 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
+import { DriverArchiveSkeleton } from "../../src/components/driver-skeletons";
 import { DriverOrderCard } from "../../src/components/DriverOrderCard";
 import {
   type DriverArchiveSegment,
@@ -266,10 +267,7 @@ export default function DriverArchiveTab() {
     return (
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
         <DriverScreenBackground>
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>جاري تحميل الأرشيف…</Text>
-          </View>
+          <DriverArchiveSkeleton />
         </DriverScreenBackground>
       </SafeAreaView>
     );
@@ -319,7 +317,13 @@ export default function DriverArchiveTab() {
               ? [styles.emptyList, { paddingBottom: listBottomPad }]
               : [styles.list, { paddingBottom: listBottomPad }]
           }
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={theme.colors.primary} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void load(true)}
+              {...themedRefreshProps(theme)}
+            />
+          }
           onScrollBeginDrag={() => {
             userHasScrolledRef.current = true;
           }}

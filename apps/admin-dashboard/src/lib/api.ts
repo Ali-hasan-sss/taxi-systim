@@ -53,6 +53,42 @@ export interface EmployeeProfileStats {
   totalPaidCommissions: string;
 }
 
+export interface DriverSettlementInvoiceLine {
+  id?: string;
+  orderId?: string;
+  reason?: string;
+  completedAt?: string | null;
+  createdAt?: string;
+  amount: string;
+}
+
+export interface DriverSettlementInvoice {
+  driverId: string;
+  driverName: string;
+  driverPhone: string | null;
+  settledAt: string;
+  periodFrom: string;
+  periodTo: string;
+  commissions: DriverSettlementInvoiceLine[];
+  fines: DriverSettlementInvoiceLine[];
+  compensations: DriverSettlementInvoiceLine[];
+  totals: {
+    commissionAmount: string;
+    fineAmount: string;
+    compensationAmount: string;
+    netAmount: string;
+  };
+}
+
+export interface DriverBalanceRow {
+  driverId: string;
+  userId: string;
+  fullName: string;
+  phone: string | null;
+  isActive: boolean;
+  remainingDebt: string;
+}
+
 export interface EmployeeProfile extends Omit<Employee, "driver"> {
   driver: EmployeeDriverDetail | null;
   coordinator: EmployeeCoordinatorProfile | null;
@@ -72,6 +108,17 @@ export interface CommissionSetting {
   key: string;
   commissionType: CommissionType;
   commissionValue: string | number;
+  updatedAt?: string;
+}
+
+export interface AppVersionSettings {
+  id: string;
+  driverMinVersion: string;
+  driverAndroidUrl: string;
+  driverIosUrl: string;
+  coordinatorMinVersion: string;
+  coordinatorAndroidUrl: string;
+  coordinatorIosUrl: string;
   updatedAt?: string;
 }
 
@@ -163,6 +210,33 @@ export interface DriverFinesLedger {
   rows: DriverFineRow[];
 }
 
+export interface DriverCompensationRow {
+  id: string;
+  amount: string;
+  reason: string;
+  notes: string | null;
+  createdAt: string;
+  createdByName: string | null;
+  driverId?: string;
+  driverName?: string | null;
+  source?: "promo" | "manual";
+  sourceLabel?: string;
+  isUsed?: boolean;
+  status?: "unused" | "used" | "promo";
+  statusLabel?: string;
+}
+
+export interface DriverCompensationsLedger {
+  driver: { id: string; fullName: string; phone: string | null } | null;
+  from: string | null;
+  to: string | null;
+  totalAmount: string;
+  count: number;
+  unusedAmount?: string;
+  unusedCount?: number;
+  rows: DriverCompensationRow[];
+}
+
 export interface CustomerRow {
   id: string;
   phone: string;
@@ -218,10 +292,26 @@ export interface CreatePromotionPayload {
   endsAt?: string | null;
 }
 
+export interface AdminDashboardDayRevenue {
+  date: string;
+  commissions: string;
+  fines: string;
+  compensations: string;
+  revenue: string;
+}
+
 export interface AdminDashboardStats {
   today: string;
+  month?: string;
+  weekStart?: string;
   revenueToday: string;
   commissionToday: string;
+  fineToday?: string;
+  compensationToday?: string;
+  revenueMonth?: string;
+  commissionMonth?: string;
+  fineMonth?: string;
+  compensationMonth?: string;
   dueCommission: string;
   fineAmount?: string;
   compensationAmount?: string;
@@ -235,6 +325,7 @@ export interface AdminDashboardStats {
     coordinator: number;
     driver: number;
   };
+  revenueWeek?: AdminDashboardDayRevenue[];
 }
 
 export type AdminOrdersRoomSegment =
@@ -816,6 +907,35 @@ export const api = {
     return res.json() as Promise<CommissionSetting>;
   },
 
+  async getAppVersionSettings(accessToken: string) {
+    const res = await authorizedFetch("/settings/app-versions", { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب إعدادات نسخ التطبيقات"));
+    return res.json() as Promise<AppVersionSettings>;
+  },
+
+  async updateAppVersionSettings(
+    accessToken: string,
+    payload: {
+      driverMinVersion: string;
+      driverAndroidUrl: string;
+      driverIosUrl: string;
+      coordinatorMinVersion: string;
+      coordinatorAndroidUrl: string;
+      coordinatorIosUrl: string;
+    }
+  ) {
+    const res = await authorizedFetch(
+      "/settings/app-versions",
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث إعدادات نسخ التطبيقات"));
+    return res.json() as Promise<AppVersionSettings>;
+  },
+
   async changePassword(
     accessToken: string,
     payload: { currentPassword: string; newPassword: string }
@@ -899,6 +1019,20 @@ export const api = {
     const res = await authorizedFetch(`/accounting/fines${qs ? `?${qs}` : ""}`, { method: "GET" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحميل سجل الغرامات"));
     return res.json() as Promise<DriverFinesLedger>;
+  },
+
+  async listDriverCompensations(
+    accessToken: string,
+    opts?: { driverId?: string; from?: string; to?: string }
+  ) {
+    const params = new URLSearchParams();
+    if (opts?.driverId) params.set("driverId", opts.driverId);
+    if (opts?.from) params.set("from", opts.from);
+    if (opts?.to) params.set("to", opts.to);
+    const qs = params.toString();
+    const res = await authorizedFetch(`/accounting/compensations${qs ? `?${qs}` : ""}`, { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحميل سجل التعويضات"));
+    return res.json() as Promise<DriverCompensationsLedger>;
   },
 
   async settleDriverFine(accessToken: string, payload: { fineId: string; notes?: string }) {
@@ -1045,6 +1179,35 @@ export const api = {
       totalPaid: number;
       finesPaidCount?: number;
       finesTotalPaid?: number;
+    }>;
+  },
+
+  async listDriverBalances(accessToken: string) {
+    const res = await authorizedFetch("/accounting/driver-balances", {}, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل أرصدة السائقين"));
+    const body = (await res.json()) as { rows?: DriverBalanceRow[] };
+    return Array.isArray(body.rows) ? body.rows : [];
+  },
+
+  async settleDriverBalance(accessToken: string, payload: { driverId: string; notes?: string }) {
+    const res = await authorizedFetch(
+      "/accounting/payments/settle-driver",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تسديد المبلغ المترتب"));
+    return res.json() as Promise<{
+      message: string;
+      driverId: string;
+      paidCount: number;
+      totalPaid: number;
+      finesPaidCount: number;
+      finesTotalPaid: number;
+      remainingDebt: string;
+      invoice: DriverSettlementInvoice;
     }>;
   },
 

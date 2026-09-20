@@ -2,12 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ConfirmModal } from "../../../components/confirm-modal";
+import { DriverCompensationsModal } from "../../../components/driver-compensations-modal";
 import { DriverFinesModal } from "../../../components/driver-fines-modal";
-import { api, type Employee, type FinanceOrderRow, type FinancePaymentStatus, type FinanceOrderStatus } from "../../../lib/api";
+import { DriverSettlementInvoiceModal } from "../../../components/driver-settlement-invoice-modal";
+import { api, type DriverBalanceRow, type DriverSettlementInvoice, type Employee, type FinanceOrderRow, type FinancePaymentStatus, type FinanceOrderStatus } from "../../../lib/api";
+import { remainingBalanceCopy } from "../../../lib/remaining-balance";
 
 const REPORT_PAGE_SIZE = 25;
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 type ExportMode = "general" | "driver";
+type PendingCommissionPayment =
+  | { kind: "driver"; row: DriverBalanceRow }
+  | { kind: "order"; row: FinanceOrderRow }
+  | { kind: "filter" };
 
 const ORDER_STATUS_LABELS: Record<FinanceOrderStatus, string> = {
   PENDING: "معلق",
@@ -153,6 +161,14 @@ export default function FinancePage() {
   const [fineAmount, setFineAmount] = useState("");
   const [fineNotes, setFineNotes] = useState("");
   const [finesLedgerOpen, setFinesLedgerOpen] = useState(false);
+  const [compensationsLedgerOpen, setCompensationsLedgerOpen] = useState(false);
+  const [balances, setBalances] = useState<DriverBalanceRow[]>([]);
+  const [loadingBalances, setLoadingBalances] = useState(true);
+  const [balanceSearch, setBalanceSearch] = useState("");
+  const [settlingDriverId, setSettlingDriverId] = useState<string | null>(null);
+  const [showReport, setShowReport] = useState(false);
+  const [settlementInvoice, setSettlementInvoice] = useState<DriverSettlementInvoice | null>(null);
+  const [pendingPayment, setPendingPayment] = useState<PendingCommissionPayment | null>(null);
 
   const token = useMemo(() => {
     const raw = typeof window !== "undefined" ? localStorage.getItem("taxi_admin_session") : null;
@@ -187,6 +203,27 @@ export default function FinancePage() {
       setError(message);
     } finally {
       setLoadingDrivers(false);
+    }
+  }, [handleSessionExpired, token]);
+
+  const loadBalances = useCallback(async () => {
+    if (!token) {
+      handleSessionExpired();
+      return;
+    }
+    setLoadingBalances(true);
+    try {
+      const rows = await api.listDriverBalances(token);
+      setBalances(rows);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر تحميل أرصدة السائقين";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setLoadingBalances(false);
     }
   }, [handleSessionExpired, token]);
 
@@ -239,7 +276,8 @@ export default function FinancePage() {
 
   useEffect(() => {
     void loadDrivers();
-  }, [loadDrivers]);
+    void loadBalances();
+  }, [loadBalances, loadDrivers]);
 
   useEffect(() => {
     if (!driverDropdownOpen) return;
@@ -286,8 +324,9 @@ export default function FinancePage() {
   }, [fineDriverDropdownOpen]);
 
   useEffect(() => {
+    if (!showReport) return;
     void loadReport();
-  }, [loadReport]);
+  }, [loadReport, showReport]);
 
   const driverOptions = useMemo(
     () => drivers.filter((item) => item.role === "DRIVER" && item.driver?.id),
@@ -334,11 +373,72 @@ export default function FinancePage() {
     });
   }, [fineDriverSearch, driverOptions]);
 
+  const filteredBalances = useMemo(() => {
+    const q = balanceSearch.trim().toLowerCase();
+    if (!q) return balances;
+    return balances.filter((row) => {
+      return row.fullName.toLowerCase().includes(q) || (row.phone ?? "").toLowerCase().includes(q);
+    });
+  }, [balanceSearch, balances]);
+
   const selectedDriverLabel = useMemo(() => {
     if (!draftDriverId) return "كل السائقين";
     const match = driverOptions.find((item) => item.driver?.id === draftDriverId);
     return match?.fullName ?? "كل السائقين";
   }, [draftDriverId, driverOptions]);
+
+  const paymentConfirm = useMemo(() => {
+    if (!pendingPayment) return null;
+    if (pendingPayment.kind === "driver") {
+      const copy = remainingBalanceCopy(pendingPayment.row.remainingDebt);
+      return {
+        title: "تأكيد تسديد المبلغ المترتب",
+        description: "سيتم تحويل العمولات والغرامات غير المسددة إلى مسددة.",
+        details: [
+          { label: "السائق", value: pendingPayment.row.fullName },
+          { label: "المبلغ المترتب", value: `${copy.amountText} ل.س` }
+        ],
+        confirmLabel: "تسديد المبلغ"
+      };
+    }
+    if (pendingPayment.kind === "order") {
+      return {
+        title: "تأكيد تسديد العمولة",
+        description: "سيتم تسديد عمولة هذا الطلب وتحويلها إلى مسددة.",
+        details: [
+          { label: "الطلب", value: pendingPayment.row.id.slice(0, 8) },
+          {
+            label: "المتبقي",
+            value: `${formatMoney(pendingPayment.row.commission?.remainingAmount ?? 0)} ل.س`
+          }
+        ],
+        confirmLabel: "تسديد العمولة"
+      };
+    }
+    const driverName = filters.driverId
+      ? (driverOptions.find((item) => item.driver?.id === filters.driverId)?.fullName ?? null)
+      : null;
+    return {
+      title: "تأكيد التسديد الجماعي",
+      description: driverName
+        ? "سيتم تسديد جميع العمولات والغرامات غير المسددة للسائق المحدد ضمن الفترة الحالية."
+        : "سيتم تسديد جميع العمولات والغرامات غير المسددة ضمن الفترة الحالية.",
+      details: [
+        { label: "الفترة", value: `من ${filters.from} إلى ${filters.to}` },
+        ...(driverName ? [{ label: "السائق", value: driverName }] : [])
+      ],
+      confirmLabel: "تسديد الكل"
+    };
+  }, [driverOptions, filters.driverId, filters.from, filters.to, pendingPayment]);
+
+  const paymentBusy =
+    pendingPayment?.kind === "driver"
+      ? settlingDriverId === pendingPayment.row.driverId
+      : pendingPayment?.kind === "order"
+        ? settlingOrderId === pendingPayment.row.id
+        : pendingPayment?.kind === "filter"
+          ? settlingAll
+          : false;
 
   const exportSelectedDriverLabel = useMemo(() => {
     if (!exportDriverId) return "اختر السائق";
@@ -391,15 +491,18 @@ export default function FinancePage() {
   };
 
   const settleSingleOrder = async (row: FinanceOrderRow) => {
-    if (!token || !row.commission || Number(row.commission.remainingAmount) <= 0) return;
-    if (!window.confirm(`تأكيد تسديد عمولة الطلب ${row.id.slice(0, 8)}؟`)) return;
+    if (!token || !row.commission || Number(row.commission.remainingAmount) <= 0) {
+      setPendingPayment(null);
+      return;
+    }
     setSettlingOrderId(row.id);
     setError(null);
     setNotice(null);
     try {
       const result = await api.settleOrderCommission(token, { orderId: row.id });
       setNotice(`تم تسديد ${result.paidCount} عمولة بمجموع ${formatMoney(result.totalPaid)}.`);
-      await loadReport();
+      await loadBalances();
+      if (showReport) await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "فشل تسديد عمولة الطلب";
       if (message === "SESSION_EXPIRED") {
@@ -409,17 +512,17 @@ export default function FinancePage() {
       setError(message);
     } finally {
       setSettlingOrderId(null);
+      setPendingPayment(null);
     }
   };
 
   const settleCurrentFilter = async () => {
     const dueCommissions = Number(summary.dueCommissionAmount);
     const dueFines = Number(summary.fineAmount);
-    if (!token || (dueCommissions <= 0 && dueFines <= 0)) return;
-    const confirmMessage = filters.driverId
-      ? "سيتم تسديد جميع العمولات والغرامات غير المسددة للسائق المحدد ضمن الفترة الحالية. هل تريد المتابعة؟"
-      : "سيتم تسديد جميع العمولات والغرامات غير المسددة ضمن الفترة الحالية. هل تريد المتابعة؟";
-    if (!window.confirm(confirmMessage)) return;
+    if (!token || (dueCommissions <= 0 && dueFines <= 0)) {
+      setPendingPayment(null);
+      return;
+    }
     setSettlingAll(true);
     setError(null);
     setNotice(null);
@@ -436,7 +539,8 @@ export default function FinancePage() {
           (finesPaidCount > 0 ? `، و${finesPaidCount} غرامة بمجموع ${formatMoney(finesTotalPaid)}` : "") +
           "."
       );
-      await loadReport();
+      await loadBalances();
+      if (showReport) await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "فشل التسديد الجماعي";
       if (message === "SESSION_EXPIRED") {
@@ -446,6 +550,36 @@ export default function FinancePage() {
       setError(message);
     } finally {
       setSettlingAll(false);
+      setPendingPayment(null);
+    }
+  };
+
+  const settleDriverBalance = async (row: DriverBalanceRow) => {
+    if (!token) return;
+    const copy = remainingBalanceCopy(row.remainingDebt);
+    if (copy.kind !== "owe") {
+      setPendingPayment(null);
+      return;
+    }
+    setSettlingDriverId(row.driverId);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.settleDriverBalance(token, { driverId: row.driverId });
+      setSettlementInvoice(result.invoice);
+      setNotice(`تم تسديد المبلغ المترتب على ${row.fullName}. يمكنك إرسال الفاتورة الآن.`);
+      await loadBalances();
+      if (showReport) await loadReport();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "فشل تسديد المبلغ المترتب";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setSettlingDriverId(null);
+      setPendingPayment(null);
     }
   };
 
@@ -495,7 +629,8 @@ export default function FinancePage() {
       setCompensationDriverDropdownOpen(false);
       setCompensationDriverSearch("");
       setNotice(`تم تسجيل تعويض بقيمة ${formatMoney(result.amount)} للسائق المحدد.`);
-      await loadReport();
+      await loadBalances();
+      if (showReport) await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تسجيل التعويض";
       if (message === "SESSION_EXPIRED") {
@@ -554,7 +689,8 @@ export default function FinancePage() {
       setFineDriverDropdownOpen(false);
       setFineDriverSearch("");
       setNotice(`تم تسجيل غرامة بقيمة ${formatMoney(result.amount)} للسائق المحدد.`);
-      await loadReport();
+      await loadBalances();
+      if (showReport) await loadReport();
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تسجيل الغرامة";
       if (message === "SESSION_EXPIRED") {
@@ -650,22 +786,10 @@ export default function FinancePage() {
     <div className="dashboard-page">
       <section className="card finance-toolbar">
         <div>
-          <h2 className="finance-toolbar__title">التقارير المالية</h2>
+          <h2 className="finance-toolbar__title">تحصيل العمولات</h2>
           <p className="finance-toolbar__hint">
-            اعرض جميع الطلبات مع فلترة حسب الفترة أو السائق، وتتبع العمولة غير المسددة مع إمكان التسديد الفردي أو الجماعي.
+            المبلغ المعروض هو نفس رصيد السائق الحالي. إذا كان موجباً يُحصَّل منه، وإذا كان سالباً يُعطى من المكتب. تقرير الطلبات اختياري وليس ظاهراً دائماً.
           </p>
-        </div>
-
-        <div className="finance-presets">
-          <button type="button" className="btn btn-ghost" onClick={() => setPresetRange(1)}>
-            آخر يوم
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={() => setPresetRange(7)}>
-            آخر 7 أيام
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={() => setPresetRange(30)}>
-            آخر 30 يومًا
-          </button>
         </div>
 
         <div className="finance-export-actions">
@@ -680,6 +804,105 @@ export default function FinancePage() {
           </button>
           <button type="button" className="btn btn-ghost" onClick={() => openExportModal("driver")}>
             تصدير Excel لسائق
+          </button>
+          <button
+            type="button"
+            className={showReport ? "btn btn-primary" : "btn btn-ghost"}
+            onClick={() => setShowReport((prev) => !prev)}
+          >
+            {showReport ? "إخفاء تقرير الطلبات" : "عرض تقرير الطلبات"}
+          </button>
+        </div>
+      </section>
+
+      {error ? <p className="form-error">{error}</p> : null}
+      {notice ? <p className="settings-notice">{notice}</p> : null}
+
+      <section className="card employees-table-card finance-table-card">
+        <div className="employees-table-head">
+          <h3 className="employees-table-head__title">أرصدة السائقين</h3>
+          <input
+            className="input-styled finance-balance-search"
+            value={balanceSearch}
+            onChange={(e) => setBalanceSearch(e.target.value)}
+            placeholder="بحث بالاسم أو الهاتف"
+          />
+        </div>
+        {loadingBalances ? (
+          <p className="loading-row">
+            <span className="spinner" aria-hidden />
+            جاري تحميل الأرصدة...
+          </p>
+        ) : filteredBalances.length === 0 ? (
+          <p className="finance-empty">لا يوجد سائقون مطابقون.</p>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>السائق</th>
+                  <th>الهاتف</th>
+                  <th>المبلغ المترتب</th>
+                  <th>الإجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredBalances.map((row) => {
+                  const copy = remainingBalanceCopy(row.remainingDebt);
+                  return (
+                    <tr key={row.driverId}>
+                      <td>
+                        <strong>{row.fullName}</strong>
+                        {!row.isActive ? <div className="finance-balance-inactive">معطل</div> : null}
+                      </td>
+                      <td>{row.phone ?? "—"}</td>
+                      <td>
+                        <span className={`finance-balance-copy finance-balance-copy--${copy.kind}`}>
+                          {copy.title} ({copy.amountText})
+                        </span>
+                      </td>
+                      <td className="cell-actions">
+                        {copy.kind === "owe" ? (
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            disabled={settlingDriverId === row.driverId}
+                            onClick={() => setPendingPayment({ kind: "driver", row })}
+                          >
+                            {settlingDriverId === row.driverId ? "جارٍ التسديد..." : "تسديد المبلغ المترتب عليه"}
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {showReport ? (
+        <>
+      <section className="card finance-toolbar">
+        <div>
+          <h2 className="finance-toolbar__title">تقرير الطلبات</h2>
+          <p className="finance-toolbar__hint">
+            فلترة حسب الفترة أو السائق، مع إمكان التسديد الفردي أو الجماعي ضمن الفلتر.
+          </p>
+        </div>
+
+        <div className="finance-presets">
+          <button type="button" className="btn btn-ghost" onClick={() => setPresetRange(1)}>
+            آخر يوم
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => setPresetRange(7)}>
+            آخر 7 أيام
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => setPresetRange(30)}>
+            آخر 30 يومًا
           </button>
         </div>
 
@@ -764,7 +987,7 @@ export default function FinancePage() {
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => void settleCurrentFilter()}
+            onClick={() => setPendingPayment({ kind: "filter" })}
             disabled={
               settlingAll ||
               (Number(summary.dueCommissionAmount) <= 0 && Number(summary.fineAmount) <= 0)
@@ -774,9 +997,6 @@ export default function FinancePage() {
           </button>
         </div>
       </section>
-
-      {error ? <p className="form-error">{error}</p> : null}
-      {notice ? <p className="settings-notice">{notice}</p> : null}
 
       <section className={`finance-summary-grid${filters.driverId ? " finance-summary-grid--with-fines" : ""}`}>
         <article className="card finance-summary-card">
@@ -800,6 +1020,17 @@ export default function FinancePage() {
           </p>
         </article>
         {filters.driverId ? (
+          <>
+          <button
+            type="button"
+            className="card finance-summary-card finance-summary-card--clickable"
+            onClick={() => setCompensationsLedgerOpen(true)}
+            aria-label="عرض سجل التعويضات"
+          >
+            <p className="finance-summary-card__label">مجموع التعويضات</p>
+            <h3 className="finance-summary-card__value">{formatMoney(summary.compensationAmount)}</h3>
+            <p className="finance-summary-card__hint">اضغط لعرض السجل والحالة</p>
+          </button>
           <button
             type="button"
             className="card finance-summary-card finance-summary-card--clickable"
@@ -810,6 +1041,7 @@ export default function FinancePage() {
             <h3 className="finance-summary-card__value">{formatMoney(summary.fineAmount)}</h3>
             <p className="finance-summary-card__hint">اضغط لعرض السجل</p>
           </button>
+          </>
         ) : null}
       </section>
 
@@ -896,7 +1128,7 @@ export default function FinancePage() {
                             type="button"
                             className="btn btn-sm"
                             disabled={!canSettle || settlingOrderId === row.id}
-                            onClick={() => void settleSingleOrder(row)}
+                            onClick={() => setPendingPayment({ kind: "order", row })}
                           >
                             {settlingOrderId === row.id ? "جارٍ..." : "تسديد العمولة"}
                           </button>
@@ -920,6 +1152,8 @@ export default function FinancePage() {
           </>
         )}
       </section>
+        </>
+      ) : null}
 
       {compensationModalOpen ? (
         <div className="finance-export-modal" role="dialog" aria-modal="true">
@@ -929,7 +1163,7 @@ export default function FinancePage() {
               <div>
                 <h3 className="finance-export-modal__title">إضافة تعويض لسائق</h3>
                 <p className="finance-export-modal__hint">
-                  سجّل تعويضًا يدويًا ليُخصم من مجموع العمولة المستحقة لهذا السائق ضمن التقارير والملخصات.
+                  سجّل تعويضًا يدويًا. إذا تجاوز العمولة المستحقة يصبح المبلغ المترتب سالباً (للسائق على المنصة).
                 </p>
               </div>
               <button type="button" className="btn btn-ghost" onClick={closeCompensationModal} disabled={recordingCompensation}>
@@ -1234,6 +1468,42 @@ export default function FinancePage() {
           onClose={() => setFinesLedgerOpen(false)}
           onSessionExpired={handleSessionExpired}
           onSettled={() => void loadReport()}
+        />
+      ) : null}
+
+      {compensationsLedgerOpen && token && filters.driverId ? (
+        <DriverCompensationsModal
+          open={compensationsLedgerOpen}
+          token={token}
+          driverId={filters.driverId}
+          from={filters.from}
+          to={filters.to}
+          onClose={() => setCompensationsLedgerOpen(false)}
+          onSessionExpired={handleSessionExpired}
+        />
+      ) : null}
+
+      {settlementInvoice ? (
+        <DriverSettlementInvoiceModal invoice={settlementInvoice} onClose={() => setSettlementInvoice(null)} />
+      ) : null}
+
+      {pendingPayment && paymentConfirm ? (
+        <ConfirmModal
+          open
+          title={paymentConfirm.title}
+          description={paymentConfirm.description}
+          details={paymentConfirm.details}
+          confirmLabel={paymentConfirm.confirmLabel}
+          busy={paymentBusy}
+          busyLabel="جارٍ التسديد..."
+          onCancel={() => {
+            if (!paymentBusy) setPendingPayment(null);
+          }}
+          onConfirm={() => {
+            if (pendingPayment.kind === "driver") void settleDriverBalance(pendingPayment.row);
+            else if (pendingPayment.kind === "order") void settleSingleOrder(pendingPayment.row);
+            else void settleCurrentFilter();
+          }}
         />
       ) : null}
     </div>

@@ -24,6 +24,18 @@ if (!String(expoAssetVersion).startsWith("12.")) {
 const upstreamResolveRequest = config.resolver.resolveRequest;
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === "react-native-reanimated" || moduleName.startsWith("react-native-reanimated/")) {
+    return {
+      type: "sourceFile",
+      filePath: path.join(projectRoot, "../../scripts/metro-stubs/react-native-reanimated/index.js")
+    };
+  }
+  if (moduleName === "react-native-worklets" || moduleName.startsWith("react-native-worklets/")) {
+    return {
+      type: "sourceFile",
+      filePath: path.join(projectRoot, "../../scripts/metro-stubs/react-native-worklets/index.js")
+    };
+  }
   if (moduleName === "expo-asset") {
     return {
       type: "sourceFile",

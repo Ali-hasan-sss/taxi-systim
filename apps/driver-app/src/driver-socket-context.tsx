@@ -2,11 +2,14 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { AppState } from "react-native";
 import * as Location from "expo-location";
 import { socketEvents } from "@taxi/config";
+import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import { fetchDriverProfile, getSocketOrigin } from "./lib/api";
 import { getDriverLocationAccessState, isDriverLocationReady } from "./lib/location-access";
 import { playNewPendingOrderSound } from "./lib/pending-order-sound";
 import { getDriverSession } from "./lib/session";
+import { feedback } from "./lib/feedback";
+import { tryStartDriverWork } from "./lib/start-work";
 import { useDriverStore } from "./store";
 
 type DriverSocketContextValue = {
@@ -32,6 +35,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
   const myDriverIdRef = useRef<string | null>(null);
   const isOnline = useDriverStore((s) => s.isOnline);
   const setOnline = useDriverStore((s) => s.setOnline);
+  const setWorkBlocked = useDriverStore((s) => s.setWorkBlocked);
   const isOnlineRef = useRef(isOnline);
   isOnlineRef.current = isOnline;
 
@@ -53,7 +57,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       }
 
       const origin = getSocketOrigin();
-      sock = io(origin, { transports: ["websocket"], autoConnect: false });
+      sock = io(origin, { transports: ["websocket"], autoConnect: false, auth: nativeAppSocketAuth("driver") });
       if (cancelled) {
         sock.disconnect();
         return;
@@ -74,9 +78,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       sock.on("connect", onSockConnect);
       sock.on("disconnect", onSockDisconnect);
       setSocketConnected(sock.connected);
-      if (isOnlineRef.current) {
-        sock.connect();
-      }
+      sock.connect();
     })();
 
     return () => {
@@ -95,22 +97,15 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
     const id = myDriverId;
     if (!s || !id) return;
 
-    if (!isOnline) {
-      if (s.connected) {
-        s.emit("driver:offline", id);
-        s.disconnect();
-      }
-      setSocketConnected(false);
-      return;
-    }
-
     if (!s.connected) {
       s.connect();
+    }
+    if (isOnline) {
+      s.emit("driver:online", id);
       return;
     }
-
-    s.emit("driver:online", id);
-  }, [isOnline, setOnline, socket]);
+    s.emit("driver:offline", id);
+  }, [isOnline, socket, myDriverId]);
 
   useEffect(() => {
     const s = socket;
@@ -125,22 +120,62 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const onForceOffline = () => {
+    const onForceOffline = (payload?: { reason?: string }) => {
+      if (payload?.reason === "debt") {
+        setWorkBlocked(
+          true,
+          "تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز 2000 ل.س. سدّد العمولات والغرامات لتعود للعمل تلقائياً."
+        );
+        setOnline(false);
+        feedback.warning(
+          "تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز 2000 ل.س. سدّد العمولات والغرامات لتعود للعمل تلقائياً.",
+          "إيقاف عن العمل"
+        );
+        return;
+      }
+      setWorkBlocked(false);
       setOnline(false);
       if (s.connected) {
         s.emit("driver:offline", myDriverId);
-        s.disconnect();
       }
-      setSocketConnected(false);
+    };
+
+    const onDebtCleared = () => {
+      if (!useDriverStore.getState().workBlocked) return;
+      void tryStartDriverWork({ silent: true });
+    };
+
+    const onNotification = (raw: unknown) => {
+      const p = raw as {
+        id?: string;
+        type?: string;
+        title?: string;
+        body?: string;
+        readAt?: string | null;
+        createdAt?: string;
+      };
+      if (!p?.id || !p.title || !p.body || !p.createdAt) return;
+      useDriverStore.getState().prependNotification({
+        id: p.id,
+        type: typeof p.type === "string" ? p.type : "GENERAL",
+        title: p.title,
+        body: p.body,
+        readAt: typeof p.readAt === "string" ? p.readAt : null,
+        createdAt: p.createdAt
+      });
     };
 
     s.on(socketEvents.NEW_ORDER, onNewOrder);
     s.on(socketEvents.DRIVER_FORCE_OFFLINE, onForceOffline);
+    s.on(socketEvents.DRIVER_DEBT_CLEARED, onDebtCleared);
+    s.on(socketEvents.DRIVER_NOTIFICATION, onNotification);
     return () => {
       s.off(socketEvents.NEW_ORDER, onNewOrder);
       s.off(socketEvents.DRIVER_FORCE_OFFLINE, onForceOffline);
+      s.off(socketEvents.DRIVER_DEBT_CLEARED, onDebtCleared);
+      s.off(socketEvents.DRIVER_NOTIFICATION, onNotification);
     };
-  }, [socket, myDriverId, setOnline]);
+  }, [socket, myDriverId, setOnline, setWorkBlocked]);
 
   useEffect(() => {
     if (!isOnline || !myDriverId || !socket) return;
