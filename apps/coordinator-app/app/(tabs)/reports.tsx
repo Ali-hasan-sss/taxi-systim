@@ -27,6 +27,7 @@ import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { feedback } from "../../src/lib/feedback";
 import { clearSession, getSession } from "../../src/lib/session";
 import { rtlText } from "../../src/lib/rtl-text";
+import { CoordinatorTabScreen } from "../../src/components/CoordinatorScreenBackground";
 
 const REPORTS_PAGE_SIZE = 20;
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -71,14 +72,14 @@ export default function ReportsTab() {
   const styles = useThemedStyles((t) => ({
     root: {
       flex: 1,
-      backgroundColor: t.colors.background,
+      backgroundColor: "transparent",
       direction: "rtl" as const
     },
     centered: {
       flex: 1,
       justifyContent: "center" as const,
       alignItems: "center" as const,
-      backgroundColor: t.colors.background,
+      backgroundColor: "transparent",
       paddingHorizontal: 24
     },
     loadingText: {
@@ -565,14 +566,17 @@ export default function ReportsTab() {
 
   if (loading && orders.length === 0) {
     return (
+      <CoordinatorTabScreen>
       <View style={[styles.centered, { paddingTop: 12 }]}>
         <ActivityIndicator size="large" color={theme.colors.accent} />
         <Text style={styles.loadingText}>جاري تحميل التقرير…</Text>
       </View>
+      </CoordinatorTabScreen>
     );
   }
 
   return (
+    <CoordinatorTabScreen>
     <View style={[styles.root, { paddingTop: 8 }]}>
       <FlatList
         data={orders}
@@ -724,6 +728,7 @@ export default function ReportsTab() {
         </KeyboardAvoidingView>
       </Modal>
     </View>
+    </CoordinatorTabScreen>
   );
 }
 

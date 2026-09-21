@@ -113,8 +113,10 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
 
     const onNewOrder = (raw: unknown) => {
       if (!isOnlineRef.current) return;
-      const p = raw as { orderId?: string };
+      const p = raw as { orderId?: string; driverId?: string | null; status?: string };
       if (!p?.orderId) return;
+      if (p.driverId) return;
+      if (p.status && p.status !== "PENDING") return;
       if (AppState.currentState === "active") {
         void playNewPendingOrderSound();
       }

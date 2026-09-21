@@ -5,6 +5,8 @@ import { shouldLoadExpoPushModule } from "./environment";
 import {
   configureForegroundNotificationHandler,
   ensureExpoPushRegistration,
+  isPushRegistrationFailure,
+  isTerminalPushRegistrationReason,
   logPushRegistrationResult,
   subscribeExpoPushTokenRefresh,
   type PushRegistrationDeps
@@ -19,7 +21,7 @@ type ExpoPushBootstrapProps = PushRegistrationDeps & {
   setupNotificationHandlers?: () => (() => void) | void;
 };
 
-/** يطلب الإذن ويسجّل الرمز بعد تسجيل الدخول — يعيد المحاولة حتى ينجح أو انتهاء المهلة. */
+/** يطلب الإذن مرة واحدة ويسجّل الرمز بعد تسجيل الدخول. لا يعيد طلب الصلاحية بعد الرفض. */
 export function ExpoPushBootstrap(props: ExpoPushBootstrapProps) {
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -30,6 +32,8 @@ export function ExpoPushBootstrap(props: ExpoPushBootstrapProps) {
     if (!shouldLoadExpoPushModule()) return;
 
     let cancelled = false;
+    let inFlight = false;
+    let stopRetrying = false;
     let removeTokenListener: (() => void) | undefined;
     let removeHandlers: (() => void) | undefined;
     let appSub: ReturnType<typeof AppState.addEventListener> | undefined;
@@ -41,32 +45,57 @@ export function ExpoPushBootstrap(props: ExpoPushBootstrapProps) {
       channelName: propsRef.current.channelName
     });
 
-    const attemptRegistration = async () => {
-      if (cancelled) return;
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        clearInterval(retryTimer);
+        retryTimer = undefined;
+      }
+    };
+
+    const attemptRegistration = async (opts?: { prompt?: boolean }) => {
+      if (cancelled || inFlight) return;
       const epoch = getPushRegistrationEpoch();
       if (registeredRef.current && successEpochRef.current === epoch) return;
-      const result = await ensureExpoPushRegistration(deps());
-      logPushRegistrationResult(result);
-      if (result.ok) {
-        registeredRef.current = true;
-        successEpochRef.current = epoch;
-      } else {
+      inFlight = true;
+      try {
+        const result = await ensureExpoPushRegistration(deps(), { prompt: opts?.prompt === true });
+        if (cancelled) return;
+        logPushRegistrationResult(result);
+        if (result.ok) {
+          registeredRef.current = true;
+          successEpochRef.current = epoch;
+          stopRetrying = false;
+          clearRetryTimer();
+          return;
+        }
         registeredRef.current = false;
+        if (isPushRegistrationFailure(result) && isTerminalPushRegistrationReason(result.reason)) {
+          stopRetrying = true;
+          clearRetryTimer();
+        }
+      } finally {
+        inFlight = false;
       }
     };
 
     void (async () => {
       configureForegroundNotificationHandler();
 
-      void attemptRegistration();
+      void attemptRegistration({ prompt: true });
       removeTokenListener = subscribeExpoPushTokenRefresh(deps());
 
       appSub = AppState.addEventListener("change", (state) => {
-        if (state === "active") void attemptRegistration();
+        if (state !== "active") return;
+        // بعد العودة من إعدادات الجهاز: نتحقق بدون إعادة طلب الحوار.
+        void attemptRegistration({ prompt: false });
       });
 
       retryTimer = setInterval(() => {
-        void attemptRegistration();
+        if (stopRetrying) {
+          clearRetryTimer();
+          return;
+        }
+        void attemptRegistration({ prompt: false });
       }, RETRY_MS);
 
       const setup = propsRef.current.setupNotificationHandlers;
@@ -81,7 +110,7 @@ export function ExpoPushBootstrap(props: ExpoPushBootstrapProps) {
       removeTokenListener?.();
       removeHandlers?.();
       appSub?.remove();
-      if (retryTimer) clearInterval(retryTimer);
+      clearRetryTimer();
     };
   }, []);
 

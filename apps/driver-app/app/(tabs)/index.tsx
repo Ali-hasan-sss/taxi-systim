@@ -6,7 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { DriverCompensationsLedgerModal } from "../../src/components/DriverCompensationsLedgerModal";
 import { DriverFinesLedgerModal } from "../../src/components/DriverFinesLedgerModal";
 import { DriverHomeSkeleton } from "../../src/components/driver-skeletons";
-import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
+import { DriverTabScreen } from "../../src/components/DriverScreenBackground";
 import { type DriverOrderStats, fetchDriverOrderStats } from "../../src/lib/api";
 import { rtlText } from "../../src/lib/rtl-text";
 import { clearDriverSession, getDriverSession } from "../../src/lib/session";
@@ -293,8 +293,8 @@ export default function DriverHomeTab() {
         };
 
   return (
+    <DriverTabScreen>
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-      <DriverScreenBackground>
         <ScrollView
           contentContainerStyle={[styles.scroll, { paddingBottom: scrollBottomPad }]}
           style={styles.scrollView}
@@ -367,7 +367,6 @@ export default function DriverHomeTab() {
             </View>
           )}
         </ScrollView>
-      </DriverScreenBackground>
 
       <DriverFinesLedgerModal
         open={finesOpen}
@@ -386,5 +385,6 @@ export default function DriverHomeTab() {
         }}
       />
     </SafeAreaView>
+    </DriverTabScreen>
   );
 }

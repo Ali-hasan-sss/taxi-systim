@@ -43,6 +43,7 @@ import { getSocketOrigin, coordinatorUpdateCompletedOrderAmount } from "../lib/a
 import { resolveAuthedChatImageUri, resolveAuthedChatVoiceUri } from "../lib/chat-image-auth";
 import { feedback } from "../lib/feedback";
 import { rtlText } from "../lib/rtl-text";
+import { CoordinatorScreenBackground } from "./CoordinatorScreenBackground";
 import { getSession } from "../lib/session";
 import { useCoordinatorStore } from "../store";
 
@@ -192,7 +193,7 @@ export function ChatThreadView({
   }, []);
 
   const styles = useThemedStyles((t) => ({
-    root: { flex: 1, backgroundColor: t.colors.background, direction: "rtl" as const },
+    root: { flex: 1, backgroundColor: "transparent", direction: "rtl" as const },
     header: {
       flexDirection: "row-reverse" as const,
       alignItems: "center" as const,
@@ -696,6 +697,7 @@ export function ChatThreadView({
   );
 
   return (
+    <CoordinatorScreenBackground>
     <KeyboardAvoidingView style={styles.root} behavior="padding">
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         {onBack ? (
@@ -819,5 +821,6 @@ export function ChatThreadView({
       </Modal>
       {composer}
     </KeyboardAvoidingView>
+    </CoordinatorScreenBackground>
   );
 }

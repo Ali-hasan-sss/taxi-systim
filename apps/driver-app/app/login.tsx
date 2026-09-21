@@ -182,7 +182,7 @@ export default function LoginScreen() {
       // لا نُبطّئ تسجيل الدخول بانتظار FCM — قد تكون إعادة المحاولة بطيئة.
       void ensurePushRegistrationForDriver(session.accessToken)
         .then((pushResult) => {
-          if (isPushRegistrationFailure(pushResult)) {
+          if (isPushRegistrationFailure(pushResult) && pushResult.reason !== "permission_denied") {
             feedback.warning(
               pushResult.message ??
                 `تعذر تسجيل إشعارات الجهاز (${pushResult.reason}). راجع docs/PUSH-SETUP-AR.md — غالباً ينقص google-services.json`,

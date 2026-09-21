@@ -233,6 +233,8 @@ export interface CoordinatorOrderRow {
   /** يُعرَض كـ «غير مهم» إن غاب من استجابات قديمة */
   vehicleRequirement?: OrderVehicleRequirement;
   notes?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
   createdAt: string;
   customerInfoSentAt?: string | null;
   invoiceSentAt?: string | null;
@@ -332,10 +334,18 @@ export async function coordinatorSearchDriversForAssignment(
   return Array.isArray(list) ? list : [];
 }
 
-export async function coordinatorCancelOrder(accessToken: string, orderId: string): Promise<void> {
+export async function coordinatorCancelOrder(
+  accessToken: string,
+  orderId: string,
+  reason: string
+): Promise<void> {
   const res = await coordinatorFetchWithRefresh(
     `/orders/${encodeURIComponent(orderId)}/cancel`,
-    { method: "PATCH" },
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason })
+    },
     accessToken
   );
   if (!res.ok) {
@@ -671,6 +681,8 @@ export interface CustomerRow {
   name: string | null;
   ordersCount: number;
   lastOrderAt: string | null;
+  lastContactedAt?: string | null;
+  needsContact?: boolean;
   createdAt: string;
 }
 
@@ -681,6 +693,7 @@ export interface CustomersListResponse {
   total: number;
   totalAll: number;
   inactiveCount: number;
+  uncontactedInactiveCount?: number;
   hasMore: boolean;
   customers: CustomerRow[];
 }
@@ -699,5 +712,15 @@ export async function fetchCustomers(
   const body = (await res.json().catch(() => ({}))) as CustomersListResponse & { message?: string };
   if (!res.ok) throw new Error(body.message ?? "تعذر تحميل الزبائن");
   return body;
+}
+
+export async function markCustomerContacted(accessToken: string, customerId: string): Promise<void> {
+  const res = await coordinatorFetchWithRefresh(
+    `/customers/${encodeURIComponent(customerId)}/contacted`,
+    { method: "PATCH" },
+    accessToken
+  );
+  const body = (await res.json().catch(() => ({}))) as { message?: string };
+  if (!res.ok) throw new Error(body.message ?? "تعذر تسجيل التواصل مع الزبون");
 }
 

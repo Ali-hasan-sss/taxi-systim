@@ -242,8 +242,28 @@ export async function resyncDriverOrderVehicleRooms(io: Server, driverDbId: stri
   }
 }
 
+async function coordinatorNameForOrder(order: Order): Promise<string> {
+  const fromRelation = (order as Order & { coordinator?: { user?: { fullName?: string | null } | null } | null })
+    .coordinator?.user?.fullName?.trim();
+  if (fromRelation) return fromRelation;
+  const row = await prisma.coordinator.findUnique({
+    where: { id: order.coordinatorId },
+    select: { user: { select: { fullName: true } } }
+  });
+  return row?.user.fullName?.trim() || "—";
+}
+
+function isAssignedAwayFromDriverPool(order: { driverId: string | null; status: OrderStatus }): boolean {
+  return Boolean(order.driverId) || order.status !== OrderStatus.PENDING;
+}
+
 export async function broadcastNewOrder(io: Server, order: Order) {
-  const payload = orderToSocketPayload(order);
+  if (isAssignedAwayFromDriverPool(order)) return;
+
+  const payload = orderToSocketPayload({
+    ...order,
+    coordinatorName: await coordinatorNameForOrder(order)
+  });
   io.to(ROOM_COORDINATORS).emit(socketEvents.NEW_ORDER, payload);
 
   if (order.broadcastTarget === OrderBroadcastTarget.ALL) {
@@ -277,6 +297,8 @@ export async function getPushTargetDriverUserIdsForNewOrder(
   order: Order,
   io?: Server
 ): Promise<string[]> {
+  if (isAssignedAwayFromDriverPool(order)) return [];
+
   const driverIds = new Set(await collectNewOrderTargetDriverDbIds(order));
 
   if (io && order.broadcastTarget === OrderBroadcastTarget.ALL) {
@@ -304,6 +326,7 @@ export async function getPushTargetDriverUserIdsForNewOrder(
 
 /** بث سوكيت + إشعار دفع لطلب معلّق جديد — منسق أو طلب ويب بعد النشر */
 export async function dispatchNewPendingOrderToDrivers(io: Server, order: Order): Promise<void> {
+  if (isAssignedAwayFromDriverPool(order)) return;
   await broadcastNewOrder(io, order);
   const { notifyDriversNewOrderPush } = await import("./shared/expo-push");
   await notifyDriversNewOrderPush(order, io);
@@ -381,7 +404,11 @@ export function emitPendingOrderCancelled(io: Server, orderId: string) {
 
 export function emitOrderStatusUpdated(io: Server, order: Order) {
   syncBusyStateFromOrder(order);
-  io.emit(socketEvents.ORDER_STATUS_UPDATED, orderToSocketPayload(order));
+  const payload = orderToSocketPayload(order);
+  io.to(ROOM_COORDINATORS).emit(socketEvents.ORDER_STATUS_UPDATED, payload);
+  if (order.driverId) {
+    io.to(`driver:${order.driverId}`).emit(socketEvents.ORDER_STATUS_UPDATED, payload);
+  }
 }
 
 let socketServer: Server | null = null;
@@ -463,9 +490,17 @@ export const initSocket = (io: Server) => {
       }
     });
 
+    const ignoreChatSocketErr = (e: unknown) => {
+      if (e instanceof AppError && (e.statusCode === 404 || e.statusCode === 403)) return;
+      console.error("[chat-socket]", e);
+    };
+
     socket.on(chatSocketEvents.JOIN_ROOM, (roomId: string) => {
-      if (typeof roomId !== "string" || !roomId) return;
-      void socket.join(`chat:${roomId}`);
+      const userId = socket.data.chatUserId as string | undefined;
+      if (!userId || typeof roomId !== "string" || !roomId) return;
+      void chatService.assertUserCanJoinRoom(roomId, userId).then(() => {
+        void socket.join(`chat:${roomId}`);
+      }).catch(ignoreChatSocketErr);
     });
 
     socket.on(chatSocketEvents.LEAVE_ROOM, (roomId: string) => {
@@ -491,11 +526,6 @@ export const initSocket = (io: Server) => {
         userId
       });
     });
-
-    const ignoreChatSocketErr = (e: unknown) => {
-      if (e instanceof AppError && (e.statusCode === 404 || e.statusCode === 403)) return;
-      console.error("[chat-socket]", e);
-    };
 
     socket.on(chatSocketEvents.DELIVERED, (payload: { messageId?: string }) => {
       const userId = socket.data.chatUserId as string | undefined;

@@ -31,38 +31,26 @@ export function DriverAppHeader() {
       alignItems: "stretch" as const
     },
     topBar: {
+      position: "absolute" as const,
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 30,
+      elevation: 0,
       direction: "ltr" as const,
       flexDirection: "row" as const,
       alignItems: "center" as const,
       justifyContent: "space-between" as const,
       paddingHorizontal: 20,
-      paddingBottom: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: t.colors.border,
-      minHeight: 68,
-      backgroundColor: t.colors.surfaceHeader,
-      shadowColor: t.colors.shadow,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.05,
-      shadowRadius: 10,
-      elevation: 6
+      paddingBottom: 10,
+      borderWidth: 0,
+      backgroundColor: "rgba(0,0,0,0)",
+      overflow: "visible" as const
     },
     logoCreamBox: {
-      height: 44,
-      maxWidth: "30%",
-      flexShrink: 1,
-      backgroundColor: t.colors.logoBoxBg,
-      borderWidth: 1,
-      borderColor: t.colors.logoBoxBorder,
-      borderRadius: 12,
-      paddingHorizontal: 0,
       justifyContent: "center" as const,
       alignItems: "center" as const,
-      shadowColor: t.colors.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 2
+      backgroundColor: "transparent"
     },
     brandLogo: {
       height: 28,
@@ -86,16 +74,9 @@ export function DriverAppHeader() {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: t.colors.surfaceInset,
+      backgroundColor: "transparent",
       alignItems: "center" as const,
-      justifyContent: "center" as const,
-      borderWidth: 1,
-      borderColor: t.colors.border,
-      shadowColor: t.colors.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.08,
-      shadowRadius: 6,
-      elevation: 2
+      justifyContent: "center" as const
     },
     menuModalRoot: {
       flex: 1

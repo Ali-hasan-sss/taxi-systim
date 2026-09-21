@@ -12,5 +12,14 @@ export const customersController = {
     } catch (err) {
       next(err);
     }
+  },
+
+  async markContacted(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await customersService.markContacted(req.params.customerId);
+      res.json(data);
+    } catch (err) {
+      next(err);
+    }
   }
 };

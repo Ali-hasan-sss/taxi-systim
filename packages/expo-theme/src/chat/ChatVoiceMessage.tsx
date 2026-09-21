@@ -1,14 +1,32 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, type GestureResponderEvent, Pressable, Text, View } from "react-native";
 import { rtlText } from "../rtl";
+
+const BAR_COUNT = 26;
 
 function formatDuration(ms: number): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function waveformBars(seed: string, count: number): number[] {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const bars: number[] = [];
+  for (let i = 0; i < count; i++) {
+    hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
+    const n = ((hash >>> 0) % 1000) / 1000;
+    const envelope = 0.35 + 0.65 * Math.sin((i / Math.max(1, count - 1)) * Math.PI);
+    bars.push(Math.min(1, 0.22 + n * 0.78 * envelope));
+  }
+  return bars;
 }
 
 type ChatVoiceMessagePlayerProps = {
@@ -28,9 +46,11 @@ function ChatVoiceMessagePlayer({
   textColor,
   mutedTextColor
 }: ChatVoiceMessagePlayerProps) {
-  const player = useAudioPlayer(localUri, { updateInterval: 100 });
+  const player = useAudioPlayer(localUri, { updateInterval: 80 });
   const status = useAudioPlayerStatus(player);
   const [failed, setFailed] = useState(false);
+  const trackWidthRef = useRef(0);
+  const bars = useMemo(() => waveformBars(localUri, BAR_COUNT), [localUri]);
 
   const totalSeconds =
     status.duration > 0 ? status.duration : Math.max(0, (durationMs ?? 0) / 1000);
@@ -71,6 +91,20 @@ function ChatVoiceMessagePlayer({
     }
   };
 
+  const seekOnTrack = async (event: GestureResponderEvent) => {
+    if (totalSeconds <= 0 || failed) return;
+    const width = trackWidthRef.current;
+    if (width <= 0) return;
+    const x = event.nativeEvent.locationX;
+    const ratio = Math.min(1, Math.max(0, x / width));
+    try {
+      await player.seekTo(ratio * totalSeconds);
+      if (!playing) player.play();
+    } catch {
+      /* ignore */
+    }
+  };
+
   if (failed) {
     return <Text style={{ color: mutedTextColor, ...rtlText }}>[تعذر تشغيل الرسالة الصوتية]</Text>;
   }
@@ -78,47 +112,72 @@ function ChatVoiceMessagePlayer({
   const elapsedMs = Math.round(status.currentTime * 1000);
   const totalMs = totalSeconds > 0 ? Math.round(totalSeconds * 1000) : durationMs ?? 0;
   const timeLabel = playing || hasStarted ? formatDuration(elapsedMs) : formatDuration(totalMs);
+  const idleBar = mine ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.14)";
+  const filledBar = mine ? textColor : accentColor;
 
   return (
-    <Pressable
-      onPress={() => void togglePlay()}
+    <View
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
-        minWidth: 180,
-        paddingVertical: 4
+        gap: 8,
+        minWidth: 196,
+        paddingVertical: 2
       }}
-      accessibilityRole="button"
-      accessibilityLabel={playing ? "إيقاف الرسالة الصوتية" : "تشغيل الرسالة الصوتية"}
     >
-      <Ionicons
-        name={playing ? "pause-circle" : "play-circle"}
-        size={28}
-        color={mine ? textColor : accentColor}
-      />
-      <View
+      <Pressable
+        onPress={() => void togglePlay()}
+        accessibilityRole="button"
+        accessibilityLabel={playing ? "إيقاف الرسالة الصوتية" : "تشغيل الرسالة الصوتية"}
+        hitSlop={6}
+      >
+        <Ionicons
+          name={playing ? "pause-circle" : "play-circle"}
+          size={34}
+          color={mine ? textColor : accentColor}
+        />
+      </Pressable>
+      <Pressable
+        onLayout={(e) => {
+          trackWidthRef.current = e.nativeEvent.layout.width;
+        }}
+        onPress={(e) => void seekOnTrack(e)}
         style={{
           flex: 1,
-          height: 4,
-          borderRadius: 2,
-          backgroundColor: mine ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.12)",
-          overflow: "hidden"
+          height: 32,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 2
+        }}
+        accessibilityRole="adjustable"
+        accessibilityLabel="مسار التشغيل"
+      >
+        {bars.map((height, index) => {
+          const filled = index / bars.length <= progress;
+          return (
+            <View
+              key={index}
+              style={{
+                flex: 1,
+                height: Math.max(6, Math.round(height * 28)),
+                borderRadius: 99,
+                backgroundColor: filled ? filledBar : idleBar
+              }}
+            />
+          );
+        })}
+      </Pressable>
+      <Text
+        style={{
+          color: mine ? textColor : mutedTextColor,
+          fontSize: 12,
+          fontWeight: "700",
+          minWidth: 36
         }}
       >
-        <View
-          style={{
-            width: `${Math.round(progress * 100)}%`,
-            height: 4,
-            borderRadius: 2,
-            backgroundColor: mine ? textColor : accentColor
-          }}
-        />
-      </View>
-      <Text style={{ color: mine ? textColor : mutedTextColor, fontSize: 12, fontWeight: "700", minWidth: 36 }}>
         {timeLabel}
       </Text>
-    </Pressable>
+    </View>
   );
 }
 

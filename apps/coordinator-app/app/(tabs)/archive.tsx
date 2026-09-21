@@ -22,6 +22,7 @@ import {
 } from "../../src/lib/api";
 import { clearSession, getSession } from "../../src/lib/session";
 import { rtlText } from "../../src/lib/rtl-text";
+import { CoordinatorTabScreen } from "../../src/components/CoordinatorScreenBackground";
 
 export default function ArchiveTab() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function ArchiveTab() {
   const styles = useThemedStyles((t) => ({
     root: {
       flex: 1,
-      backgroundColor: t.colors.background,
+      backgroundColor: "transparent",
       paddingTop: 56,
       direction: "rtl" as const
     },
@@ -38,7 +39,7 @@ export default function ArchiveTab() {
       flex: 1,
       justifyContent: "center" as const,
       alignItems: "center" as const,
-      backgroundColor: t.colors.background,
+      backgroundColor: "transparent",
       paddingHorizontal: 24
     },
     loadingText: {
@@ -223,16 +224,19 @@ export default function ArchiveTab() {
 
   if (loading && orders.length === 0) {
     return (
+      <CoordinatorTabScreen>
       <View style={[styles.centered, { paddingTop: 12 }]}>
         <ActivityIndicator size="large" color={theme.colors.accent} />
         <Text style={styles.loadingText}>جاري تحميل الأرشيف…</Text>
       </View>
+      </CoordinatorTabScreen>
     );
   }
 
   const listBottomPad = coordinatorTabBarOuterHeight(insets.bottom) + 24;
 
   return (
+    <CoordinatorTabScreen>
     <View style={[styles.root, { paddingTop: 8 }]}>
       <Text style={styles.title}>الأرشيف</Text>
       
@@ -307,6 +311,7 @@ export default function ArchiveTab() {
         }
       />
     </View>
+    </CoordinatorTabScreen>
   );
 }
 

@@ -1,0 +1,100 @@
+.card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: min(240px, 100%);
+  max-width: 280px;
+  margin: 2px 0 4px;
+}
+
+.playBtn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cardMine .playBtn {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.cardOther .playBtn {
+  background: var(--brand-primary, #ea580c);
+  color: #fff;
+}
+
+.playBtn:hover {
+  filter: brightness(1.08);
+}
+
+.track {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: none;
+  padding: 0 2px;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  height: 28px;
+}
+
+.bar {
+  flex: 1;
+  min-width: 2px;
+  max-width: 4px;
+  border-radius: 99px;
+  align-self: center;
+}
+
+.cardMine .bar {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.cardOther .bar {
+  background: rgba(28, 25, 23, 0.16);
+}
+
+.cardMine .barFilled {
+  background: #fff;
+}
+
+.cardOther .barFilled {
+  background: var(--brand-primary, #ea580c);
+}
+
+.time {
+  flex-shrink: 0;
+  min-width: 2.6em;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.cardMine .time {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.cardOther .time {
+  color: var(--brand-text-muted, #57534e);
+}
+
+.card audio {
+  display: none;
+}

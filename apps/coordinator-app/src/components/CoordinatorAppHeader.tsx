@@ -26,27 +26,27 @@ export function CoordinatorAppHeader() {
   const styles = useThemedStyles((t) => ({
     rtlScreen: { direction: "rtl" as const, alignItems: "stretch" as const },
     topBar: {
+      position: "absolute" as const,
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 30,
+      elevation: 0,
       direction: "ltr" as const,
       flexDirection: "row" as const,
       alignItems: "center" as const,
       justifyContent: "space-between" as const,
       paddingHorizontal: 20,
-      paddingBottom: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: t.colors.border,
-      minHeight: 68,
-      backgroundColor: t.colors.background
+      paddingBottom: 10,
+      borderWidth: 0,
+      backgroundColor: "rgba(0,0,0,0)",
+      overflow: "visible" as const,
+      pointerEvents: "box-none" as const
     },
     logoCreamBox: {
-      height: 44,
-      maxWidth: "30%",
-      flexShrink: 1,
-      backgroundColor: t.colors.logoBoxBg,
-      borderWidth: 2,
-      borderColor: t.colors.logoBoxBorder,
-      borderRadius: 12,
       justifyContent: "center" as const,
-      alignItems: "center" as const
+      alignItems: "center" as const,
+      backgroundColor: "transparent"
     },
     brandLogo: { height: 28, width: 128, maxWidth: "100%" },
     topBarActions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10 },
@@ -56,11 +56,9 @@ export function CoordinatorAppHeader() {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: t.colors.surfaceMuted,
+      backgroundColor: "transparent",
       alignItems: "center" as const,
-      justifyContent: "center" as const,
-      borderWidth: 2,
-      borderColor: t.colors.logoBoxBorder
+      justifyContent: "center" as const
     },
     menuModalRoot: { flex: 1 },
     menuBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: t.colors.overlay },

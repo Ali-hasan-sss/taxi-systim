@@ -24,7 +24,7 @@ export function CoordinatorCreateOrderTabButton({
       alignItems: "center" as const,
       justifyContent: "center" as const,
       borderWidth: 4,
-      borderColor: t.colors.tabBar,
+      borderColor: t.colors.surface,
       shadowColor: t.colors.shadow,
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.28,

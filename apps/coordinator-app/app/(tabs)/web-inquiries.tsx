@@ -25,6 +25,7 @@ import { rtlText } from "../../src/lib/rtl-text";
 import { clearSession, getSession } from "../../src/lib/session";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { useCoordinatorStore } from "../../src/store";
+import { CoordinatorTabScreen } from "../../src/components/CoordinatorScreenBackground";
 import {
   openWhatsAppChatWithText,
   WHATSAPP_NO_PHONE_MESSAGE,
@@ -44,7 +45,7 @@ export default function WebInquiriesTab() {
   const [amount, setAmount] = useState("");
 
   const styles = useThemedStyles((t) => ({
-    root: { flex: 1, backgroundColor: t.colors.background, direction: "rtl" as const },
+    root: { flex: 1, backgroundColor: "transparent", direction: "rtl" as const },
     centered: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
     title: { fontSize: 22, fontWeight: "800" as const, color: t.colors.text, ...rtlText, marginBottom: 8 },
     hint: { fontSize: 14, color: t.colors.textMuted, ...rtlText, marginBottom: 16, lineHeight: 22 },
@@ -194,13 +195,16 @@ export default function WebInquiriesTab() {
 
   if (loading) {
     return (
+      <CoordinatorTabScreen>
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
+      </CoordinatorTabScreen>
     );
   }
 
   return (
+    <CoordinatorTabScreen>
     <View style={styles.root}>
       <FlatList
         data={rows}
@@ -276,5 +280,6 @@ export default function WebInquiriesTab() {
         </Pressable>
       </Modal>
     </View>
+    </CoordinatorTabScreen>
   );
 }

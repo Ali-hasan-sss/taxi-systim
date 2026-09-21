@@ -7,8 +7,8 @@ import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io } from "socket.io-client";
 import { chatSocketEvents, socketEvents } from "@taxi/config";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
 import { DriverChatListSkeleton } from "../../src/components/driver-skeletons";
+import { DriverTabScreen } from "../../src/components/DriverScreenBackground";
 import { type ChatRoomRow, archiveChatRoom, chatRoomHref, chatRoomListTitle, listChatRooms } from "../../src/lib/chat";
 import { getSocketOrigin } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
@@ -28,7 +28,7 @@ export default function ChatTab() {
   const unreadByRoom = useDriverStore((s) => s.unreadByRoom);
 
   const styles = useThemedStyles((t) => ({
-    safe: { flex: 1, backgroundColor: t.colors.background },
+    safe: { flex: 1, backgroundColor: "transparent" },
     title: { fontSize: 22, fontWeight: "800" as const, color: t.colors.text, paddingHorizontal: 20, marginBottom: 8, ...rtlText },
     subtitle: { fontSize: 13, color: t.colors.textMuted, paddingHorizontal: 20, marginBottom: 12, ...rtlText },
     row: {
@@ -125,8 +125,8 @@ export default function ChatTab() {
   }, []);
 
   return (
+    <DriverTabScreen>
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-      <DriverScreenBackground>
         <View style={{ flex: 1, paddingBottom: driverTabBarOuterHeight(insets.bottom) }}>
           <Text style={styles.title}>المحادثات</Text>
           <Text style={styles.subtitle}>المحادثة العامة للجميع، ومحادثات طلباتك مع المنسق.</Text>
@@ -200,7 +200,7 @@ export default function ChatTab() {
             />
           )}
         </View>
-      </DriverScreenBackground>
     </SafeAreaView>
+    </DriverTabScreen>
   );
 }

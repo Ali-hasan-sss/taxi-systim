@@ -316,6 +316,7 @@ export default function AdminOrdersPage() {
                     <th>الوجهة</th>
                     <th>الأجرة</th>
                     <th>الحالة</th>
+                    <th>سبب الإلغاء</th>
                     <th>الإجراءات</th>
                   </tr>
                 </thead>
@@ -336,6 +337,9 @@ export default function AdminOrdersPage() {
                         <span className={orderBadgeClass(order.status as AdminOrderStatus)}>
                           {STATUS_LABELS[order.status as AdminOrderStatus] ?? order.status}
                         </span>
+                      </td>
+                      <td className="orders-data-table__reason" title={order.cancelReason ?? undefined}>
+                        {order.status === "CANCELLED" ? order.cancelReason?.trim() || "—" : "—"}
                       </td>
                       <td className="cell-actions">
                         <button

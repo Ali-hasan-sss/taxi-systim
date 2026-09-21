@@ -1,9 +1,25 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
+import { AppError } from "../../shared/app-error";
 import { displayCustomerPhone, linkCustomerToNewOrder, normalizeCustomerPhone } from "./customer-phone";
 import type { ListCustomersQuery } from "./customers.dto";
 
 const INACTIVE_DAYS = 14;
+
+function inactiveWhere(inactiveBefore: Date): Prisma.CustomerWhereInput {
+  return {
+    ordersCount: { gt: 10 },
+    OR: [{ lastOrderAt: null }, { lastOrderAt: { lte: inactiveBefore } }]
+  };
+}
+
+function isInactiveCustomer(
+  c: { ordersCount: number; lastOrderAt: Date | null },
+  inactiveBefore: Date
+): boolean {
+  if (c.ordersCount <= 10) return false;
+  return !c.lastOrderAt || c.lastOrderAt <= inactiveBefore;
+}
 
 /**
  * مزامنة زبائن من الطلبات القديمة غير المرتبطة (دفعة واحدة).
@@ -116,12 +132,7 @@ export const customersService = {
       : undefined;
 
     const filterWhere: Prisma.CustomerWhereInput =
-      filter === "inactive"
-        ? {
-            ordersCount: { gt: 10 },
-            OR: [{ lastOrderAt: null }, { lastOrderAt: { lte: inactiveBefore } }]
-          }
-        : {};
+      filter === "inactive" ? inactiveWhere(inactiveBefore) : {};
 
     const where: Prisma.CustomerWhereInput = {
       AND: [filterWhere, searchWhere].filter(Boolean) as Prisma.CustomerWhereInput[]
@@ -131,12 +142,12 @@ export const customersService = {
     if (filter === "most_orders") {
       orderBy = [{ ordersCount: "desc" }, { lastOrderAt: "desc" }, { id: "desc" }];
     } else if (filter === "inactive") {
-      orderBy = [{ lastOrderAt: "asc" }, { ordersCount: "desc" }, { id: "asc" }];
+      orderBy = [{ lastContactedAt: { sort: "asc", nulls: "first" } }, { lastOrderAt: "asc" }, { ordersCount: "desc" }, { id: "asc" }];
     } else {
       orderBy = [{ lastOrderAt: "desc" }, { createdAt: "desc" }, { id: "desc" }];
     }
 
-    const [rows, filteredCount, totalAll, inactiveCount] = await Promise.all([
+    const [rows, filteredCount, totalAll, inactiveCount, uncontactedInactiveCount] = await Promise.all([
       prisma.customer.findMany({
         where,
         orderBy,
@@ -147,13 +158,12 @@ export const customersService = {
       prisma.customer.count({ where: searchWhere ?? {} }),
       prisma.customer.count({
         where: {
-          AND: [
-            searchWhere ?? {},
-            {
-              ordersCount: { gt: 10 },
-              OR: [{ lastOrderAt: null }, { lastOrderAt: { lte: inactiveBefore } }]
-            }
-          ]
+          AND: [searchWhere ?? {}, inactiveWhere(inactiveBefore)]
+        }
+      }),
+      prisma.customer.count({
+        where: {
+          AND: [searchWhere ?? {}, inactiveWhere(inactiveBefore), { lastContactedAt: null }]
         }
       })
     ]);
@@ -165,6 +175,7 @@ export const customersService = {
       total: filteredCount,
       totalAll,
       inactiveCount,
+      uncontactedInactiveCount,
       hasMore: skip + rows.length < filteredCount,
       customers: rows.map((c) => ({
         id: c.id,
@@ -173,8 +184,25 @@ export const customersService = {
         name: c.name,
         ordersCount: c.ordersCount,
         lastOrderAt: c.lastOrderAt?.toISOString() ?? null,
+        lastContactedAt: c.lastContactedAt?.toISOString() ?? null,
+        needsContact: isInactiveCustomer(c, inactiveBefore) && !c.lastContactedAt,
         createdAt: c.createdAt.toISOString()
       }))
+    };
+  },
+
+  async markContacted(customerId: string) {
+    const existing = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!existing) throw new AppError("الزبون غير موجود", 404);
+    const row = await prisma.customer.update({
+      where: { id: customerId },
+      data: { lastContactedAt: new Date() }
+    });
+    const inactiveBefore = new Date(Date.now() - INACTIVE_DAYS * 24 * 60 * 60 * 1000);
+    return {
+      id: row.id,
+      lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
+      needsContact: isInactiveCustomer(row, inactiveBefore) && !row.lastContactedAt
     };
   },
 

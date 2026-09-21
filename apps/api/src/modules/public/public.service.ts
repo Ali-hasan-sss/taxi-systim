@@ -157,7 +157,7 @@ export const publicBookingService = {
 
     return prisma.order.update({
       where: { id: orderId },
-      data: { status: "CANCELLED", cancelledAt: new Date() }
+      data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: "أُلغي طلب الويب" }
     });
   }
 };

@@ -1,0 +1,78 @@
+.micBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 10px;
+}
+
+.recordingBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.recDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #dc2626;
+  flex-shrink: 0;
+  animation: recPulse 1s ease-in-out infinite;
+}
+
+.recTime {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  color: #9a3412;
+  min-width: 3.2em;
+}
+
+.recLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9a3412;
+}
+
+.dialog {
+  max-width: 420px;
+}
+
+.dialogBody {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--brand-text-muted, #57534e);
+  font-size: 15px;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@keyframes recPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 900px) {
+  .recordingBar {
+    flex-basis: 100%;
+    order: -1;
+  }
+}

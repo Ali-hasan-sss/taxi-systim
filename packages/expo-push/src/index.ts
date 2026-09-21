@@ -6,6 +6,7 @@ export {
   ensureAndroidNotificationChannel,
   ensureExpoPushRegistration,
   isPushRegistrationFailure,
+  isTerminalPushRegistrationReason,
   logPushRegistrationResult,
   requestNotificationPermission,
   retryExpoPushRegistration,

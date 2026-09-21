@@ -93,7 +93,7 @@ export function OrderRoomCard({
   const isStuck = status === "STUCK";
   const isPending = status === "PENDING";
   const canEditDetails = isStuck || isPending;
-  const canCancel = isStuck || isPending;
+  const canCancel = status !== "COMPLETED" && status !== "CANCELLED";
   const canResume = isStuck;
 
   return (
@@ -120,6 +120,9 @@ export function OrderRoomCard({
         <span>{formatMoney(order.amount)}</span>
         <span className="order-room-card__driver">السائق: {driverName}</span>
         <span className="order-room-card__coordinator">المنسق: {order.coordinatorName}</span>
+        {order.status === "CANCELLED" && order.cancelReason?.trim() ? (
+          <span className="order-room-card__cancelReason">سبب الإلغاء: {order.cancelReason.trim()}</span>
+        ) : null}
       </footer>
 
       {showActions && actions ? (

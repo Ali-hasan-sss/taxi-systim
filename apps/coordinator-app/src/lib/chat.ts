@@ -1,4 +1,5 @@
 import { nativeAppHeaders, resolveExpoApiBase } from "@taxi/expo-api-base";
+import { router, type Href } from "expo-router";
 import { getSession, tryRefreshCoordinatorSession } from "./session";
 
 const API_BASE = resolveExpoApiBase();
@@ -47,9 +48,56 @@ export type ChatRoomHeader = Pick<
   | "orderStatus"
 >;
 
-export function chatRoomListTitle(room: ChatRoomRow): string {
+export function chatRoomListTitle(room: Pick<ChatRoomRow, "type" | "title" | "peerName">): string {
   if (room.type === "GLOBAL") return room.title;
   return room.peerName ?? room.title;
+}
+
+export type ChatRoomNavHref = {
+  pathname: "/chat/[roomId]";
+  params: { roomId: string; title: string; roomType: string; subtitle?: string };
+};
+
+export function chatRoomNavHref(
+  room: Pick<ChatRoomRow, "id" | "type" | "title" | "peerName" | "orderLabel">
+): ChatRoomNavHref {
+  return {
+    pathname: "/chat/[roomId]",
+    params: {
+      roomId: room.id,
+      title: chatRoomListTitle(room),
+      roomType: room.type,
+      ...(room.orderLabel ? { subtitle: room.orderLabel } : {})
+    }
+  };
+}
+
+function navigateToChatRoom(href: ChatRoomNavHref) {
+  const go = () => router.navigate(href as Href);
+  queueMicrotask(go);
+}
+
+export function openChatRoom(
+  room: Pick<ChatRoomRow, "id" | "type" | "title" | "peerName" | "orderLabel">
+): void {
+  navigateToChatRoom(chatRoomNavHref(room));
+}
+
+export function openChatRoomById(
+  roomId: string,
+  title: string,
+  roomType: ChatRoomRow["type"] = "ORDER",
+  subtitle?: string | null
+): void {
+  navigateToChatRoom({
+    pathname: "/chat/[roomId]",
+    params: {
+      roomId,
+      title,
+      roomType,
+      ...(subtitle ? { subtitle } : {})
+    }
+  });
 }
 
 export function chatRoomHref(room: ChatRoomRow): string {

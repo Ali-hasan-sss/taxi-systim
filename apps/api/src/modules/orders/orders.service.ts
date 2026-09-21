@@ -32,7 +32,8 @@ import {
 import { notifyDriverCompensation, notifyDriverFine } from "../../shared/driver-notifications";
 
 const orderIncludeDriverUser = {
-  driver: { include: { user: { select: { fullName: true, phone: true } } } }
+  driver: { include: { user: { select: { fullName: true, phone: true } } } },
+  coordinator: { include: { user: { select: { fullName: true } } } }
 } as const;
 
 const orderIncludeAdmin = {
@@ -350,8 +351,18 @@ const EN_ROUTE_LIKE: OrderStatus[] = [
   OrderStatus.ARRIVED
 ];
 
-/** غرامة إلغاء الطلب من السائق (ل.س) */
+/** غرامة إلغاء الطلب من السائق (ل.س) — تُطبَّق فقط عند إلغاء السائق نفسه */
 const DRIVER_SELF_CANCEL_FINE = 100;
+
+/** حالات يمكن للمنسق/المدير إلغاؤها دون تغريم السائق */
+const STAFF_CANCELLABLE_STATUSES: OrderStatus[] = [
+  OrderStatus.PENDING,
+  OrderStatus.EN_ROUTE_TO_CUSTOMER,
+  OrderStatus.ACCEPTED,
+  OrderStatus.ARRIVED,
+  OrderStatus.STARTED,
+  OrderStatus.STUCK
+];
 
 /** مقارنة نصية حتى لا يفشل PostgreSQL إن لم تُضف قيمة STUCK للـ enum بعد (قبل migrate). */
 async function countStuckTodaySyriaForCoordinator(coordinatorId: string): Promise<number> {
@@ -496,6 +507,68 @@ async function sumDriverPeriodAdjustments(
   };
 }
 
+function normalizeCancelReason(reason: string | undefined, fallback: string): string {
+  const trimmed = reason?.trim() ?? "";
+  return trimmed.length >= 2 ? trimmed.slice(0, 500) : fallback;
+}
+
+/** إلغاء من منسق/مدير: يحرّر السائق ولا يفرض غرامة (الغرامة فقط عند إلغاء السائق نفسه). */
+async function cancelOrderByStaffWithoutFine(
+  orderId: string,
+  opts: { coordinatorId?: string; archivedByUserId?: string; cancelReason: string }
+) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findFirst({
+      where: {
+        id: orderId,
+        ...(opts.coordinatorId ? { coordinatorId: opts.coordinatorId } : {})
+      }
+    });
+    if (!order) throw new AppError("الطلب غير موجود", 404);
+
+    if (order.status === OrderStatus.CANCELLED) {
+      return tx.order.findFirstOrThrow({
+        where: { id: orderId },
+        include: orderIncludeDriverUser
+      });
+    }
+
+    if (order.status === OrderStatus.COMPLETED) {
+      throw new AppError("لا يمكن إلغاء طلب مكتمل", 400);
+    }
+
+    if (!STAFF_CANCELLABLE_STATUSES.includes(order.status)) {
+      throw new AppError("لا يمكن إلغاء الطلب في هذه المرحلة", 400);
+    }
+
+    if (order.driverId) {
+      await tx.driver.update({
+        where: { id: order.driverId },
+        data: { isBusy: false }
+      });
+    }
+
+    await tx.order.update({
+      where: { id: orderId },
+      data: {
+        status: OrderStatus.CANCELLED,
+        cancelledAt: new Date(),
+        cancelReason: opts.cancelReason
+      }
+    });
+
+    await chatService.archiveOrderRoomByOrderId(orderId, {
+      tx,
+      archivedByUserId: opts.archivedByUserId
+    });
+
+    return tx.order.findFirstOrThrow({
+      where: { id: orderId },
+      include: orderIncludeDriverUser
+    });
+  });
+}
+
 export const ordersService = {
   serializeDriverOrderRow(row: Prisma.OrderGetPayload<{ include: typeof orderIncludeDriverUser }>) {
     return {
@@ -513,8 +586,11 @@ export const ordersService = {
       driversNotifiedAt: row.driversNotifiedAt?.toISOString() ?? null,
       notes: row.notes,
       createdAt: row.createdAt.toISOString(),
+      cancelledAt: row.cancelledAt?.toISOString() ?? null,
+      cancelReason: row.cancelReason,
       customerInfoSentAt: row.customerInfoSentAt?.toISOString() ?? null,
       invoiceSentAt: row.invoiceSentAt?.toISOString() ?? null,
+      coordinatorName: row.coordinator?.user.fullName?.trim() || "—",
       driver: row.driver
         ? {
             id: row.driver.id,
@@ -641,57 +717,22 @@ export const ordersService = {
     });
   },
 
-  async cancelByCoordinator(coordinatorUserId: string, orderId: string) {
+  async cancelByCoordinator(coordinatorUserId: string, orderId: string, reason: string) {
     const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
     if (!coordinator) throw new AppError("ملف المنسق غير موجود", 404);
-
-    const order = await prisma.order.findFirst({
-      where: { id: orderId, coordinatorId: coordinator.id }
+    const cancelReason = normalizeCancelReason(reason, "");
+    if (!cancelReason) throw new AppError("سبب الإلغاء مطلوب", 400);
+    return cancelOrderByStaffWithoutFine(orderId, {
+      coordinatorId: coordinator.id,
+      archivedByUserId: coordinatorUserId,
+      cancelReason
     });
-    if (!order) throw new AppError("الطلب غير موجود", 404);
-
-    if (order.status === OrderStatus.PENDING) {
-      if (order.driverId) {
-        throw new AppError("الطلب مُسندًا بالفعل", 400);
-      }
-      return prisma.order.update({
-        where: { id: orderId },
-        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
-      });
-    }
-
-    if (order.status === OrderStatus.STUCK) {
-      return prisma.order.update({
-        where: { id: orderId },
-        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
-      });
-    }
-
-    throw new AppError("يمكن إلغاء الطلب المعلق قبل الإسناد، أو الطلب المتعثر فقط", 400);
   },
 
-  async cancelByAdmin(orderId: string) {
-    const order = await prisma.order.findFirst({ where: { id: orderId } });
-    if (!order) throw new AppError("الطلب غير موجود", 404);
-
-    if (order.status === OrderStatus.PENDING) {
-      if (order.driverId) {
-        throw new AppError("الطلب مُسندًا بالفعل", 400);
-      }
-      return prisma.order.update({
-        where: { id: orderId },
-        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
-      });
-    }
-
-    if (order.status === OrderStatus.STUCK) {
-      return prisma.order.update({
-        where: { id: orderId },
-        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
-      });
-    }
-
-    throw new AppError("يمكن إلغاء الطلب المعلق قبل الإسناد، أو الطلب المتعثر فقط", 400);
+  async cancelByAdmin(orderId: string, reason?: string) {
+    return cancelOrderByStaffWithoutFine(orderId, {
+      cancelReason: normalizeCancelReason(reason, "ألغاه المدير")
+    });
   },
 
   /** إعادة طلب متعثر لنفس السائق: «في الطريق إلى الزبون» وتعيين السائق مشغولًا. */
@@ -1753,7 +1794,11 @@ export const ordersService = {
 
       await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() }
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancelReason: "ألغاه السائق"
+        }
       });
 
       await chatService.archiveOrderRoomByOrderId(orderId, { tx, archivedByUserId: driverUserId });

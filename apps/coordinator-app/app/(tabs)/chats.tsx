@@ -1,22 +1,22 @@
 import { useTheme, useThemedStyles, ChatPeerAvatar } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
 import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io } from "socket.io-client";
 import { chatSocketEvents, socketEvents } from "@taxi/config";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { type ChatRoomRow, archiveChatRoom, chatRoomHref, chatRoomListTitle, listChatRooms } from "../../src/lib/chat";
+import { type ChatRoomRow, archiveChatRoom, chatRoomListTitle, listChatRooms, openChatRoom } from "../../src/lib/chat";
 import { getSocketOrigin } from "../../src/lib/api";
 import { getSession } from "../../src/lib/session";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { feedback } from "../../src/lib/feedback";
 import { rtlText } from "../../src/lib/rtl-text";
 import { useCoordinatorStore } from "../../src/store";
+import { CoordinatorTabScreen } from "../../src/components/CoordinatorScreenBackground";
 
 export default function ChatTab() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const [rooms, setRooms] = useState<ChatRoomRow[]>([]);
@@ -26,7 +26,7 @@ export default function ChatTab() {
   const chatPreviewByRoom = useCoordinatorStore((s) => s.chatPreviewByRoom);
 
   const styles = useThemedStyles((t) => ({
-    root: { flex: 1, backgroundColor: t.colors.background, direction: "rtl" as const },
+    root: { flex: 1, backgroundColor: "transparent", direction: "rtl" as const },
     title: {
       fontSize: 22,
       fontWeight: "800" as const,
@@ -152,15 +152,18 @@ export default function ChatTab() {
 
   if (loading && rooms.length === 0) {
     return (
+      <CoordinatorTabScreen>
       <SafeAreaView style={[styles.root, { paddingTop: 8 }]} edges={["left", "right"]}>
         <View style={styles.centered}>
           <ActivityIndicator color={theme.colors.accent} />
         </View>
       </SafeAreaView>
+      </CoordinatorTabScreen>
     );
   }
 
   return (
+    <CoordinatorTabScreen>
     <SafeAreaView
       style={[styles.root, { paddingTop: 8, paddingBottom: coordinatorTabBarOuterHeight(insets.bottom) }]}
       edges={["left", "right"]}
@@ -170,6 +173,7 @@ export default function ChatTab() {
       <FlatList
         data={rooms}
         keyExtractor={(r) => r.id}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => {
           const livePreview = chatPreviewByRoom[item.id];
           const previewMessage = livePreview
@@ -185,7 +189,7 @@ export default function ChatTab() {
           <View style={[styles.row, item.type === "GLOBAL" && styles.rowGlobal]}>
             <Pressable
               style={styles.rowTap}
-              onPress={() => router.push(chatRoomHref(item) as `/chat/${string}`)}
+              onPress={() => openChatRoom(item)}
             >
               <View style={styles.rowInner}>
                 <ChatPeerAvatar
@@ -244,5 +248,6 @@ export default function ChatTab() {
         }
       />
     </SafeAreaView>
+    </CoordinatorTabScreen>
   );
 }

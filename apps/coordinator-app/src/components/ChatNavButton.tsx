@@ -52,7 +52,7 @@ export function ChatNavButton() {
   return (
     <Pressable
       style={styles.btn}
-      onPress={() => router.push("/(tabs)/chat")}
+      onPress={() => router.navigate("/(tabs)/chats")}
       accessibilityRole="button"
       accessibilityLabel="المحادثات"
       hitSlop={8}

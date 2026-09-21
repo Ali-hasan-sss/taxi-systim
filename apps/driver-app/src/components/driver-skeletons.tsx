@@ -16,7 +16,8 @@ function OrderCardSkeleton({ compact }: { compact?: boolean }) {
     >
       {compact ? (
         <>
-          <SkeletonBone width="88%" height={14} />
+          <SkeletonBone width="42%" height={12} />
+          <SkeletonBone width="88%" height={14} style={{ marginTop: 8 }} />
           <SkeletonBone width="72%" height={12} style={{ marginTop: 8 }} />
           <SkeletonBone width="36%" height={12} style={{ marginTop: 8 }} />
         </>

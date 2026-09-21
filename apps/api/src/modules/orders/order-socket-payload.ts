@@ -2,9 +2,18 @@ import type { OrderBroadcastTarget, OrderSource, OrderStatus, OrderVehicleRequir
 
 const toNum = (d: Prisma.Decimal | number) => Number(d);
 
+function resolveCoordinatorName(order: {
+  coordinatorName?: string | null;
+  coordinator?: { user?: { fullName?: string | null } | null } | null;
+}): string {
+  return order.coordinatorName?.trim() || order.coordinator?.user?.fullName?.trim() || "—";
+}
+
 export function orderToSocketPayload(order: {
   id: string;
   coordinatorId: string;
+  coordinatorName?: string | null;
+  coordinator?: { user?: { fullName?: string | null } | null } | null;
   driverId: string | null;
   customerName: string;
   customerPhone: string | null;
@@ -24,6 +33,7 @@ export function orderToSocketPayload(order: {
   return {
     orderId: order.id,
     coordinatorId: order.coordinatorId,
+    coordinatorName: resolveCoordinatorName(order),
     driverId: order.driverId,
     customerName: order.customerName,
     customerPhone: order.customerPhone,

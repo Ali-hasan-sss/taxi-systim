@@ -2401,6 +2401,12 @@ body {
   display: block;
 }
 
+.order-room-card__cancelReason {
+  display: block;
+  color: var(--brand-danger, #b91c1c);
+  font-weight: 700;
+}
+
 .order-room-card__actions {
   display: flex;
   align-items: center;
@@ -2695,6 +2701,13 @@ body {
 .orders-data-table__amount {
   font-weight: 700;
   white-space: nowrap;
+}
+
+.orders-data-table__reason {
+  max-width: 240px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: normal;
 }
 
 .orders-pagination {

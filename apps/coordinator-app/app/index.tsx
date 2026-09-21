@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
 import { Redirect } from "expo-router";
+import { View } from "react-native";
+import { CoordinatorScreenBackground } from "../src/components/CoordinatorScreenBackground";
 import { getSession } from "../src/lib/session";
 import { ensurePushRegistrationForCoordinator } from "../src/lib/expo-push";
 
@@ -34,7 +36,11 @@ export default function Index() {
   }, []);
 
   if (!ready) {
-    return null;
+    return (
+      <CoordinatorScreenBackground>
+        <View style={{ flex: 1 }} />
+      </CoordinatorScreenBackground>
+    );
   }
 
   if (loggedIn) return <Redirect href="/(tabs)" />;

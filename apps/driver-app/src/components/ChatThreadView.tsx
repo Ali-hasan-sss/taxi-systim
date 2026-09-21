@@ -43,6 +43,7 @@ import { captureCompressedChatPhoto } from "../lib/chat-image";
 import { getSocketOrigin } from "../lib/api";
 import { feedback } from "../lib/feedback";
 import { DriverChatThreadSkeleton } from "./driver-skeletons";
+import { DriverScreenBackground } from "./DriverScreenBackground";
 import { rtlText } from "../lib/rtl-text";
 import { useDriverStore } from "../store";
 
@@ -186,7 +187,7 @@ export function ChatThreadView({
   }, []);
 
   const styles = useThemedStyles((t) => ({
-    root: { flex: 1, backgroundColor: t.colors.background, direction: "rtl" as const },
+    root: { flex: 1, backgroundColor: "transparent", direction: "rtl" as const },
     header: {
       flexDirection: "row-reverse" as const,
       alignItems: "center" as const,
@@ -582,6 +583,7 @@ export function ChatThreadView({
   );
 
   return (
+    <DriverScreenBackground>
     <KeyboardAvoidingView style={styles.root} behavior="padding">
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         {onBack ? (
@@ -651,5 +653,6 @@ export function ChatThreadView({
       />
       {composer}
     </KeyboardAvoidingView>
+    </DriverScreenBackground>
   );
 }

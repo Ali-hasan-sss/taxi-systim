@@ -14,6 +14,7 @@ import { debounce } from "../../src/lib/debounce";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { rtlText } from "../../src/lib/rtl-text";
 import { useCoordinatorStore } from "../../src/store";
+import { CoordinatorTabScreen } from "../../src/components/CoordinatorScreenBackground";
 
 /** عرض تاريخ ملخص «اليوم» (YYYY-MM-DD من الخادم) بصيغة عربية بتوقيت سوريا */
 function formatSyriaDayLabel(ymd: string): string {
@@ -47,7 +48,7 @@ export default function HomeTab() {
     },
     shell: {
       flex: 1,
-      backgroundColor: t.colors.background,
+      backgroundColor: "transparent",
       direction: "rtl" as const
     },
     scrollView: {
@@ -223,6 +224,7 @@ export default function HomeTab() {
   const homeScrollBottomPad = 40 + coordinatorTabBarOuterHeight(insets.bottom);
 
   return (
+    <CoordinatorTabScreen>
     <View style={styles.shell}>
       <ScrollView
         style={styles.scrollView}
@@ -269,5 +271,6 @@ export default function HomeTab() {
         </View>
       </ScrollView>
     </View>
+    </CoordinatorTabScreen>
   );
 }

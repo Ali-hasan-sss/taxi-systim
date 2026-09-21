@@ -287,7 +287,12 @@ export default function OrdersRoomPage() {
       },
       onCancel: (order: AdminOrderRoomRow) => {
         if (!token) return;
-        const label = order.status === "PENDING" ? "إلغاء هذا الطلب المعلق؟" : "إلغاء هذا الطلب المتعثر؟";
+        const hasDriver = Boolean(order.driverId || order.driver);
+        const label = hasDriver
+          ? "إلغاء هذا الطلب؟ لن يُغرَّم السائق لأن الإلغاء من المنسق/المدير."
+          : order.status === "PENDING"
+            ? "إلغاء هذا الطلب المعلق؟"
+            : "إلغاء هذا الطلب؟";
         if (!confirm(label)) return;
         void runAction(order.id, async () => {
           await api.cancelAdminOrder(token, order.id);

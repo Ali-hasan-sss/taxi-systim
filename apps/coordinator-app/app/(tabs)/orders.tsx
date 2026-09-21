@@ -20,6 +20,7 @@ import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
 import { CoordinatorOrderCard } from "../../src/components/CoordinatorOrderCard";
+import { CoordinatorTabScreen } from "../../src/components/CoordinatorScreenBackground";
 import {
   type CoordinatorActiveOrdersSegment,
   type CoordinatorOrderFilterCounts,
@@ -42,7 +43,7 @@ import { isCoordinatorAuthFailureMessage } from "../../src/lib/coordinator-auth"
 import { debounce } from "../../src/lib/debounce";
 import { useCoordinatorStore } from "../../src/store";
 import { rtlText } from "../../src/lib/rtl-text";
-import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
+import { getOrderChatRoom, openChatRoom } from "../../src/lib/chat";
 
 type OrderFilterDef = {
   key: CoordinatorActiveOrdersSegment | null;
@@ -84,14 +85,14 @@ export default function OrdersTab() {
     },
     root: {
       flex: 1,
-      backgroundColor: t.colors.background,
+      backgroundColor: "transparent",
       direction: "rtl" as const
     },
     centered: {
       flex: 1,
       justifyContent: "center" as const,
       alignItems: "center" as const,
-      backgroundColor: t.colors.background,
+      backgroundColor: "transparent",
       paddingHorizontal: 24
     },
     loadingText: {
@@ -387,6 +388,25 @@ export default function OrdersTab() {
       fontWeight: "800" as const,
       fontSize: 16,
       ...rtlText
+    },
+    cancelReasonInput: {
+      backgroundColor: t.colors.inputBg,
+      borderWidth: 1,
+      borderColor: t.colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      color: t.colors.text,
+      minHeight: 96,
+      textAlignVertical: "top" as const,
+      marginBottom: 16,
+      ...rtlText
+    },
+    cancelActions: {
+      flexDirection: "row" as const,
+      flexWrap: "wrap" as const,
+      gap: 10,
+      justifyContent: "flex-start" as const
     }
   }));
   const setStuckOrdersCount = useCoordinatorStore((s) => s.setStuckOrdersCount);
@@ -413,6 +433,8 @@ export default function OrdersTab() {
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignQuery, setAssignQuery] = useState("");
   const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
+  const [cancelReasonDraft, setCancelReasonDraft] = useState("");
   const assignSearchAbortRef = useRef<AbortController | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -688,10 +710,24 @@ export default function OrdersTab() {
   }, [assignModalOpen, assignQuery, router]);
 
   const confirmCancel = (orderId: string) => {
-    feedback.confirmCancelOrder(() => void runCancel(orderId));
+    setCancelOrderId(orderId);
+    setCancelReasonDraft("");
   };
 
-  const runCancel = async (orderId: string) => {
+  const closeCancelModal = () => {
+    if (actionOrderId && actionOrderId === cancelOrderId) return;
+    setCancelOrderId(null);
+    setCancelReasonDraft("");
+  };
+
+  const runCancel = async () => {
+    const orderId = cancelOrderId;
+    const reason = cancelReasonDraft.trim();
+    if (!orderId) return;
+    if (reason.length < 2) {
+      feedback.warning("أدخل سبب الإلغاء (حرفان على الأقل).");
+      return;
+    }
     const session = await getSession();
     if (!session?.accessToken) {
       router.replace("/login");
@@ -699,7 +735,9 @@ export default function OrdersTab() {
     }
     setActionOrderId(orderId);
     try {
-      await coordinatorCancelOrder(session.accessToken, orderId);
+      await coordinatorCancelOrder(session.accessToken, orderId, reason);
+      setCancelOrderId(null);
+      setCancelReasonDraft("");
       void coalescedLoad(true);
       feedback.success("تم تحديث حالة الطلب إلى ملغى.", "تم الإلغاء");
     } catch (e) {
@@ -754,7 +792,7 @@ export default function OrdersTab() {
   const openOrderChat = async (orderId: string) => {
     try {
       const room = await getOrderChatRoom(orderId);
-      router.push(chatRoomHref(room) as `/chat/${string}`);
+      openChatRoom(room);
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر فتح المحادثة");
     }
@@ -767,10 +805,25 @@ export default function OrdersTab() {
     </Pressable>
   );
 
+  const cancelBtn = (orderId: string, busy: boolean) => (
+    <Pressable
+      style={[styles.btnDanger, busy && styles.btnDisabled]}
+      disabled={!!busy}
+      onPress={() => confirmCancel(orderId)}
+    >
+      {busy ? (
+        <ActivityIndicator color={theme.colors.dangerText} size="small" />
+      ) : (
+        <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
+      )}
+    </Pressable>
+  );
+
   const renderItem = ({ item }: { item: CoordinatorOrderRow }) => {
     const pending = item.status === "PENDING";
     const stuck = item.status === "STUCK";
     const cancelled = item.status === "CANCELLED";
+    const completed = item.status === "COMPLETED";
     const busy = actionOrderId === item.id;
 
     let footer: ReactNode;
@@ -780,17 +833,7 @@ export default function OrdersTab() {
       footer = (
         <View style={styles.actions}>
           {chatBtn(item.id)}
-          <Pressable
-            style={[styles.btnDanger, busy && styles.btnDisabled]}
-            disabled={!!busy}
-            onPress={() => confirmCancel(item.id)}
-          >
-            {busy ? (
-              <ActivityIndicator color={theme.colors.dangerText} size="small" />
-            ) : (
-              <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
-            )}
-          </Pressable>
+          {cancelBtn(item.id, !!busy)}
           <Pressable
             style={[styles.btnPrimary, (busy || assignSubmitting) && styles.btnDisabled]}
             disabled={!!busy || assignSubmitting}
@@ -804,17 +847,7 @@ export default function OrdersTab() {
       footer = (
         <View style={styles.actions}>
           {chatBtn(item.id)}
-          <Pressable
-            style={[styles.btnDanger, busy && styles.btnDisabled]}
-            disabled={!!busy}
-            onPress={() => confirmCancel(item.id)}
-          >
-            {busy ? (
-              <ActivityIndicator color={theme.colors.dangerText} size="small" />
-            ) : (
-              <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
-            )}
-          </Pressable>
+          {cancelBtn(item.id, !!busy)}
           <Pressable
             style={[styles.btnResumeStuck, busy && styles.btnDisabled]}
             disabled={!!busy}
@@ -829,7 +862,12 @@ export default function OrdersTab() {
         </View>
       );
     } else {
-      footer = <View style={styles.actions}>{chatBtn(item.id)}</View>;
+      footer = (
+        <View style={styles.actions}>
+          {chatBtn(item.id)}
+          {completed ? null : cancelBtn(item.id, !!busy)}
+        </View>
+      );
     }
 
     return (
@@ -847,10 +885,12 @@ export default function OrdersTab() {
 
   if (loading && orders.length === 0) {
     return (
+      <CoordinatorTabScreen>
       <View style={[styles.centered, { paddingTop: 12 }]}>
         <ActivityIndicator size="large" color={theme.colors.accent} />
         <Text style={styles.loadingText}>جاري تحميل طلباتك…</Text>
       </View>
+      </CoordinatorTabScreen>
     );
   }
 
@@ -884,6 +924,7 @@ export default function OrdersTab() {
   };
 
   return (
+    <CoordinatorTabScreen>
     <View style={[styles.root, { paddingTop: 8 }]}>
       <Text style={styles.title}>طلباتي</Text>
      
@@ -984,7 +1025,58 @@ export default function OrdersTab() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <Modal
+        visible={cancelOrderId != null}
+        animationType="fade"
+        transparent
+        onRequestClose={closeCancelModal}
+      >
+        <KeyboardAvoidingView inModal behavior="padding" style={[styles.modalRoot, styles.rtlScreen]}>
+          <Pressable style={styles.modalBackdrop} onPress={closeCancelModal} />
+          <View style={[styles.modalSheet, styles.rtlScreen, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
+            <Text style={styles.modalTitle}>إلغاء الطلب</Text>
+            <Text style={styles.modalHint}>
+              أدخل سبب الإلغاء ثم اضغط إلغاء الطلب. سيظهر السبب لدى المدير في الطلبات الملغاة.
+            </Text>
+            <TextInput
+              value={cancelReasonDraft}
+              onChangeText={setCancelReasonDraft}
+              placeholder="سبب الإلغاء…"
+              placeholderTextColor={theme.colors.placeholder}
+              style={styles.cancelReasonInput}
+              editable={actionOrderId !== cancelOrderId}
+              multiline
+              textAlignVertical="top"
+              autoFocus
+            />
+            <View style={styles.cancelActions}>
+              <Pressable
+                style={[styles.btnChat, actionOrderId === cancelOrderId && styles.btnDisabled]}
+                disabled={actionOrderId === cancelOrderId}
+                onPress={closeCancelModal}
+              >
+                <Text style={styles.btnChatText}>رجوع</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.btnDanger,
+                  (actionOrderId === cancelOrderId || cancelReasonDraft.trim().length < 2) && styles.btnDisabled
+                ]}
+                disabled={actionOrderId === cancelOrderId || cancelReasonDraft.trim().length < 2}
+                onPress={() => void runCancel()}
+              >
+                {actionOrderId === cancelOrderId ? (
+                  <ActivityIndicator color={theme.colors.dangerText} size="small" />
+                ) : (
+                  <Text style={styles.btnDangerText}>إلغاء الطلب</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
+    </CoordinatorTabScreen>
   );
 }
 

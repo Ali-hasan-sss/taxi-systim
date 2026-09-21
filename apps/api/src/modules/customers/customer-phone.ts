@@ -65,6 +65,7 @@ export async function linkCustomerToNewOrder(
       data: {
         ordersCount: { increment: 1 },
         lastOrderAt: at,
+        lastContactedAt: null,
         ...(existing.name || !name ? {} : { name })
       }
     });

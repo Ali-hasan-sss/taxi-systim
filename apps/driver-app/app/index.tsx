@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
 import { Redirect, type Href } from "expo-router";
+import { View } from "react-native";
+import { DriverScreenBackground } from "../src/components/DriverScreenBackground";
 import { getDriverLocationAccessState, isDriverLocationReady } from "../src/lib/location-access";
 import { ensurePushRegistrationForDriver } from "../src/lib/expo-push";
 import { getDriverSession } from "../src/lib/session";
@@ -54,11 +56,19 @@ export default function Index() {
   }, []);
 
   if (!ready) {
-    return null;
+    return (
+      <DriverScreenBackground>
+        <View style={{ flex: 1 }} />
+      </DriverScreenBackground>
+    );
   }
 
   if (!target) {
-    return null;
+    return (
+      <DriverScreenBackground>
+        <View style={{ flex: 1 }} />
+      </DriverScreenBackground>
+    );
   }
 
   return <Redirect href={target} />;

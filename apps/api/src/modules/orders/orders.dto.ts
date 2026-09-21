@@ -65,3 +65,9 @@ export const updateOrderDetailsDto = z
   });
 
 export type UpdateOrderDetailsDto = z.infer<typeof updateOrderDetailsDto>;
+
+export const cancelOrderDto = z.object({
+  reason: z.string().trim().min(2, "سبب الإلغاء مطلوب").max(500, "سبب الإلغاء طويل جدًا").optional()
+});
+
+export type CancelOrderDto = z.infer<typeof cancelOrderDto>;

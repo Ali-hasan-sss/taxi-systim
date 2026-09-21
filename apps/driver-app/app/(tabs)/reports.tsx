@@ -17,7 +17,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverOrderCard } from "../../src/components/DriverOrderCard";
 import { DriverReportsSkeleton } from "../../src/components/driver-skeletons";
-import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
+import { DriverTabScreen } from "../../src/components/DriverScreenBackground";
 import {
   type DriverOrderRow,
   type DriverOrdersReportSummary,
@@ -635,17 +635,17 @@ export default function DriverReportsTab() {
 
   if (loading && orders.length === 0) {
     return (
+      <DriverTabScreen>
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-        <DriverScreenBackground>
           <DriverReportsSkeleton />
-        </DriverScreenBackground>
       </SafeAreaView>
+      </DriverTabScreen>
     );
   }
 
   return (
+    <DriverTabScreen>
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-      <DriverScreenBackground>
         <FlatList
           data={orders}
           keyExtractor={(item) => item.id}
@@ -796,7 +796,6 @@ export default function DriverReportsTab() {
           }
           ListEmptyComponent={<Text style={styles.empty}>لا توجد طلبات ضمن هذه الفترة.</Text>}
         />
-      </DriverScreenBackground>
       {Platform.OS === "android" && pickerField ? (
         <DateTimePicker
           value={pickerDate}
@@ -831,6 +830,7 @@ export default function DriverReportsTab() {
         </Modal>
       ) : null}
     </SafeAreaView>
+    </DriverTabScreen>
   );
 }
 

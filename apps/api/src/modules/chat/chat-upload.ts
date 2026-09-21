@@ -44,7 +44,7 @@ const voiceStorage = multer.diskStorage({
   },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    const safeExt = [".m4a", ".mp4", ".aac", ".mp3", ".webm", ".caf"].includes(ext) ? ext : ".m4a";
+    const safeExt = [".m4a", ".mp4", ".aac", ".mp3", ".webm", ".ogg", ".caf"].includes(ext) ? ext : ".m4a";
     cb(null, `${randomUUID()}${safeExt}`);
   }
 });
@@ -57,6 +57,7 @@ const VOICE_MIMES = new Set([
   "audio/mp3",
   "audio/x-m4a",
   "audio/webm",
+  "audio/ogg",
   "audio/caf",
   "audio/x-caf",
   "application/octet-stream"

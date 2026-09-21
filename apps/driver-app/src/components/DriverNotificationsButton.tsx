@@ -70,9 +70,7 @@ export function DriverNotificationsButton() {
       borderRadius: 22,
       alignItems: "center" as const,
       justifyContent: "center" as const,
-      backgroundColor: t.colors.surfaceInset,
-      borderWidth: 1,
-      borderColor: t.colors.border
+      backgroundColor: "transparent"
     },
     iconWrap: {
       position: "relative" as const,

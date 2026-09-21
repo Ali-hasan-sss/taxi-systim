@@ -1,5 +1,6 @@
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
+import { openChatRoomById } from "./chat";
 import { playChatMessageSound } from "./chat-message-sound";
 import { playCoordinatorOrderPushSound } from "./order-push-sound";
 import { useCoordinatorStore } from "../store";
@@ -9,13 +10,13 @@ function pushType(data: Record<string, unknown> | undefined): string | undefined
   return typeof t === "string" ? t : undefined;
 }
 
-function chatRoomPath(data: Record<string, unknown>): string | null {
+function openChatFromPush(data: Record<string, unknown>): boolean {
   const roomId = data.roomId;
-  if (typeof roomId !== "string") return null;
+  if (typeof roomId !== "string") return false;
   const roomTitle = typeof data.roomTitle === "string" ? data.roomTitle : "محادثة";
   const roomType = data.roomType === "ORDER" ? "ORDER" : "GLOBAL";
-  const params = new URLSearchParams({ title: roomTitle, roomType });
-  return `/chat/${roomId}?${params.toString()}`;
+  openChatRoomById(roomId, roomTitle, roomType);
+  return true;
 }
 
 /** استقبال إشعارات الطلبات والمحادثات (مقدمة/خلفية) + التنقل عند الضغط */
@@ -64,11 +65,7 @@ export function setupCoordinatorOrderPushHandlers(): () => void {
     const type = pushType(data);
 
     if (type === "CHAT_MESSAGE") {
-      const path = chatRoomPath(data);
-      if (path) {
-        router.push(path as `/chat/${string}`);
-        return;
-      }
+      if (openChatFromPush(data)) return;
     }
 
     if (type === "WEB_ORDER_REQUEST") {

@@ -32,7 +32,7 @@ function RootLayoutInner() {
         <Stack
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: theme.colors.background, direction: "rtl" }
+            contentStyle: { backgroundColor: "transparent", direction: "rtl" }
           }}
         />
       </ChatSocketProvider>

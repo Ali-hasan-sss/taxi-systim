@@ -1,9 +1,8 @@
 import { useNetworkOffline, useThemedStyles } from "@taxi/expo-theme";
-import { useRouter } from "expo-router";
 import { useEffect } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { chatRoomHref, chatRoomHrefFallback, listChatRooms } from "../lib/chat";
+import { listChatRooms, openChatRoom, openChatRoomById } from "../lib/chat";
 import { rtlText } from "../lib/rtl-text";
 import { useCoordinatorStore } from "../store";
 
@@ -16,7 +15,6 @@ function previewText(body: string | null, imageUrl: string | null, hasVoice?: bo
 }
 
 export function ChatIncomingToastHost() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const offline = useNetworkOffline();
   const toast = useCoordinatorStore((s) => s.pendingChatToast);
@@ -107,13 +105,13 @@ export function ChatIncomingToastHost() {
         const rooms = await listChatRooms();
         const room = rooms.find((row) => row.id === roomId);
         if (room) {
-          router.push(chatRoomHref(room) as `/chat/${string}`);
+          openChatRoom(room);
           return;
         }
       } catch {
         /* fallback */
       }
-      router.push(chatRoomHrefFallback(roomId, senderName, "ORDER") as `/chat/${string}`);
+      openChatRoomById(roomId, senderName, "ORDER");
     })();
   };
 

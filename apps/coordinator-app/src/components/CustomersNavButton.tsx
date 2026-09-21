@@ -13,9 +13,7 @@ export function CustomersNavButton() {
       borderRadius: 22,
       alignItems: "center" as const,
       justifyContent: "center" as const,
-      backgroundColor: t.colors.surfaceMuted,
-      borderWidth: 2,
-      borderColor: t.colors.logoBoxBorder
+      backgroundColor: "transparent"
     }
   }));
 

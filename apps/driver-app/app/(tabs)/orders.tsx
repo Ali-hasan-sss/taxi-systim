@@ -12,8 +12,8 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
 import { DriverOrdersSkeleton } from "../../src/components/driver-skeletons";
+import { DriverTabScreen } from "../../src/components/DriverScreenBackground";
 import { DriverOrderCard } from "../../src/components/DriverOrderCard";
 import { useDriverSocket } from "../../src/driver-socket-context";
 import {
@@ -188,6 +188,8 @@ export default function DriverOrdersTab() {
       if (inProgressRef.current) return;
       const p = raw as DriverSocketOrderPayload;
       if (!p?.orderId) return;
+      if (p.driverId) return;
+      if (p.status && p.status !== "PENDING") return;
       const row = socketPayloadToDriverOrderRow(p);
       setPending((prev) => {
         if (prev.some((o) => o.id === row.id)) return prev;
@@ -681,8 +683,8 @@ export default function DriverOrdersTab() {
 
   if (loading && !inProgress && pending.length === 0 && !error) {
     return (
+      <DriverTabScreen>
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-        <DriverScreenBackground>
           <View style={styles.headerLoading}>
             {connectionStatusRow}
             <Text style={styles.title}>غرفة الطلبات</Text>
@@ -690,16 +692,16 @@ export default function DriverOrdersTab() {
           <View style={{ flex: 1 }}>
             <DriverOrdersSkeleton />
           </View>
-        </DriverScreenBackground>
       </SafeAreaView>
+      </DriverTabScreen>
     );
   }
 
   const data = inProgress ? [inProgress] : pending;
 
   return (
+    <DriverTabScreen>
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-      <DriverScreenBackground>
         <View style={styles.header}>
           {connectionStatusRow}
           <Text style={styles.title}>غرفة الطلبات</Text>
@@ -879,8 +881,8 @@ export default function DriverOrdersTab() {
             )
           }
         />
-      </DriverScreenBackground>
     </SafeAreaView>
+    </DriverTabScreen>
   );
 }
 

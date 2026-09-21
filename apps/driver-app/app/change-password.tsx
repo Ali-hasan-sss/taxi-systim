@@ -12,6 +12,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DriverScreenBackground } from "../src/components/DriverScreenBackground";
 import { driverChangePassword } from "../src/lib/api";
 import { feedback } from "../src/lib/feedback";
 import { shouldLoadExpoPushModule } from "../src/lib/push-environment";
@@ -30,7 +31,7 @@ export default function ChangePasswordScreen() {
   const [saving, setSaving] = useState(false);
 
   const styles = useThemedStyles((t) => ({
-    root: { flex: 1, backgroundColor: t.colors.background, direction: "rtl" as const },
+    root: { flex: 1, backgroundColor: "transparent", direction: "rtl" as const },
     header: {
       flexDirection: "row-reverse" as const,
       alignItems: "center" as const,
@@ -116,6 +117,7 @@ export default function ChangePasswordScreen() {
   };
 
   return (
+    <DriverScreenBackground>
     <KeyboardAvoidingView style={[styles.root, { paddingTop: Math.max(insets.top, 12) }]}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="رجوع">
@@ -187,5 +189,6 @@ export default function ChangePasswordScreen() {
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
+    </DriverScreenBackground>
   );
 }

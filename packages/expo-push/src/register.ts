@@ -2,6 +2,10 @@ import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import {
+  hasPromptedNotificationPermission,
+  markNotificationPermissionPrompted
+} from "./bootstrap-state";
 
 const LOG = "[expo-push]";
 
@@ -43,22 +47,59 @@ export function configureForegroundNotificationHandler(): void {
   });
 }
 
-/** طلب POST_NOTIFICATIONS (Android 13+) وصلاحيات iOS. */
-export async function requestNotificationPermission(): Promise<"granted" | "denied"> {
+type PushFailureReason = Extract<PushRegistrationResult, { ok: false }>["reason"];
+
+const TERMINAL_PUSH_REASONS = new Set<PushFailureReason>([
+  "simulator",
+  "permission_denied",
+  "no_project_id"
+]);
+
+export function isTerminalPushRegistrationReason(reason: PushFailureReason): boolean {
+  return TERMINAL_PUSH_REASONS.has(reason);
+}
+
+/** طلب POST_NOTIFICATIONS (Android 13+) وصلاحيات iOS — بدون إعادة الطلب بعد الرفض. */
+export async function requestNotificationPermission(
+  options?: { prompt?: boolean }
+): Promise<"granted" | "denied"> {
   if (!Device.isDevice) return "denied";
 
-  const current = await Notifications.getPermissionsAsync();
-  if (current.granted) return "granted";
+  let current: Notifications.NotificationPermissionsStatus;
+  try {
+    current = await Notifications.getPermissionsAsync();
+  } catch (e) {
+    console.warn(`${LOG} getPermissionsAsync failed:`, e instanceof Error ? e.message : e);
+    return "denied";
+  }
 
-  const requested = await Notifications.requestPermissionsAsync({
-    ios: {
-      allowAlert: true,
-      allowBadge: true,
-      allowSound: true
-    }
-  });
+  if (current.granted || current.status === Notifications.PermissionStatus.GRANTED) {
+    return "granted";
+  }
 
-  return requested.granted ? "granted" : "denied";
+  const canAskAgain =
+    current.status === Notifications.PermissionStatus.UNDETERMINED ||
+    (current.canAskAgain && current.status !== Notifications.PermissionStatus.DENIED);
+
+  const allowPrompt = options?.prompt !== false;
+  if (!allowPrompt || !canAskAgain || hasPromptedNotificationPermission()) {
+    return "denied";
+  }
+
+  markNotificationPermissionPrompted();
+  try {
+    const requested = await Notifications.requestPermissionsAsync({
+      ios: {
+        allowAlert: true,
+        allowBadge: true,
+        allowSound: true
+      }
+    });
+    return requested.granted ? "granted" : "denied";
+  } catch (e) {
+    console.warn(`${LOG} requestPermissionsAsync failed:`, e instanceof Error ? e.message : e);
+    return "denied";
+  }
 }
 
 export async function ensureAndroidNotificationChannel(
@@ -101,12 +142,12 @@ export async function retryExpoPushRegistration(
   let last: PushRegistrationResult = { ok: false, reason: "no_session" };
 
   for (let i = 0; i < attempts; i++) {
-    const outcome = await ensureExpoPushRegistration(deps);
+    const outcome = await ensureExpoPushRegistration(deps, { prompt: i === 0 });
     last = outcome;
     logPushRegistrationResult(outcome);
     if (outcome.ok) return outcome;
-    if (isPushRegistrationFailure(outcome)) {
-      if (outcome.reason === "simulator" || outcome.reason === "permission_denied") return outcome;
+    if (isPushRegistrationFailure(outcome) && isTerminalPushRegistrationReason(outcome.reason)) {
+      return outcome;
     }
     if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
   }
@@ -114,7 +155,10 @@ export async function retryExpoPushRegistration(
 }
 
 /** تسجيل صلاحية الإشعار وإرسال رمز Expo إلى الخادم. */
-export async function ensureExpoPushRegistration(deps: PushRegistrationDeps): Promise<PushRegistrationResult> {
+export async function ensureExpoPushRegistration(
+  deps: PushRegistrationDeps,
+  options?: { prompt?: boolean }
+): Promise<PushRegistrationResult> {
   if (Constants.appOwnership === "expo" && Platform.OS === "android") {
     return {
       ok: false,
@@ -127,7 +171,7 @@ export async function ensureExpoPushRegistration(deps: PushRegistrationDeps): Pr
   if (!accessToken) return { ok: false, reason: "no_session" };
   if (!Device.isDevice) return { ok: false, reason: "simulator" };
 
-  const permission = await requestNotificationPermission();
+  const permission = await requestNotificationPermission({ prompt: options?.prompt !== false });
   if (permission !== "granted") {
     return { ok: false, reason: "permission_denied", message: "لم يُمنح إذن الإشعارات" };
   }

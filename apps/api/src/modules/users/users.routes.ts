@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../shared/auth";
+import { asyncRoute } from "../../shared/async-route";
 import { usersController } from "./users.controller";
 
 export const usersRouter = Router();
@@ -15,12 +16,12 @@ export const usersRouter = Router();
  *     summary: Create user
  */
 usersRouter.use(requireAuth, requireRole("ADMIN"));
-usersRouter.get("/export.xlsx", usersController.exportXlsx);
-usersRouter.get("/", usersController.list);
-usersRouter.get("/:userId/profile", usersController.getProfile);
-usersRouter.get("/:userId/coordinators", usersController.listDriverCoordinators);
-usersRouter.post("/bulk-drivers", usersController.bulkCreateDrivers);
-usersRouter.post("/", usersController.create);
-usersRouter.patch("/:userId", usersController.update);
-usersRouter.patch("/:userId/status", usersController.setStatus);
-usersRouter.delete("/:userId", usersController.remove);
+usersRouter.get("/export.xlsx", asyncRoute(usersController.exportXlsx));
+usersRouter.get("/", asyncRoute(usersController.list));
+usersRouter.get("/:userId/profile", asyncRoute(usersController.getProfile));
+usersRouter.get("/:userId/coordinators", asyncRoute(usersController.listDriverCoordinators));
+usersRouter.post("/bulk-drivers", asyncRoute(usersController.bulkCreateDrivers));
+usersRouter.post("/", asyncRoute(usersController.create));
+usersRouter.patch("/:userId", asyncRoute(usersController.update));
+usersRouter.patch("/:userId/status", asyncRoute(usersController.setStatus));
+usersRouter.delete("/:userId", asyncRoute(usersController.remove));

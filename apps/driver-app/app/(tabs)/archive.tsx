@@ -10,8 +10,8 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { DriverScreenBackground } from "../../src/components/DriverScreenBackground";
 import { DriverArchiveSkeleton } from "../../src/components/driver-skeletons";
+import { DriverTabScreen } from "../../src/components/DriverScreenBackground";
 import { DriverOrderCard } from "../../src/components/DriverOrderCard";
 import {
   type DriverArchiveSegment,
@@ -265,17 +265,17 @@ export default function DriverArchiveTab() {
 
   if (loading && orders.length === 0) {
     return (
+      <DriverTabScreen>
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-        <DriverScreenBackground>
           <DriverArchiveSkeleton />
-        </DriverScreenBackground>
       </SafeAreaView>
+      </DriverTabScreen>
     );
   }
 
   return (
+    <DriverTabScreen>
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-      <DriverScreenBackground>
         <View style={styles.header}>
           <Text style={styles.title}>الأرشيف</Text>
         
@@ -352,8 +352,8 @@ export default function DriverArchiveTab() {
             </Text>
           }
         />
-      </DriverScreenBackground>
     </SafeAreaView>
+    </DriverTabScreen>
   );
 }
 

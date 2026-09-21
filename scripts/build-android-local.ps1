@@ -122,6 +122,10 @@ Remove-NativeCaches -Root $RepoRoot
 try {
   Push-Location $AndroidDir
   .\gradlew.bat --stop 2>$null | Out-Null
+  $ramGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 0)
+  if ($ramGb -gt 0 -and $ramGb -le 8) {
+    Write-Host "==> RAM ${ramGb}GB — Gradle heap is 2G (4G crashes the JVM on this machine). Close extra apps if the build is killed again." -ForegroundColor Yellow
+  }
   Write-Host "==> Architectures: $Architectures" -ForegroundColor Cyan
   .\gradlew.bat assembleRelease `
     "-PreactNativeArchitectures=$Architectures" `

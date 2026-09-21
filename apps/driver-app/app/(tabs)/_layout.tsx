@@ -141,25 +141,27 @@ export default function TabsLayout() {
 
   return (
     <DriverSocketProvider>
-      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        <DriverAppHeader />
+      <View style={{ flex: 1, backgroundColor: "transparent" }}>
         <Tabs
+          sceneContainerStyle={{ backgroundColor: "transparent" }}
           screenOptions={{
             lazy: false,
             headerShown: false,
             tabBarHideOnKeyboard: true,
+            tabBarBackground: () => <View style={{ flex: 1, backgroundColor: "transparent" }} />,
             tabBarStyle: {
-              backgroundColor: theme.colors.tabBar,
-              borderTopColor: theme.colors.tabBarBorder,
-              borderTopWidth: 1,
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "transparent",
+              borderTopWidth: 0,
+              elevation: 0,
+              shadowOpacity: 0,
+              shadowColor: "transparent",
               paddingTop: 4,
               paddingBottom: Math.max(insets.bottom, 8),
-              height: driverTabBarOuterHeight(insets.bottom),
-              shadowColor: theme.colors.shadow,
-              shadowOffset: { width: 0, height: -4 },
-              shadowOpacity: 0.08,
-              shadowRadius: 10,
-              elevation: 12
+              height: driverTabBarOuterHeight(insets.bottom)
             },
             tabBarActiveTintColor: theme.colors.tabActive,
             tabBarInactiveTintColor: theme.colors.tabInactive,
@@ -198,6 +200,7 @@ export default function TabsLayout() {
           <Tabs.Screen name="archive" options={{ href: null }} />
           <Tabs.Screen name="reports" options={{ href: null }} />
         </Tabs>
+        <DriverAppHeader />
       </View>
     </DriverSocketProvider>
   );

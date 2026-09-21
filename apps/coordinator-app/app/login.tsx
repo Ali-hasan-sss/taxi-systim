@@ -17,6 +17,7 @@ import { ensurePushRegistrationForCoordinator, isPushRegistrationFailure } from 
 import { feedback } from "../src/lib/feedback";
 import { saveSession } from "../src/lib/session";
 import { rtlText } from "../src/lib/rtl-text";
+import { CoordinatorScreenBackground } from "../src/components/CoordinatorScreenBackground";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export default function LoginScreen() {
   const styles = useThemedStyles((t) => ({
     root: {
       flex: 1,
-      backgroundColor: t.colors.backgroundAuth,
+      backgroundColor: "transparent",
       direction: "rtl" as const
     },
     scrollContent: {
@@ -162,7 +163,7 @@ export default function LoginScreen() {
       // لا نُبطّئ تسجيل الدخول بانتظار FCM — قد تكون إعادة المحاولة بطيئة.
       void ensurePushRegistrationForCoordinator(result.accessToken)
         .then((pushResult) => {
-          if (isPushRegistrationFailure(pushResult)) {
+          if (isPushRegistrationFailure(pushResult) && pushResult.reason !== "permission_denied") {
             feedback.warning(
               pushResult.message ?? `تعذر تسجيل إشعارات الجهاز (${pushResult.reason}). راجع docs/PUSH-SETUP-AR.md`,
               "إشعارات الجوال"
@@ -179,6 +180,7 @@ export default function LoginScreen() {
   };
 
   return (
+    <CoordinatorScreenBackground variant="auth">
     <KeyboardAvoidingView
       behavior="padding"
       style={[
@@ -239,5 +241,6 @@ export default function LoginScreen() {
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
+    </CoordinatorScreenBackground>
   );
 }

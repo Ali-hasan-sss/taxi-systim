@@ -122,7 +122,7 @@ export function DriverOrderCard({
   afterAmountRow?: ReactNode;
   /** أرشيف السائق: بدون رقم زبون ولا اتصال (خصوصية). */
   variant?: "default" | "archive";
-  /** compact: من/إلى فقط — لقائمة الطلبات المعلّقة في غرفة الطلبات */
+  /** compact: المنسق + من/إلى/أجرة — لقائمة الطلبات المعلّقة في غرفة الطلبات */
   layout?: "full" | "compact";
   /** إطار برتقالي عند استلام الطلب من سائق آخر قبل الإخفاء */
   takenHighlight?: boolean;
@@ -349,13 +349,34 @@ export function DriverOrderCard({
       ...rtlText,
       lineHeight: 18,
       textAlign: "right" as const
+    },
+    compactCoordinator: {
+      fontSize: 13,
+      color: t.colors.accent,
+      fontWeight: "800" as const,
+      ...rtlText,
+      lineHeight: 18,
+      textAlign: "right" as const
+    },
+    coordinator: {
+      color: t.colors.accent,
+      fontSize: 13,
+      fontWeight: "800" as const,
+      ...rtlText,
+      marginBottom: 6,
+      textAlign: "right" as const
     }
   }));
+
+  const coordinatorLabel = item.coordinatorName?.trim() || "—";
 
   if (layout === "compact") {
     return (
       <View style={[styles.card, styles.cardCompact, takenHighlight && styles.cardTaken]}>
         <View style={styles.compactRoute}>
+          <Text style={styles.compactCoordinator} numberOfLines={1}>
+            المنسق: {coordinatorLabel}
+          </Text>
           <Text style={styles.compactFrom} numberOfLines={2}>
             من: {item.pickupAddress}
           </Text>
@@ -419,6 +440,7 @@ export function DriverOrderCard({
         <Text style={styles.date}>{formatWhen(item.createdAt)}</Text>
       </View>
       {afterAmountRow}
+      <Text style={styles.coordinator}>المنسق: {coordinatorLabel}</Text>
       <Text style={[styles.driver, !footer && !afterAmountRow && styles.driverLast]}>
         السائق: {item.driver?.user?.fullName?.trim() ? item.driver.user.fullName : "لم يُعيَّن بعد"}
       </Text>

@@ -17,6 +17,7 @@ import { shouldLoadExpoPushModule } from "../src/lib/push-environment";
 import { feedback } from "../src/lib/feedback";
 import { clearSession, getSession } from "../src/lib/session";
 import { rtlText } from "../src/lib/rtl-text";
+import { CoordinatorScreenBackground } from "../src/components/CoordinatorScreenBackground";
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function ChangePasswordScreen() {
   const [saving, setSaving] = useState(false);
 
   const styles = useThemedStyles((t) => ({
-    root: { flex: 1, backgroundColor: t.colors.background, direction: "rtl" as const },
+    root: { flex: 1, backgroundColor: "transparent", direction: "rtl" as const },
     header: {
       flexDirection: "row-reverse" as const,
       alignItems: "center" as const,
@@ -116,6 +117,7 @@ export default function ChangePasswordScreen() {
   };
 
   return (
+    <CoordinatorScreenBackground>
     <KeyboardAvoidingView style={[styles.root, { paddingTop: Math.max(insets.top, 12) }]}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="رجوع">
@@ -187,5 +189,6 @@ export default function ChangePasswordScreen() {
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
+    </CoordinatorScreenBackground>
   );
 }

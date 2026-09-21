@@ -244,6 +244,8 @@ export interface CustomerRow {
   name: string | null;
   ordersCount: number;
   lastOrderAt: string | null;
+  lastContactedAt?: string | null;
+  needsContact?: boolean;
   createdAt: string;
 }
 
@@ -254,6 +256,7 @@ export interface CustomersListResponse {
   total: number;
   totalAll: number;
   inactiveCount: number;
+  uncontactedInactiveCount?: number;
   hasMore: boolean;
   customers: CustomerRow[];
 }
@@ -361,6 +364,8 @@ export interface AdminOrderRoomRow {
   driversNotifiedAt?: string | null;
   notes?: string | null;
   createdAt: string;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
   coordinatorName: string;
   driver: null | {
     id: string;
@@ -1249,6 +1254,15 @@ export const api = {
     if (caption?.trim()) form.append("caption", caption.trim());
     const res = await authorizedFetch(`/chat/rooms/${roomId}/images`, { method: "POST", body: form }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر رفع الصورة"));
+    return res.json() as Promise<ChatMessageRow>;
+  },
+
+  async uploadChatVoice(accessToken: string, roomId: string, file: File, durationMs: number) {
+    const form = new FormData();
+    form.append("voice", file);
+    form.append("durationMs", String(Math.round(durationMs)));
+    const res = await authorizedFetch(`/chat/rooms/${roomId}/voice`, { method: "POST", body: form }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر إرسال الرسالة الصوتية"));
     return res.json() as Promise<ChatMessageRow>;
   },
 

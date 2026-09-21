@@ -336,6 +336,16 @@ export const chatService = {
     });
   },
 
+  async assertUserCanJoinRoom(roomId: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, isActive: true }
+    });
+    if (!user?.isActive) throw new AppError("Unauthorized", 401);
+    const ctx = await getUserContext(userId, user.role);
+    await assertRoomAccess(roomId, userId, user.role, ctx.coordinatorId, ctx.driverId);
+  },
+
   async ensureOrderRoom(orderId: string) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
@@ -500,12 +510,12 @@ export const chatService = {
         take: 50,
         include: roomInclude
       });
-    } else if (role === Role.DRIVER && ctx.driverId) {
+      } else if (role === Role.DRIVER && ctx.driverId) {
       orderRooms = await prisma.chatRoom.findMany({
         where: {
           type: ChatRoomType.ORDER,
           archivedAt: null,
-          order: { driverId: ctx.driverId },
+          order: { is: { driverId: ctx.driverId } },
           ...(searchWhere ?? {})
         },
         orderBy: { updatedAt: "desc" },

@@ -289,6 +289,7 @@ export interface DriverOrderRow {
   vehicleRequirement?: DriverOrderVehicleRequirement;
   notes?: string | null;
   createdAt: string;
+  coordinatorName?: string | null;
   driver: null | {
     id: string;
     user: { fullName: string; phone: string | null };
@@ -394,6 +395,7 @@ export async function driverCompleteOrder(accessToken: string, orderId: string):
 export interface DriverSocketOrderPayload {
   orderId: string;
   coordinatorId: string;
+  coordinatorName?: string | null;
   driverId: string | null;
   customerName: string;
   customerPhone: string | null;
@@ -422,6 +424,7 @@ export function socketPayloadToDriverOrderRow(p: DriverSocketOrderPayload): Driv
     vehicleRequirement: p.vehicleRequirement ?? "ANY",
     notes: p.notes ?? null,
     createdAt: p.createdAt,
+    coordinatorName: p.coordinatorName?.trim() || "—",
     driver: p.driverId
       ? { id: p.driverId, user: { fullName: "", phone: null } }
       : null

@@ -843,6 +843,11 @@ export function CoordinatorOrderCard({
           ملاحظات: {item.notes.trim()}
         </Text>
       ) : null}
+      {item.status === "CANCELLED" && item.cancelReason?.trim() ? (
+        <Text style={styles.notes}>
+          سبب الإلغاء: {item.cancelReason.trim()}
+        </Text>
+      ) : null}
       <View style={styles.row}>
         <Text style={styles.amount}>المبلغ: {item.amount}</Text>
         {isCompletedArchive ? (

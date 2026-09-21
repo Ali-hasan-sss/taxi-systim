@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
 import { chatSocketEvents, socketEvents, formatChatSenderLabel, type ChatReceiptStatus } from "@taxi/config";
 import { ChatMessageReceipt } from "../../../components/chat-message-receipt";
+import { ChatVoicePlayer } from "../../../components/chat-voice-player";
+import { ChatVoiceRecorder } from "../../../components/chat-voice-recorder";
 import { api, getSocketOrigin, type ChatMessageRow, type ChatRoomRow } from "../../../lib/api";
 import { useDebouncedSearch } from "../../../lib/use-debounced-value";
 import { useChatMobileViewport } from "../../../lib/use-chat-mobile-viewport";
@@ -54,23 +56,18 @@ function AuthChatImage({
   return <img src={src} alt="" className={styles.image} />;
 }
 
-function formatVoiceDuration(ms: number | null): string {
-  const totalSec = Math.max(0, Math.floor((ms ?? 0) / 1000));
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 function AuthChatVoice({
   url,
   token,
   durationMs,
-  expired
+  expired,
+  mine
 }: {
   url: string;
   token: string;
   durationMs: number | null;
   expired: boolean;
+  mine: boolean;
 }) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -100,12 +97,7 @@ function AuthChatVoice({
   if (expired) return <p>[انتهت صلاحية الرسالة الصوتية]</p>;
   if (failed) return <p>[تعذر تحميل الرسالة الصوتية]</p>;
   if (!src) return <p>…</p>;
-  return (
-    <div className={styles.voice}>
-      <audio controls preload="metadata" src={src} className={styles.voicePlayer} />
-      <span className={styles.voiceDuration}>{formatVoiceDuration(durationMs)}</span>
-    </div>
-  );
+  return <ChatVoicePlayer src={src} durationMs={durationMs} mine={mine} />;
 }
 
 function formatOrderRoomHeading(room: ChatRoomRow): string {
@@ -150,6 +142,7 @@ export default function ChatPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [recordingVoice, setRecordingVoice] = useState(false);
   const [typingFrom, setTypingFrom] = useState<{ userId: string; fullName: string } | null>(null);
   const [roomsOpen, setRoomsOpen] = useState(false);
   const socketRef = useRef<Socket | null>(null);
@@ -417,6 +410,20 @@ export default function ChatPage() {
     }
   };
 
+  const onSendVoice = async (file: File, durationMs: number) => {
+    if (!token || !activeRoom || sending || scope === "archived") return;
+    setSending(true);
+    stopTyping();
+    try {
+      const msg = await api.uploadChatVoice(token, activeRoom.id, file, durationMs);
+      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "تعذر إرسال الرسالة الصوتية");
+    } finally {
+      setSending(false);
+    }
+  };
+
   if (initialLoading) {
     return (
       <div className="dashboard-page">
@@ -581,6 +588,7 @@ export default function ChatPage() {
                       token={token}
                       durationMs={m.voiceDurationMs}
                       expired={m.voiceExpired}
+                      mine={mine}
                     />
                   ) : m.voiceExpired ? (
                     <p>[انتهت صلاحية الرسالة الصوتية]</p>
@@ -604,9 +612,17 @@ export default function ChatPage() {
                 className={styles.hiddenFile}
                 onChange={(e) => void onPickImage(e.target.files?.[0] ?? null)}
               />
-              <button type="button" className="btn btn-ghost" onClick={() => fileRef.current?.click()} disabled={sending || !activeRoom}>
+              <button type="button" className="btn btn-ghost" onClick={() => fileRef.current?.click()} disabled={sending || !activeRoom || recordingVoice}>
                 صورة
               </button>
+              <ChatVoiceRecorder
+                disabled={sending || !activeRoom}
+                onSend={onSendVoice}
+                onError={(message) => alert(message)}
+                onRecordingChange={setRecordingVoice}
+              />
+              {!recordingVoice ? (
+                <>
               <input
                 ref={draftInputRef}
                 className={styles.input}
@@ -625,6 +641,8 @@ export default function ChatPage() {
               <button type="button" className="btn btn-primary" onClick={() => void send()} disabled={sending || !activeRoom}>
                 إرسال
               </button>
+                </>
+              ) : null}
             </footer>
           ) : null}
         </section>

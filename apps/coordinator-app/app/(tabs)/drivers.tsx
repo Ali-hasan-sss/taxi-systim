@@ -27,9 +27,10 @@ import {
 } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
 import { clearSession, getSession } from "../../src/lib/session";
-import { chatRoomHref, getGlobalChatRoom } from "../../src/lib/chat";
+import { getGlobalChatRoom, openChatRoom } from "../../src/lib/chat";
 import { rtlRow, rtlText } from "../../src/lib/rtl-text";
 import { buildWhatsAppChatUrl } from "../../src/lib/whatsapp";
+import { CoordinatorTabScreen } from "../../src/components/CoordinatorScreenBackground";
 
 const LIVE_PAGE_SIZE = 20;
 const STATUS_FILTERS: Array<{ id: LiveDriverStatusFilter; label: string }> = [
@@ -283,7 +284,7 @@ export default function DriversTab() {
   const styles = useThemedStyles((t) => ({
     root: {
       flex: 1,
-      backgroundColor: t.colors.background,
+      backgroundColor: "transparent",
       direction: "rtl" as const
     },
     socketBar: {
@@ -786,7 +787,7 @@ export default function DriversTab() {
   const openDriverChat = async () => {
     try {
       const room = await getGlobalChatRoom();
-      router.push(chatRoomHref(room) as `/chat/${string}`);
+      openChatRoom(room);
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر فتح المحادثة");
     }
@@ -832,6 +833,7 @@ export default function DriversTab() {
         : "غير متصل";
 
   return (
+    <CoordinatorTabScreen>
     <View style={styles.root}>
       <View style={[styles.socketBar, { paddingTop: 8 }]}>
         <View style={[styles.socketDot, { backgroundColor: socketDotColor }]} />
@@ -1015,6 +1017,7 @@ export default function DriversTab() {
         </KeyboardAvoidingView>
       </Modal>
     </View>
+    </CoordinatorTabScreen>
   );
 }
 

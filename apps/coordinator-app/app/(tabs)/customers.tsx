@@ -15,7 +15,8 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import {
   type CustomerFilter,
   type CustomerRow,
-  fetchCustomers
+  fetchCustomers,
+  markCustomerContacted
 } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
 import { rtlText } from "../../src/lib/rtl-text";
@@ -23,6 +24,7 @@ import { clearSession, getSession } from "../../src/lib/session";
 import { openSmsWithText } from "../../src/lib/sms";
 import { coordinatorTabBarOuterHeight } from "../../src/lib/tab-bar-inset";
 import { openWhatsAppChat, WHATSAPP_OPEN_FAILED_MESSAGE } from "../../src/lib/whatsapp";
+import { CoordinatorTabScreen } from "../../src/components/CoordinatorScreenBackground";
 
 function formatWhen(iso: string | null) {
   if (!iso) return "—";
@@ -54,6 +56,7 @@ export default function CustomersScreen() {
   const [rows, setRows] = useState<CustomerRow[]>([]);
   const [total, setTotal] = useState(0);
   const [inactiveCount, setInactiveCount] = useState(0);
+  const [uncontactedInactiveCount, setUncontactedInactiveCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -61,7 +64,7 @@ export default function CustomersScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const styles = useThemedStyles((t) => ({
-    safe: { flex: 1, backgroundColor: t.colors.background },
+    safe: { flex: 1, backgroundColor: "transparent" },
     header: {
       paddingHorizontal: 16,
       paddingTop: 8,
@@ -144,12 +147,44 @@ export default function CustomersScreen() {
       padding: 14,
       gap: 8
     },
+    nameRow: {
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const,
+      gap: 8
+    },
     name: {
+      flex: 1,
       fontSize: 16,
       fontWeight: "800" as const,
       color: t.colors.text,
       ...rtlText,
       textAlign: "right" as const
+    },
+    contactDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: t.colors.danger,
+      flexShrink: 0 as const
+    },
+    filterBadge: {
+      marginStart: 6,
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 5,
+      borderRadius: 9,
+      backgroundColor: t.colors.danger,
+      alignItems: "center" as const,
+      justifyContent: "center" as const
+    },
+    filterBadgeText: {
+      color: "#fff",
+      fontSize: 10,
+      fontWeight: "800" as const
+    },
+    filterChipInner: {
+      flexDirection: "row-reverse" as const,
+      alignItems: "center" as const
     },
     meta: {
       fontSize: 13,
@@ -218,6 +253,7 @@ export default function CustomersScreen() {
         });
         setTotal(res.total);
         setInactiveCount(res.inactiveCount);
+        setUncontactedInactiveCount(res.uncontactedInactiveCount ?? 0);
         setHasMore(res.hasMore);
         setPage(res.page);
         setRows((prev) => (replace ? res.customers : [...prev, ...res.customers]));
@@ -251,21 +287,47 @@ export default function CustomersScreen() {
     setAppliedSearch(search.trim());
   };
 
-  const openWhatsApp = async (phone: string) => {
-    const ok = await openWhatsAppChat(phone, { preferBusiness: true });
-    if (!ok) {
-      feedback.warning(WHATSAPP_OPEN_FAILED_MESSAGE);
+  const markReached = async (customerId: string) => {
+    let shouldPersist = false;
+    setRows((prev) => {
+      const current = prev.find((row) => row.id === customerId);
+      if (!current?.needsContact) return prev;
+      shouldPersist = true;
+      return prev.map((row) =>
+        row.id === customerId ? { ...row, needsContact: false, lastContactedAt: new Date().toISOString() } : row
+      );
+    });
+    if (!shouldPersist) return;
+    setUncontactedInactiveCount((n) => Math.max(0, n - 1));
+    const session = await getSession();
+    if (!session?.accessToken) return;
+    try {
+      await markCustomerContacted(session.accessToken, customerId);
+    } catch {
+      /* النقطة اختفت محليًا بعد فتح واتساب/الرسالة */
     }
   };
 
-  const openSms = async (phone: string) => {
-    const ok = await openSmsWithText(phone, "");
+  const openWhatsApp = async (item: CustomerRow) => {
+    const ok = await openWhatsAppChat(item.phone, { preferBusiness: true });
+    if (!ok) {
+      feedback.warning(WHATSAPP_OPEN_FAILED_MESSAGE);
+      return;
+    }
+    if (item.needsContact) void markReached(item.id);
+  };
+
+  const openSms = async (item: CustomerRow) => {
+    const ok = await openSmsWithText(item.phone, "");
     if (!ok) {
       feedback.warning("تعذر فتح تطبيق الرسائل.");
+      return;
     }
+    if (item.needsContact) void markReached(item.id);
   };
 
   return (
+    <CoordinatorTabScreen>
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
         <View style={styles.header}>
           <View style={styles.titleRow}>
@@ -274,7 +336,9 @@ export default function CustomersScreen() {
               <Ionicons name="chevron-forward" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
-          <Text style={styles.hint}>المنقطع: لم يطلب منذ أسبوعين فأكثر ولديه أكثر من 10 طلبات.</Text>
+          <Text style={styles.hint}>
+            المنقطع: لم يطلب منذ أسبوعين فأكثر ولديه أكثر من 10 طلبات. النقطة الحمراء تعني أنه لم يُتواصل معه بعد.
+          </Text>
           <TextInput
             style={styles.search}
             value={search}
@@ -296,10 +360,19 @@ export default function CustomersScreen() {
                   style={[styles.filterChip, active && styles.filterChipActive]}
                   onPress={() => setFilter(item.key)}
                 >
+                  <View style={styles.filterChipInner}>
                   <Text style={[styles.filterText, active && styles.filterTextActive]}>
                     {item.label}
                     {item.key === "inactive" ? ` (${inactiveCount})` : item.key === "all" ? ` (${total})` : ""}
                   </Text>
+                  {item.key === "inactive" && uncontactedInactiveCount > 0 ? (
+                    <View style={styles.filterBadge}>
+                      <Text style={styles.filterBadgeText}>
+                        {uncontactedInactiveCount > 99 ? "99+" : String(uncontactedInactiveCount)}
+                      </Text>
+                    </View>
+                  ) : null}
+                  </View>
                 </Pressable>
               );
             })}
@@ -331,21 +404,26 @@ export default function CustomersScreen() {
             }
             renderItem={({ item }) => (
               <View style={styles.card}>
-                <Text style={styles.name}>{item.name?.trim() || "بدون اسم"}</Text>
+                <View style={styles.nameRow}>
+                  {item.needsContact ? (
+                    <View style={styles.contactDot} accessibilityLabel="لم يتم التواصل" />
+                  ) : null}
+                  <Text style={styles.name}>{item.name?.trim() || "بدون اسم"}</Text>
+                </View>
                 <Text style={styles.phone}>{item.phoneDisplay}</Text>
                 <Text style={styles.meta}>الطلبات: {item.ordersCount}</Text>
                 <Text style={styles.meta}>آخر طلب: {formatWhen(item.lastOrderAt)}</Text>
                 <View style={styles.actions}>
                   <Pressable
                     style={[styles.iconBtn, styles.waBtn]}
-                    onPress={() => void openWhatsApp(item.phone)}
+                    onPress={() => void openWhatsApp(item)}
                     accessibilityLabel="واتساب"
                   >
                     <Ionicons name="logo-whatsapp" size={22} color="#fff" />
                   </Pressable>
                   <Pressable
                     style={[styles.iconBtn, styles.smsBtn]}
-                    onPress={() => void openSms(item.phone)}
+                    onPress={() => void openSms(item)}
                     accessibilityLabel="رسالة SMS"
                   >
                     <Ionicons name="chatbubble-ellipses-outline" size={20} color="#fff" />
@@ -356,5 +434,6 @@ export default function CustomersScreen() {
           />
         )}
     </SafeAreaView>
+    </CoordinatorTabScreen>
   );
 }

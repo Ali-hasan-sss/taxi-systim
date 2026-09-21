@@ -7,7 +7,7 @@ import {
   notifyDriverOrderAssignedPush,
   notifyDriverOrderResumedPush
 } from "../../shared/expo-push";
-import { assignOrderDto, createOrderDto, updateCompletedOrderAmountDto, updateOrderDetailsDto } from "./orders.dto";
+import { assignOrderDto, cancelOrderDto, createOrderDto, updateCompletedOrderAmountDto, updateOrderDetailsDto } from "./orders.dto";
 import {
   COORDINATOR_ORDERS_PAGE_DEFAULT,
   COORDINATOR_ORDERS_PAGE_MAX,
@@ -315,7 +315,7 @@ export const ordersController = {
       const order = await ordersService.createOrder(req.auth!.userId, dto);
       const io = req.app.get("io") as Server | undefined;
       if (io) {
-        if (order.driverId && order.status !== OrderStatus.PENDING) {
+        if (order.driverId) {
           emitOrderAssigned(io, order);
           void notifyDriverOrderAssignedPush(order);
         } else {
@@ -363,10 +363,11 @@ export const ordersController = {
 
   async cancel(req: AuthRequest, res: Response, next: NextFunction) {
     try {
+      const dto = cancelOrderDto.parse(req.body ?? {});
       const order =
         req.auth!.role === Role.ADMIN
-          ? await ordersService.cancelByAdmin(req.params.orderId)
-          : await ordersService.cancelByCoordinator(req.auth!.userId, req.params.orderId);
+          ? await ordersService.cancelByAdmin(req.params.orderId, dto.reason)
+          : await ordersService.cancelByCoordinator(req.auth!.userId, req.params.orderId, dto.reason ?? "");
       const io = req.app.get("io") as Server | undefined;
       if (io) {
         if (order.driverId) {
@@ -375,7 +376,7 @@ export const ordersController = {
           emitPendingOrderCancelled(io, order.id);
         }
       }
-      res.json(order);
+      res.json(ordersService.serializeCoordinatorOrderRow(order));
     } catch (e) {
       next(e);
     }
