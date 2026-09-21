@@ -1656,6 +1656,8 @@ body {
 }
 
 .employees-search {
+  position: relative;
+  display: block;
   max-width: 420px;
   width: 100%;
 }
@@ -1681,6 +1683,91 @@ body {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+
+.customers-table__row {
+  cursor: pointer;
+}
+
+.customers-table__row:hover {
+  background: #f8fafc;
+}
+
+.customer-orders-modal__card {
+  width: min(980px, calc(100vw - 32px));
+  max-height: min(88vh, 900px);
+  overflow: hidden;
+}
+
+.customer-orders-modal__search {
+  max-width: none;
+}
+
+.customer-orders-modal__search .employees-search__pending {
+  position: absolute;
+  inset-inline-start: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.customer-orders-modal__table {
+  max-height: min(58vh, 560px);
+}
+
+.customer-orders-modal__row {
+  cursor: pointer;
+}
+
+.customer-orders-modal__row:hover {
+  background: #f8fafc;
+}
+
+.customer-orders-modal__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  max-height: min(68vh, 640px);
+  padding-bottom: 4px;
+}
+
+.customer-orders-modal__detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.customer-orders-modal__detail-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.customer-orders-modal__detail-grid span {
+  color: var(--brand-text-muted);
+  font-size: 12.5px;
+}
+
+.customer-orders-modal__detail-grid strong {
+  color: var(--brand-text);
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.customer-orders-modal__detail-full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .customer-orders-modal__detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .modal-panel--wide {
@@ -2664,6 +2751,16 @@ body {
   flex-direction: column;
   gap: 14px;
   padding: 16px 18px;
+}
+
+.orders-toolbar__main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.orders-toolbar__main .employees-search {
+  max-width: 420px;
 }
 
 .orders-page-filters {

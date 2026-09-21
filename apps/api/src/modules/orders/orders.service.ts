@@ -1795,21 +1795,27 @@ export const ordersService = {
       await tx.order.update({
         where: { id: orderId },
         data: {
-          status: OrderStatus.CANCELLED,
-          cancelledAt: new Date(),
-          cancelReason: "ألغاه السائق"
+          status: OrderStatus.PENDING,
+          driverId: null,
+          acceptedAt: null,
+          startedAt: null,
+          cancelledAt: null,
+          cancelReason: null,
+          customerInfoSentAt: null,
+          driversNotifiedAt: new Date()
         }
       });
 
-      await chatService.archiveOrderRoomByOrderId(orderId, { tx, archivedByUserId: driverUserId });
+      await chatService.unarchiveOrderRoomByOrderId(orderId, { tx });
 
-      return tx.order.findFirstOrThrow({
+      const pending = await tx.order.findFirstOrThrow({
         where: { id: orderId },
         include: orderIncludeDriverUser
       });
+      return { order: pending, previousDriverId: driver.id };
     });
-    scheduleDriverDebtWorkSync(result.driverId);
-    if (result.driverId) notifyDriverFine(result.driverId, DRIVER_SELF_CANCEL_FINE);
+    scheduleDriverDebtWorkSync(result.previousDriverId);
+    notifyDriverFine(result.previousDriverId, DRIVER_SELF_CANCEL_FINE);
     return result;
   },
 

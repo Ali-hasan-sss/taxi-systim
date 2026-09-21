@@ -377,6 +377,31 @@ export interface AdminOrderRoomRow {
   };
 }
 
+export interface CustomerOrderHistoryRow extends AdminOrderRoomRow {
+  acceptedAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  originalAmount?: string | null;
+  discountAmount?: string | null;
+}
+
+export interface CustomerOrdersResponse {
+  customer: {
+    id: string;
+    phone: string;
+    phoneDisplay: string;
+    name: string | null;
+    ordersCount: number;
+    lastOrderAt: string | null;
+    createdAt: string;
+  };
+  page: number;
+  limit: number;
+  total: number;
+  hasMore: boolean;
+  orders: CustomerOrderHistoryRow[];
+}
+
 export type AdminOrderStatus =
   | "PENDING"
   | "ACCEPTED"
@@ -731,6 +756,25 @@ export const api = {
     const res = await authorizedFetch(`/customers${qs ? `?${qs}` : ""}`, { method: "GET", cache: "no-store" }, accessToken);
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب الزبائن"));
     return res.json() as Promise<CustomersListResponse>;
+  },
+
+  async listCustomerOrders(
+    accessToken: string,
+    customerId: string,
+    params?: { page?: number; limit?: number; q?: string }
+  ) {
+    const query = new URLSearchParams();
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.q?.trim()) query.set("q", params.q.trim());
+    const qs = query.toString();
+    const res = await authorizedFetch(
+      `/customers/${encodeURIComponent(customerId)}/orders${qs ? `?${qs}` : ""}`,
+      { method: "GET", cache: "no-store" },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب سجل طلبات الزبون"));
+    return res.json() as Promise<CustomerOrdersResponse>;
   },
 
   async listPromotions(accessToken: string) {

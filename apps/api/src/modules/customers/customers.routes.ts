@@ -12,6 +12,13 @@ customersRouter.get(
   asyncRoute(customersController.list)
 );
 
+customersRouter.get(
+  "/:customerId/orders",
+  requireAuth,
+  requireRole("ADMIN", "COORDINATOR"),
+  asyncRoute(customersController.listOrders)
+);
+
 customersRouter.patch(
   "/:customerId/contacted",
   requireAuth,

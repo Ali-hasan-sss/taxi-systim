@@ -22,6 +22,7 @@ import { accountingService } from "../accounting/accounting.service";
 import {
   dispatchNewPendingOrderToDrivers,
   emitDriverClaimedOrder,
+  emitDriverReleasedFromOrder,
   emitOrderAssigned,
   emitOrderStatusUpdated,
   emitPendingOrderCancelled
@@ -340,9 +341,15 @@ export const ordersController = {
 
   async cancelByDriver(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const order = await ordersService.cancelByDriver(req.auth!.userId, req.params.orderId);
+      const { order, previousDriverId } = await ordersService.cancelByDriver(
+        req.auth!.userId,
+        req.params.orderId
+      );
       const io = req.app.get("io") as Server | undefined;
-      if (io) emitOrderStatusUpdated(io, order);
+      if (io) {
+        emitDriverReleasedFromOrder(io, order, previousDriverId);
+        await dispatchNewPendingOrderToDrivers(io, order);
+      }
       res.json(ordersService.serializeDriverOrderRow(order));
     } catch (e) {
       next(e);

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, type CustomerRow, type CustomersListResponse } from "../../../lib/api";
 import { useDebouncedSearch } from "../../../lib/use-debounced-value";
+import { CustomerOrdersModal } from "../../../components/customer-orders-modal";
 
 type CustomerFilter = "all" | "most_orders" | "inactive";
 
@@ -25,11 +26,12 @@ export default function CustomersPage() {
   const [token, setToken] = useState("");
   const [filter, setFilter] = useState<CustomerFilter>("all");
   const [searchDraft, setSearchDraft] = useState("");
-  const { query: searchQuery } = useDebouncedSearch(searchDraft);
+  const { query: searchQuery, isPending: searchPending } = useDebouncedSearch(searchDraft);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CustomersListResponse | null>(null);
+  const [historyCustomer, setHistoryCustomer] = useState<CustomerRow | null>(null);
 
   const handleSessionExpired = useCallback(() => {
     localStorage.removeItem("taxi_admin_session");
@@ -86,15 +88,26 @@ export default function CustomersPage() {
 
   return (
     <div className="dashboard-page">
-      <section className="card employees-toolbar">
-        <div className="employees-toolbar__row">
-          <input
-            className="input"
-            placeholder="بحث بالاسم أو الرقم…"
-            value={searchDraft}
-            onChange={(e) => setSearchDraft(e.target.value)}
-          />
-          <div className="orders-room-filters__row" style={{ flexWrap: "wrap", gap: 8 }}>
+      <section className="card orders-toolbar">
+        <div className="orders-toolbar__main">
+          <label className="employees-search">
+            <span className="sr-only">بحث في الزبائن</span>
+            <input
+              className="input-styled employees-search__input"
+              type="search"
+              placeholder="بحث بالاسم أو رقم الهاتف…"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              autoComplete="off"
+            />
+            {searchPending ? <span className="employees-search__pending">...</span> : null}
+          </label>
+          <p className="employees-toolbar__hint">
+            المنقطع: لم يطلب منذ أسبوعين فأكثر ولديه أكثر من 10 طلبات في سجله.
+          </p>
+        </div>
+        <div className="orders-room-filters orders-page-filters">
+          <div className="orders-room-filters__row">
             {(
               [
                 { key: "all" as const, label: "الكل" },
@@ -119,9 +132,6 @@ export default function CustomersPage() {
             ))}
           </div>
         </div>
-        <p className="orders-room-toolbar__hint" style={{ marginTop: 10 }}>
-          المنقطع: لم يطلب منذ أسبوعين فأكثر ولديه أكثر من 10 طلبات في سجله.
-        </p>
       </section>
 
       {error ? <p className="form-error">{error}</p> : null}
@@ -144,16 +154,33 @@ export default function CustomersPage() {
                   <th>عدد الطلبات</th>
                   <th>آخر طلب</th>
                   <th>تاريخ الإضافة</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {customers.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className="customers-table__row"
+                    onClick={() => setHistoryCustomer(row)}
+                  >
                     <td>{row.name?.trim() || "—"}</td>
                     <td dir="ltr">{row.phoneDisplay}</td>
                     <td>{row.ordersCount}</td>
                     <td>{formatDateTime(row.lastOrderAt)}</td>
                     <td>{formatDateTime(row.createdAt)}</td>
+                    <td className="cell-actions">
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setHistoryCustomer(row);
+                        }}
+                      >
+                        سجل الطلبات
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -185,6 +212,17 @@ export default function CustomersPage() {
           </div>
         ) : null}
       </section>
+
+      {historyCustomer ? (
+        <CustomerOrdersModal
+          key={historyCustomer.id}
+          open
+          token={token}
+          customer={historyCustomer}
+          onClose={() => setHistoryCustomer(null)}
+          onSessionExpired={handleSessionExpired}
+        />
+      ) : null}
     </div>
   );
 }

@@ -229,8 +229,10 @@ export default function DriverOrdersTab() {
     };
 
     const onOrderStatusUpdated = (raw: unknown) => {
-      const p = raw as { driverId?: string | null; status?: string };
-      if (!myDriverIdRef.current || p?.driverId !== myDriverIdRef.current) return;
+      const p = raw as { orderId?: string; driverId?: string | null; status?: string };
+      const mine = Boolean(myDriverIdRef.current && p?.driverId === myDriverIdRef.current);
+      const wasMine = Boolean(p?.orderId && inProgressRef.current?.id === p.orderId);
+      if (!mine && !wasMine) return;
       if (p.status === "EN_ROUTE_TO_CUSTOMER") {
         void playOrderResumedSound();
       }
@@ -325,7 +327,7 @@ export default function DriverOrdersTab() {
     try {
       await driverCancelOrder(session.accessToken, orderId);
       setInProgress(null);
-      feedback.success("تم إلغاء الطلب وتسجيل غرامة 100 ل.س.", "تم الإلغاء");
+      feedback.success("تم إلغاء الطلب وإعادة بثّه لغرفة الطلبات، وتسجيل غرامة 100 ل.س.", "تم الإلغاء");
       await loadRoom(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "تعذر إلغاء الطلب";

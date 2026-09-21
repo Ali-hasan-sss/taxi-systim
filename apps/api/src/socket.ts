@@ -411,6 +411,14 @@ export function emitOrderStatusUpdated(io: Server, order: Order) {
   }
 }
 
+/** تحرير السائق السابق بعد إلغائه الطلب ثم إبقاء المنسقين على اطّلاع بالحالة الجديدة. */
+export function emitDriverReleasedFromOrder(io: Server, order: Order, previousDriverId: string) {
+  setDriverBusyState(previousDriverId, false);
+  const payload = orderToSocketPayload(order);
+  io.to(`driver:${previousDriverId}`).emit(socketEvents.ORDER_STATUS_UPDATED, payload);
+  io.to(ROOM_COORDINATORS).emit(socketEvents.ORDER_STATUS_UPDATED, payload);
+}
+
 let socketServer: Server | null = null;
 
 export function getSocketServer(): Server | null {

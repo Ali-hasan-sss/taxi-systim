@@ -8,3 +8,11 @@ export const listCustomersQueryDto = z.object({
 });
 
 export type ListCustomersQuery = z.infer<typeof listCustomersQueryDto>;
+
+export const listCustomerOrdersQueryDto = z.object({
+  q: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().positive().max(50).optional().default(20)
+});
+
+export type ListCustomerOrdersQuery = z.infer<typeof listCustomerOrdersQueryDto>;

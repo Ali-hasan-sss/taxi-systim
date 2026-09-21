@@ -2,7 +2,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
 import { displayCustomerPhone, linkCustomerToNewOrder, normalizeCustomerPhone } from "./customer-phone";
-import type { ListCustomersQuery } from "./customers.dto";
+import type { ListCustomerOrdersQuery, ListCustomersQuery } from "./customers.dto";
+import { ordersService } from "../orders/orders.service";
 
 const INACTIVE_DAYS = 14;
 
@@ -187,6 +188,65 @@ export const customersService = {
         lastContactedAt: c.lastContactedAt?.toISOString() ?? null,
         needsContact: isInactiveCustomer(c, inactiveBefore) && !c.lastContactedAt,
         createdAt: c.createdAt.toISOString()
+      }))
+    };
+  },
+
+  async listOrders(customerId: string, query: ListCustomerOrdersQuery) {
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) throw new AppError("الزبون غير موجود", 404);
+
+    const limit = Math.min(50, Math.max(1, query.limit ?? 20));
+    const page = Math.max(1, query.page ?? 1);
+    const skip = (page - 1) * limit;
+    const q = query.q?.trim();
+
+    const where: Prisma.OrderWhereInput = {
+      customerId,
+      ...(q
+        ? {
+            driver: {
+              user: { fullName: { contains: q, mode: "insensitive" } }
+            }
+          }
+        : {})
+    };
+
+    const [rows, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip,
+        take: limit,
+        include: {
+          driver: { include: { user: { select: { fullName: true, phone: true } } } },
+          coordinator: { include: { user: { select: { fullName: true } } } }
+        }
+      }),
+      prisma.order.count({ where })
+    ]);
+
+    return {
+      customer: {
+        id: customer.id,
+        phone: customer.phone,
+        phoneDisplay: displayCustomerPhone(customer.phone),
+        name: customer.name,
+        ordersCount: customer.ordersCount,
+        lastOrderAt: customer.lastOrderAt?.toISOString() ?? null,
+        createdAt: customer.createdAt.toISOString()
+      },
+      page,
+      limit,
+      total,
+      hasMore: skip + rows.length < total,
+      orders: rows.map((row) => ({
+        ...ordersService.serializeCoordinatorOrderRow(row),
+        acceptedAt: row.acceptedAt?.toISOString() ?? null,
+        startedAt: row.startedAt?.toISOString() ?? null,
+        completedAt: row.completedAt?.toISOString() ?? null,
+        originalAmount: row.originalAmount?.toString() ?? null,
+        discountAmount: row.discountAmount.toString()
       }))
     };
   },

@@ -384,6 +384,24 @@ export const chatService = {
     return true;
   },
 
+  /** إعادة فتح محادثة الطلب عند إعادة بثّه لغرفة السائقين. */
+  async unarchiveOrderRoomByOrderId(
+    orderId: string,
+    opts?: { tx?: Prisma.TransactionClient }
+  ): Promise<boolean> {
+    const db = opts?.tx ?? prisma;
+    const room = await db.chatRoom.findUnique({ where: { orderId } });
+    if (!room || !room.archivedAt) return false;
+    await db.chatRoom.update({
+      where: { id: room.id },
+      data: {
+        archivedAt: null,
+        archivedByUserId: null
+      }
+    });
+    return true;
+  },
+
   /** أرشفة محادثات الطلبات المكتملة التي لم تُؤرشف بعد (تشغيل عند الإقلاع). */
   async archiveRoomsForCompletedOrders(): Promise<number> {
     const result = await prisma.chatRoom.updateMany({
