@@ -135,15 +135,24 @@ export const customersService = {
     const filterWhere: Prisma.CustomerWhereInput =
       filter === "inactive" ? inactiveWhere(inactiveBefore) : {};
 
+    const contactWhere: Prisma.CustomerWhereInput =
+      filter === "inactive" && query.contact === "uncontacted"
+        ? { lastContactedAt: null }
+        : filter === "inactive" && query.contact === "contacted"
+          ? { lastContactedAt: { not: null } }
+          : {};
+
     const where: Prisma.CustomerWhereInput = {
-      AND: [filterWhere, searchWhere].filter(Boolean) as Prisma.CustomerWhereInput[]
+      AND: [filterWhere, contactWhere, searchWhere].filter(Boolean) as Prisma.CustomerWhereInput[]
     };
 
     let orderBy: Prisma.CustomerOrderByWithRelationInput[];
     if (filter === "most_orders") {
       orderBy = [{ ordersCount: "desc" }, { lastOrderAt: "desc" }, { id: "desc" }];
+    } else if (filter === "inactive" && query.contact === "contacted") {
+      orderBy = [{ lastContactedAt: "desc" }, { lastOrderAt: "asc" }, { id: "asc" }];
     } else if (filter === "inactive") {
-      orderBy = [{ lastContactedAt: { sort: "asc", nulls: "first" } }, { lastOrderAt: "asc" }, { ordersCount: "desc" }, { id: "asc" }];
+      orderBy = [{ lastOrderAt: "asc" }, { ordersCount: "desc" }, { id: "asc" }];
     } else {
       orderBy = [{ lastOrderAt: "desc" }, { createdAt: "desc" }, { id: "desc" }];
     }
@@ -171,12 +180,14 @@ export const customersService = {
 
     return {
       filter,
+      contact: filter === "inactive" ? (query.contact ?? null) : null,
       page,
       limit,
       total: filteredCount,
       totalAll,
       inactiveCount,
       uncontactedInactiveCount,
+      contactedInactiveCount: Math.max(0, inactiveCount - uncontactedInactiveCount),
       hasMore: skip + rows.length < filteredCount,
       customers: rows.map((c) => ({
         id: c.id,

@@ -1,9 +1,10 @@
+import { AppBrandMark, useBranding } from "@taxi/expo-branding";
 import { ThemeToggleRow, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Dimensions, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { shouldLoadExpoPushModule } from "../lib/push-environment";
 import { rtlText } from "../lib/rtl-text";
@@ -11,11 +12,13 @@ import { clearDriverSession, getDriverSession } from "../lib/session";
 import { tryStartDriverWork } from "../lib/start-work";
 import { useDriverStore } from "../store";
 import { DriverNotificationsButton } from "./DriverNotificationsButton";
+import { GlassIconCircle } from "./GlassIconCircle";
 
 export function DriverAppHeader() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
+  const { ready, appName, logoSource } = useBranding();
   const { isOnline, setOnline, workBlocked } = useDriverStore();
   const avatarAnchorRef = useRef<View>(null);
   const [userMenuAnchor, setUserMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(
@@ -41,21 +44,19 @@ export function DriverAppHeader() {
       flexDirection: "row" as const,
       alignItems: "center" as const,
       justifyContent: "space-between" as const,
-      paddingHorizontal: 20,
       paddingBottom: 10,
       borderWidth: 0,
       backgroundColor: "rgba(0,0,0,0)",
       overflow: "visible" as const
     },
     logoCreamBox: {
-      justifyContent: "center" as const,
+      flex: 1,
+      minWidth: 0,
+      flexDirection: "row" as const,
+      justifyContent: "flex-start" as const,
       alignItems: "center" as const,
+      marginEnd: 8,
       backgroundColor: "transparent"
-    },
-    brandLogo: {
-      height: 28,
-      width: 128,
-      maxWidth: "100%"
     },
     topBarActions: {
       flexDirection: "row" as const,
@@ -235,13 +236,23 @@ export function DriverAppHeader() {
 
   return (
     <>
-      <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
+      <View
+        style={[
+          styles.topBar,
+          {
+            paddingTop: Math.max(insets.top, 12) + 8,
+            paddingLeft: Math.max(insets.left, 8),
+            paddingRight: Math.max(insets.right, 12)
+          }
+        ]}
+      >
         <View style={styles.logoCreamBox}>
-          <Image
-            source={require("../../assets/images/logo-removebg-preview.png")}
-            style={styles.brandLogo}
-            resizeMode="contain"
-            accessibilityLabel="تطبيق السائق"
+          <AppBrandMark
+            ready={ready}
+            logoSource={logoSource}
+            appName={appName}
+            nameColor={theme.colors.text}
+            accessibilityLabel={appName || "تطبيق السائق"}
           />
         </View>
         <View style={styles.topBarActions}>
@@ -255,7 +266,9 @@ export function DriverAppHeader() {
               hitSlop={8}
             >
               <View style={styles.avatarCircle}>
-                <Ionicons name="person" size={20} color={theme.colors.text} />
+                <GlassIconCircle>
+                  <Ionicons name="person" size={20} color={theme.colors.text} />
+                </GlassIconCircle>
               </View>
             </Pressable>
           </View>

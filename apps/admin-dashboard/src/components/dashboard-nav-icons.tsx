@@ -6,6 +6,7 @@ import {
   ListOrdered,
   MapPinned,
   MessageSquareText,
+  Scale,
   Settings,
   Tag,
   Users,
@@ -33,4 +34,5 @@ export const DashboardCustomersIcon = navIcon(Contact);
 export const DashboardPromotionsIcon = navIcon(Tag);
 export const DashboardDriversIcon = navIcon(MapPinned);
 export const DashboardFinanceIcon = navIcon(Wallet);
+export const DashboardDebtsIcon = navIcon(Scale);
 export const DashboardSettingsIcon = navIcon(Settings);

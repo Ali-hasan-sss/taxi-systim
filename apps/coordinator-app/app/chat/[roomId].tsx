@@ -1,7 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ActivityIndicator, View } from "react-native";
+import { useRef } from "react";
 import { ChatThreadView } from "../../src/components/ChatThreadView";
-import { CoordinatorScreenBackground } from "../../src/components/CoordinatorScreenBackground";
 
 function paramText(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
@@ -26,25 +25,18 @@ export default function ChatRoomScreen() {
   }>();
   const router = useRouter();
   const roomId = paramText(params.roomId);
+  const stableRoomIdRef = useRef(roomId);
+  if (roomId) stableRoomIdRef.current = roomId;
+  const resolvedRoomId = roomId ?? stableRoomIdRef.current;
+  if (!resolvedRoomId) return null;
   const titleText = safeDecode(paramText(params.title));
   const subtitleText = safeDecode(paramText(params.subtitle));
   const typeText = paramText(params.roomType);
   const canArchive = typeText === "ORDER" || (!typeText && !!subtitleText);
 
-  if (!roomId) {
-    return (
-      <CoordinatorScreenBackground>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator />
-        </View>
-      </CoordinatorScreenBackground>
-    );
-  }
-
   return (
     <ChatThreadView
-      key={roomId}
-      roomId={roomId}
+      roomId={resolvedRoomId}
       title={titleText || "محادثة"}
       subtitle={subtitleText ?? null}
       roomType={typeText === "GLOBAL" ? "GLOBAL" : "ORDER"}

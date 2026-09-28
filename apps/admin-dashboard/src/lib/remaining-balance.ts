@@ -6,7 +6,10 @@ export function formatSyrianAmount(value: string | number): string {
 
 export type RemainingBalanceKind = "owe" | "credit" | "zero";
 
-export function remainingBalanceCopy(value: string | number): {
+export function remainingBalanceCopy(
+  value: string | number,
+  paymentMode: "POSTPAID" | "PREPAID" = "POSTPAID"
+): {
   kind: RemainingBalanceKind;
   title: string;
   amountText: string;
@@ -15,6 +18,22 @@ export function remainingBalanceCopy(value: string | number): {
   const n = typeof value === "number" ? value : Number(value);
   const amount = Number.isFinite(n) ? n : 0;
   const amountText = formatSyrianAmount(Math.abs(amount));
+  if (paymentMode === "PREPAID") {
+    if (amount < 0) {
+      return {
+        kind: "credit",
+        title: "الرصيد المسبق",
+        amountText,
+        sentence: `الرصيد المسبق ${amountText}`
+      };
+    }
+    return {
+      kind: "zero",
+      title: "لا يوجد رصيد مسبق",
+      amountText: formatSyrianAmount(0),
+      sentence: "لا يوجد رصيد مسبق — يحتاج شحنًا لمتابعة العمل"
+    };
+  }
   if (amount > 0) {
     return {
       kind: "owe",

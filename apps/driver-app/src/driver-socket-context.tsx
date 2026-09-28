@@ -122,17 +122,19 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const onForceOffline = (payload?: { reason?: string }) => {
+    const bumpFinance = () => {
+      useDriverStore.getState().bumpFinanceRevision();
+    };
+
+    const onForceOffline = (payload?: { reason?: string; message?: string }) => {
       if (payload?.reason === "debt") {
-        setWorkBlocked(
-          true,
-          "تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز 2000 ل.س. سدّد العمولات والغرامات لتعود للعمل تلقائياً."
-        );
+        const message =
+          payload.message?.trim() ||
+          "تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز الحد المسموح. سدّد المستحق لتعود للعمل تلقائياً.";
+        setWorkBlocked(true, message);
         setOnline(false);
-        feedback.warning(
-          "تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز 2000 ل.س. سدّد العمولات والغرامات لتعود للعمل تلقائياً.",
-          "إيقاف عن العمل"
-        );
+        feedback.warning(message, "إيقاف عن العمل");
+        bumpFinance();
         return;
       }
       setWorkBlocked(false);
@@ -143,8 +145,13 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
     };
 
     const onDebtCleared = () => {
+      bumpFinance();
       if (!useDriverStore.getState().workBlocked) return;
       void tryStartDriverWork({ silent: true });
+    };
+
+    const onFinanceUpdated = () => {
+      bumpFinance();
     };
 
     const onNotification = (raw: unknown) => {
@@ -165,16 +172,31 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
         readAt: typeof p.readAt === "string" ? p.readAt : null,
         createdAt: p.createdAt
       });
+      if (
+        p.type === "FINE" ||
+        p.type === "DEDUCTION" ||
+        p.type === "COMPENSATION" ||
+        p.type === "DEBT" ||
+        p.type === "CREDIT_PAYOUT" ||
+        p.type === "COMMISSION_PAID" ||
+        p.type === "PREPAID_TOPUP" ||
+        p.type === "DEBT_CLEARED" ||
+        p.type === "DEBT_LIMIT_RAISED"
+      ) {
+        bumpFinance();
+      }
     };
 
     s.on(socketEvents.NEW_ORDER, onNewOrder);
     s.on(socketEvents.DRIVER_FORCE_OFFLINE, onForceOffline);
     s.on(socketEvents.DRIVER_DEBT_CLEARED, onDebtCleared);
+    s.on(socketEvents.DRIVER_FINANCE_UPDATED, onFinanceUpdated);
     s.on(socketEvents.DRIVER_NOTIFICATION, onNotification);
     return () => {
       s.off(socketEvents.NEW_ORDER, onNewOrder);
       s.off(socketEvents.DRIVER_FORCE_OFFLINE, onForceOffline);
       s.off(socketEvents.DRIVER_DEBT_CLEARED, onDebtCleared);
+      s.off(socketEvents.DRIVER_FINANCE_UPDATED, onFinanceUpdated);
       s.off(socketEvents.DRIVER_NOTIFICATION, onNotification);
     };
   }, [socket, myDriverId, setOnline, setWorkBlocked]);

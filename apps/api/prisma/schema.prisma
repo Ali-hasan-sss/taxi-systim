@@ -78,6 +78,12 @@ enum FinancialTransactionType {
   COMMISSION_CREATED
   COMMISSION_PAYMENT
   MANUAL_ADJUSTMENT
+  PREPAID_TOPUP
+}
+
+enum CommissionPaymentMode {
+  POSTPAID
+  PREPAID
 }
 
 enum ChatRoomType {
@@ -121,6 +127,8 @@ model Driver {
   isBusy           Boolean                 @default(false)
   /** ok | warn | block — لتفادي تكرار إشعارات عتبة المترتب */
   lastDebtNotifyBand String?
+  /** حد إيقاف خاص بهذا السائق. null يعني استخدام الحد العام من إعدادات المنصة */
+  commissionDebtLimit Decimal? @db.Decimal(10, 2)
   user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   orders           Order[]
   locationHistory  DriverLocationHistory[]
@@ -128,6 +136,7 @@ model Driver {
   balances         DriverBalance[]
   payments         CommissionPayment[]
   transactions     FinancialTransaction[]
+  paymentModeSettlementItems PaymentModeSettlementItem[]
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 }
@@ -326,9 +335,43 @@ model SystemSettings {
   key             String         @unique
   commissionType  CommissionType
   commissionValue Decimal        @db.Decimal(10, 2)
+  /** الحد الأعلى للمبلغ المترتب قبل إيقاف السائق عن العمل */
+  commissionDebtLimit Decimal    @default(2000) @db.Decimal(10, 2)
+  /** ملحق الدفع = الوضع الحالي. مسبق الدفع = إيقاف عند الرصيد 0 */
+  paymentMode     CommissionPaymentMode @default(POSTPAID)
   updatedByUserId String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
+}
+
+/** أرشيف الديون والمستحقات والتعويضات غير المستفادة عند تبديل وضع الدفع */
+model PaymentModeSettlement {
+  id              String                 @id @default(cuid())
+  fromMode        CommissionPaymentMode
+  toMode          CommissionPaymentMode
+  createdByUserId String?
+  notes           String?
+  items           PaymentModeSettlementItem[]
+  createdAt       DateTime               @default(now())
+
+  @@index([createdAt])
+}
+
+model PaymentModeSettlementItem {
+  id                   String                 @id @default(cuid())
+  settlementId         String
+  driverId             String
+  driverName           String
+  remainingDebt        Decimal                @db.Decimal(10, 2)
+  unusedCompensation   Decimal                @db.Decimal(10, 2)
+  unpaidCommission     Decimal                @db.Decimal(10, 2)
+  unpaidFines          Decimal                @db.Decimal(10, 2)
+  settlement           PaymentModeSettlement  @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  driver               Driver                 @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  createdAt            DateTime               @default(now())
+
+  @@index([settlementId])
+  @@index([driverId])
 }
 
 /** الحد الأدنى لنسخة التطبيق — إن كانت النسخة أقل يُوقف التطبيق حتى التحديث */
@@ -343,6 +386,21 @@ model AppVersionSettings {
   updatedByUserId        String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
+}
+
+/** لوجو المنصة وخلفيات تطبيقَي السائق والمنسق — تُستبدل الملفات القديمة عند الرفع */
+model BrandingSettings {
+  id                              String    @id @default("default")
+  appName                         String    @default("")
+  logoFile                        String    @default("")
+  logoUpdatedAt                   DateTime?
+  coordinatorBackgroundFile       String    @default("")
+  coordinatorBackgroundUpdatedAt  DateTime?
+  driverBackgroundFile            String    @default("")
+  driverBackgroundUpdatedAt       DateTime?
+  updatedByUserId                 String?
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
 }
 
 model RefreshToken {

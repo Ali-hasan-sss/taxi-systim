@@ -21,8 +21,17 @@ accountingRouter.post("/compensations", requireAuth, requireRole("ADMIN"), accou
 accountingRouter.get("/fines", requireAuth, requireRole("ADMIN"), accountingController.listDriverFines);
 accountingRouter.post("/fines", requireAuth, requireRole("ADMIN"), accountingController.recordDriverFine);
 accountingRouter.post("/fines/settle", requireAuth, requireRole("ADMIN"), accountingController.settleDriverFine);
+accountingRouter.get("/deductions", requireAuth, requireRole("ADMIN"), accountingController.listDriverDeductions);
+accountingRouter.post("/deductions", requireAuth, requireRole("ADMIN"), accountingController.recordDriverDeduction);
 accountingRouter.post("/payments", requireAuth, requireRole("ADMIN"), accountingController.recordPayment);
 accountingRouter.post("/payments/settle-order", requireAuth, requireRole("ADMIN"), accountingController.settleOrderCommission);
 accountingRouter.post("/payments/settle-filtered", requireAuth, requireRole("ADMIN"), accountingController.settleFilteredCommissions);
 accountingRouter.get("/driver-balances", requireAuth, requireRole("ADMIN"), accountingController.listDriverBalances);
 accountingRouter.post("/payments/settle-driver", requireAuth, requireRole("ADMIN"), accountingController.settleDriverBalance);
+accountingRouter.post("/prepaid-topup", requireAuth, requireRole("ADMIN"), accountingController.recordPrepaidTopup);
+accountingRouter.get("/debts-dues", requireAuth, requireRole("ADMIN"), accountingController.listPaymentModeSettlements);
+accountingRouter.get("/debts-dues/export.xlsx", requireAuth, requireRole("ADMIN"), accountingController.exportDebtsDuesXlsx);
+accountingRouter.post("/debts-dues/debt", requireAuth, requireRole("ADMIN"), accountingController.recordDriverExtraDebt);
+accountingRouter.post("/debts-dues/credit", requireAuth, requireRole("ADMIN"), accountingController.recordDriverDueCredit);
+accountingRouter.post("/debts-dues/settle", requireAuth, requireRole("ADMIN"), accountingController.settleDriverDebt);
+accountingRouter.post("/debts-dues/payout", requireAuth, requireRole("ADMIN"), accountingController.payoutDriverCredit);

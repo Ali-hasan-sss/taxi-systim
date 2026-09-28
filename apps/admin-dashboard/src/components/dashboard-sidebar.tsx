@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   DashboardChatIcon,
   DashboardCustomersIcon,
+  DashboardDebtsIcon,
   DashboardDriversIcon,
   DashboardEmployeesIcon,
   DashboardFinanceIcon,
@@ -14,7 +16,7 @@ import {
   DashboardPromotionsIcon,
   DashboardSettingsIcon
 } from "./dashboard-nav-icons";
-import { DashboardBrandLogo } from "./dashboard-brand-logo";
+import { DashboardBrandLogo, usePlatformBranding } from "./dashboard-brand-logo";
 
 type NavIcon = typeof DashboardHomeIcon;
 
@@ -36,6 +38,7 @@ const navItems: NavItem[] = [
   { href: "/employees", label: "الموظفون", mobileLabel: "الموظفون", icon: DashboardEmployeesIcon },
   { href: "/drivers-distribution", label: "توزع السائقين", mobileLabel: "السائقون", icon: DashboardDriversIcon },
   { href: "/finance", label: "المالية", mobileLabel: "المالية", icon: DashboardFinanceIcon },
+  { href: "/debts-dues", label: "الديون والمستحقات", mobileLabel: "الديون", icon: DashboardDebtsIcon },
   { href: "/settings", label: "الإعدادات", mobileLabel: "الإعدادات", icon: DashboardSettingsIcon }
 ];
 
@@ -52,6 +55,12 @@ function isNavActive(pathname: string, href: string): boolean {
 
 export const DashboardSidebar = () => {
   const pathname = usePathname();
+  const activeLinkRef = useRef<HTMLAnchorElement | null>(null);
+  const { ready, appName } = usePlatformBranding();
+
+  useEffect(() => {
+    activeLinkRef.current?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, [pathname]);
 
   return (
     <aside className="dashboard-sidebar">
@@ -60,8 +69,8 @@ export const DashboardSidebar = () => {
           <DashboardBrandLogo className="dashboard-sidebar__logoImage" priority />
         </div>
         <div>
-          <strong className="dashboard-sidebar__title">Taxi Bro</strong>
-          <p className="dashboard-sidebar__subtitle">لوحة تحكم Taxi Bro</p>
+          <strong className="dashboard-sidebar__title">{ready ? appName || "\u00A0" : "\u00A0"}</strong>
+          <p className="dashboard-sidebar__subtitle">{ready && appName ? `لوحة تحكم ${appName}` : "\u00A0"}</p>
         </div>
       </div>
       <nav className="dashboard-sidebar__nav" aria-label="القائمة الرئيسية">
@@ -72,6 +81,7 @@ export const DashboardSidebar = () => {
             <Link
               key={item.href}
               href={item.href}
+              ref={active ? activeLinkRef : undefined}
               className={`dashboard-sidebar__link${active ? " dashboard-sidebar__link--active" : ""}${item.nested ? " dashboard-sidebar__link--nested" : ""}`}
               aria-current={active ? "page" : undefined}
             >

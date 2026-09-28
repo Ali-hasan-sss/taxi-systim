@@ -4,12 +4,14 @@ import { OrderStatus, Role, VehicleKind } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
 import { normalizePhoneDigits } from "../../shared/phone";
+import { scheduleDriverDebtWorkSync } from "../../shared/driver-debt-block";
 
 export type DriverProfilePayload = {
   vehicleBrand?: string | null;
   vehicleKind?: VehicleKind | null;
   vehicleColor?: string | null;
   plateNumber?: string | null;
+  commissionDebtLimit?: number | null;
 };
 
 const IN_PROGRESS_ORDER_STATUSES: OrderStatus[] = [
@@ -68,7 +70,7 @@ export const usersService = {
         }
       : undefined;
 
-    return prisma.user.findMany({
+    const users = await prisma.user.findMany({
       where: {
         role: filters.role,
         isActive: filters.isActive,
@@ -90,7 +92,9 @@ export const usersService = {
             vehicleBrand: true,
             vehicleKind: true,
             vehicleColor: true,
-            vehicleNumber: true
+            vehicleNumber: true,
+            commissionDebtLimit: true,
+            balances: { select: { remainingDebt: true }, take: 1 }
           }
         },
         coordinator: {
@@ -98,6 +102,17 @@ export const usersService = {
         }
       },
       orderBy: { createdAt: "desc" }
+    });
+    return users.map((user) => {
+      if (!user.driver) return user;
+      const { balances, ...driver } = user.driver;
+      return {
+        ...user,
+        driver: {
+          ...driver,
+          remainingDebt: balances[0]?.remainingDebt?.toString() ?? "0.00"
+        }
+      };
     });
   },
 
@@ -281,16 +296,22 @@ export const usersService = {
           vehicleKind?: VehicleKind | null;
           vehicleColor?: string | null;
           vehicleNumber?: string | null;
+          commissionDebtLimit?: number | null;
         } = {};
         if (dp.vehicleBrand !== undefined) data.vehicleBrand = dp.vehicleBrand?.trim() || null;
         if (dp.vehicleKind !== undefined) data.vehicleKind = dp.vehicleKind;
         if (dp.vehicleColor !== undefined) data.vehicleColor = dp.vehicleColor?.trim() || null;
         if (dp.plateNumber !== undefined) data.vehicleNumber = dp.plateNumber?.trim() || null;
+        if (dp.commissionDebtLimit !== undefined) data.commissionDebtLimit = dp.commissionDebtLimit;
         if (Object.keys(data).length > 0) {
-          await prisma.driver.update({
+          const driver = await prisma.driver.update({
             where: { userId: updated.id },
-            data
+            data,
+            select: { id: true }
           });
+          if (dp.commissionDebtLimit !== undefined) {
+            scheduleDriverDebtWorkSync(driver.id, "limit");
+          }
         }
       }
     }

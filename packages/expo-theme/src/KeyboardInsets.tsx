@@ -156,7 +156,124 @@ type KeyboardStickyViewProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-/** @deprecated — غلاف عادي بدون margin إضافي */
-export function KeyboardStickyView({ children, style }: KeyboardStickyViewProps) {
-  return <View style={style}>{children}</View>;
+/**
+ * يرفع الشريط السفلي فوق الكيبورد (نفس فكرة KeyboardStickyView في react-native-keyboard-controller).
+ * يعمل في Expo Go والإنتاج دون وحدات أصلية إضافية.
+ */
+export function KeyboardStickyView({ children, offset, style }: KeyboardStickyViewProps) {
+  const cover = useKeyboardCover();
+  const extra = cover > 0 ? (offset?.opened ?? 0) : (offset?.closed ?? 0);
+  return <View style={[style, { marginBottom: cover + extra }]}>{children}</View>;
+}
+
+function isPlausibleImeHeight(height: number, windowHeight: number): boolean {
+  if (height < 80) return false;
+  // إطارات التخطيط على أندرويد ترسل أحياناً ارتفاع النافذة كلها وليست كيبورد
+  if (height >= windowHeight * 0.72) return false;
+  return true;
+}
+
+function keyboardCoverFromEvent(e: KeyboardEvent, windowHeight: number): number {
+  const imeHeight = e.endCoordinates.height;
+  if (Platform.OS === "ios") {
+    const cover = Math.max(0, Math.round(windowHeight - e.endCoordinates.screenY));
+    return cover >= windowHeight * 0.72 ? 0 : cover;
+  }
+  if (!isPlausibleImeHeight(imeHeight, windowHeight)) return 0;
+
+  const screenHeight = Dimensions.get("screen").height;
+  const windowTopOffset = Math.max(0, screenHeight - windowHeight);
+  const keyboardTopInWindow = e.endCoordinates.screenY - windowTopOffset;
+  const overlap = Math.max(0, windowHeight - keyboardTopInWindow);
+  if (overlap > 4) return Math.round(overlap);
+
+  const windowStillFull = windowHeight > screenHeight * 0.82;
+  if (windowStillFull) return Math.round(imeHeight);
+  return 0;
+}
+
+/** كم يغطي الكيبورد أسفل النافذة — 0 إذا نجح adjustResize وقلّص النافذة. */
+export function useKeyboardCover(): number {
+  const { height: windowHeight } = useWindowDimensions();
+  const [cover, setCover] = useState(0);
+  const coverRef = useRef(0);
+  const eventRef = useRef<KeyboardEvent | null>(null);
+  const shownRef = useRef(false);
+  const windowHeightRef = useRef(windowHeight);
+  windowHeightRef.current = windowHeight;
+
+  useEffect(() => {
+    const apply = (next: number) => {
+      const rounded = Math.max(0, Math.round(next));
+      if (Math.abs(rounded - coverRef.current) < 2) return;
+      coverRef.current = rounded;
+      setCover(rounded);
+    };
+
+    const applyFromEvent = (e: KeyboardEvent | null) => {
+      eventRef.current = e;
+      if (!e || !shownRef.current) {
+        apply(0);
+        return;
+      }
+      apply(keyboardCoverFromEvent(e, windowHeightRef.current));
+    };
+
+    if (Platform.OS === "ios") {
+      const onChange = Keyboard.addListener("keyboardWillChangeFrame", (e) => {
+        const next = keyboardCoverFromEvent(e, windowHeightRef.current);
+        shownRef.current = next > 0;
+        applyFromEvent(next > 0 ? e : null);
+      });
+      const onHide = Keyboard.addListener("keyboardWillHide", () => {
+        shownRef.current = false;
+        applyFromEvent(null);
+      });
+      return () => {
+        onChange.remove();
+        onHide.remove();
+      };
+    }
+
+    const onShow = Keyboard.addListener("keyboardDidShow", (e) => {
+      if (!isPlausibleImeHeight(e.endCoordinates.height, windowHeightRef.current)) return;
+      shownRef.current = true;
+      applyFromEvent(e);
+    });
+    const onHide = Keyboard.addListener("keyboardDidHide", () => {
+      shownRef.current = false;
+      applyFromEvent(null);
+    });
+    // بعد didShow فقط — وإلا إطارات فتح الشاشة تُحسب كيبورد وتعيد التخطيط بلا نهاية
+    const onChange = Keyboard.addListener("keyboardDidChangeFrame", (e) => {
+      if (!shownRef.current) return;
+      if (!isPlausibleImeHeight(e.endCoordinates.height, windowHeightRef.current)) {
+        shownRef.current = false;
+        applyFromEvent(null);
+        return;
+      }
+      applyFromEvent(e);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+      onChange.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!shownRef.current || !eventRef.current) {
+      if (coverRef.current !== 0) {
+        coverRef.current = 0;
+        setCover(0);
+      }
+      return;
+    }
+    const next = Math.max(0, Math.round(keyboardCoverFromEvent(eventRef.current, windowHeight)));
+    if (Math.abs(next - coverRef.current) < 2) return;
+    coverRef.current = next;
+    setCover(next);
+  }, [windowHeight]);
+
+  return cover;
 }

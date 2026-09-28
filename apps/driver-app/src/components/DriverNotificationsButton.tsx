@@ -16,6 +16,7 @@ import { fetchDriverNotifications, markDriverNotificationsRead } from "../lib/ap
 import { rtlText } from "../lib/rtl-text";
 import { getDriverSession } from "../lib/session";
 import { type DriverAppNotification, useDriverStore } from "../store";
+import { GlassIconCircle } from "./GlassIconCircle";
 
 function formatNotificationTime(iso: string): string {
   const date = new Date(iso);
@@ -37,6 +38,12 @@ function iconForType(type: string) {
       return "gift-outline" as const;
     case "FINE":
       return "alert-circle-outline" as const;
+    case "DEDUCTION":
+      return "remove-circle-outline" as const;
+    case "DEBT":
+      return "wallet-outline" as const;
+    case "CREDIT_PAYOUT":
+      return "cash-outline" as const;
     case "COMMISSION_PAID":
       return "cash-outline" as const;
     case "DISABLED":
@@ -44,6 +51,7 @@ function iconForType(type: string) {
       return "close-circle-outline" as const;
     case "ENABLED":
     case "DEBT_CLEARED":
+    case "DEBT_LIMIT_RAISED":
       return "checkmark-circle-outline" as const;
     case "DEBT_WARNING":
       return "warning-outline" as const;
@@ -70,7 +78,8 @@ export function DriverNotificationsButton() {
       borderRadius: 22,
       alignItems: "center" as const,
       justifyContent: "center" as const,
-      backgroundColor: "transparent"
+      backgroundColor: "transparent",
+      position: "relative" as const
     },
     iconWrap: {
       position: "relative" as const,
@@ -81,8 +90,8 @@ export function DriverNotificationsButton() {
     },
     badgeDot: {
       position: "absolute" as const,
-      top: -6,
-      end: -8,
+      top: 0,
+      end: 0,
       minWidth: 16,
       height: 16,
       paddingHorizontal: 3,
@@ -91,7 +100,8 @@ export function DriverNotificationsButton() {
       alignItems: "center" as const,
       justifyContent: "center" as const,
       borderWidth: 2,
-      borderColor: t.colors.badgeBorder
+      borderColor: t.colors.badgeBorder,
+      zIndex: 2
     },
     badgeText: {
       color: t.colors.badgeText,
@@ -266,14 +276,16 @@ export function DriverNotificationsButton() {
           accessibilityLabel="الإشعارات"
           hitSlop={8}
         >
-          <View style={styles.iconWrap}>
-            <Ionicons name="notifications-outline" size={22} color={theme.colors.text} />
-            {unreadCount > 0 ? (
-              <View style={styles.badgeDot}>
-                <Text style={styles.badgeText}>{unreadCount > 9 ? "9+" : String(unreadCount)}</Text>
-              </View>
-            ) : null}
-          </View>
+          <GlassIconCircle>
+            <View style={styles.iconWrap}>
+              <Ionicons name="notifications-outline" size={22} color={theme.colors.text} />
+            </View>
+          </GlassIconCircle>
+          {unreadCount > 0 ? (
+            <View style={styles.badgeDot}>
+              <Text style={styles.badgeText}>{unreadCount > 9 ? "9+" : String(unreadCount)}</Text>
+            </View>
+          ) : null}
         </Pressable>
       </View>
 

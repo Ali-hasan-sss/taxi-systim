@@ -172,6 +172,34 @@ export const ordersController = {
     }
   },
 
+  async driverDeductions(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const driver = await prisma.driver.findUnique({
+        where: { userId: req.auth!.userId },
+        select: { id: true }
+      });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+      const data = await accountingService.listDriverDeductions({ driverId: driver.id });
+      res.json(data);
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async driverDebts(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const driver = await prisma.driver.findUnique({
+        where: { userId: req.auth!.userId },
+        select: { id: true }
+      });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+      const data = await accountingService.listDriverExtraDebts({ driverId: driver.id });
+      res.json(data);
+    } catch (e) {
+      next(e);
+    }
+  },
+
   async driverCompensations(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const driver = await prisma.driver.findUnique({
@@ -180,6 +208,20 @@ export const ordersController = {
       });
       if (!driver) throw new AppError("ملف السائق غير موجود", 404);
       const data = await accountingService.listDriverCompensations({ driverId: driver.id });
+      res.json(data);
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async driverCommissions(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const driver = await prisma.driver.findUnique({
+        where: { userId: req.auth!.userId },
+        select: { id: true }
+      });
+      if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+      const data = await accountingService.listDriverCommissions({ driverId: driver.id });
       res.json(data);
     } catch (e) {
       next(e);

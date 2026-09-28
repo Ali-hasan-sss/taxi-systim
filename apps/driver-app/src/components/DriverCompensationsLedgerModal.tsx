@@ -254,7 +254,7 @@ export function DriverCompensationsLedgerModal({ open, onClose, onAuthFailure }:
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>سجل التعويضات</Text>
-            <Text style={styles.subtitle}>غير المستخدم يُحسب مرة واحدة، وبعد التسديد يصبح مستخدماً</Text>
+            <Text style={styles.subtitle}>سجل التعويضات للمراجعة. الناتج يظهر في الرصيد أو المترتب عليك</Text>
           </View>
 
           {loading ? (

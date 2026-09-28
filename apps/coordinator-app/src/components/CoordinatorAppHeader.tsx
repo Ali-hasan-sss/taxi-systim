@@ -1,8 +1,9 @@
+import { AppBrandMark, useBranding } from "@taxi/expo-branding";
 import { ThemeToggleRow, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Dimensions, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { coordinatorMe } from "../lib/api";
 import { shouldLoadExpoPushModule } from "../lib/push-environment";
@@ -11,12 +12,14 @@ import { rtlText } from "../lib/rtl-text";
 import { useWebInquiryRealtime } from "../lib/use-web-inquiry-realtime";
 import { WebInquiriesNavButton } from "./WebInquiriesNavButton";
 import { CustomersNavButton } from "./CustomersNavButton";
+import { GlassIconCircle } from "./GlassIconCircle";
 
 export function CoordinatorAppHeader() {
   useWebInquiryRealtime();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
+  const { ready, appName, logoSource } = useBranding();
   const avatarAnchorRef = useRef<View>(null);
   const [userMenuAnchor, setUserMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -36,7 +39,6 @@ export function CoordinatorAppHeader() {
       flexDirection: "row" as const,
       alignItems: "center" as const,
       justifyContent: "space-between" as const,
-      paddingHorizontal: 20,
       paddingBottom: 10,
       borderWidth: 0,
       backgroundColor: "rgba(0,0,0,0)",
@@ -44,11 +46,14 @@ export function CoordinatorAppHeader() {
       pointerEvents: "box-none" as const
     },
     logoCreamBox: {
-      justifyContent: "center" as const,
+      flex: 1,
+      minWidth: 0,
+      flexDirection: "row" as const,
+      justifyContent: "flex-start" as const,
       alignItems: "center" as const,
+      marginEnd: 8,
       backgroundColor: "transparent"
     },
-    brandLogo: { height: 28, width: 128, maxWidth: "100%" },
     topBarActions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10 },
     avatarAnchor: { justifyContent: "center" as const, alignItems: "center" as const },
     avatarBtn: { justifyContent: "center" as const, alignItems: "center" as const },
@@ -153,13 +158,23 @@ export function CoordinatorAppHeader() {
 
   return (
     <>
-      <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
+      <View
+        style={[
+          styles.topBar,
+          {
+            paddingTop: Math.max(insets.top, 12) + 8,
+            paddingLeft: Math.max(insets.left, 8),
+            paddingRight: Math.max(insets.right, 12)
+          }
+        ]}
+      >
         <View style={styles.logoCreamBox}>
-          <Image
-            source={require("../../assets/images/logo-removebg-preview.png")}
-            style={styles.brandLogo}
-            resizeMode="contain"
-            accessibilityLabel="منسق التكسي"
+          <AppBrandMark
+            ready={ready}
+            logoSource={logoSource}
+            appName={appName}
+            nameColor={theme.colors.text}
+            accessibilityLabel={appName || "منسق التكسي"}
           />
         </View>
         <View style={styles.topBarActions}>
@@ -168,7 +183,9 @@ export function CoordinatorAppHeader() {
           <View ref={avatarAnchorRef} collapsable={false} style={styles.avatarAnchor}>
             <Pressable onPress={openUserMenu} style={styles.avatarBtn} accessibilityRole="button" accessibilityLabel="قائمة الحساب" hitSlop={8}>
               <View style={styles.avatarCircle}>
-                <Ionicons name="person" size={20} color={theme.colors.text} />
+                <GlassIconCircle>
+                  <Ionicons name="person" size={20} color={theme.colors.text} />
+                </GlassIconCircle>
               </View>
             </Pressable>
           </View>

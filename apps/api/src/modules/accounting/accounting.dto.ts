@@ -20,6 +20,12 @@ export const recordDriverFineDto = z.object({
   notes: z.string().max(1000).optional()
 });
 
+export const recordDriverDeductionDto = z.object({
+  driverId: z.string().cuid(),
+  amount: z.number().positive().max(99_999_999.99),
+  reason: z.string().trim().min(2).max(1000)
+});
+
 export const listDriverFinesQueryDto = z.object({
   driverId: z.string().cuid().optional(),
   from: ymdField.optional(),
@@ -65,4 +71,27 @@ export const settleFilteredCommissionsDto = z.object({
 export const settleDriverBalanceDto = z.object({
   driverId: z.string().cuid(),
   notes: z.string().optional()
+});
+
+export const prepaidTopupDto = z.object({
+  driverId: z.string().cuid(),
+  amount: z.number().positive().max(99_999_999.99),
+  notes: z.string().max(1000).optional()
+});
+
+export const recordDriverExtraDebtDto = z.object({
+  driverId: z.string().cuid(),
+  amount: z.number().positive().max(99_999_999.99),
+  reason: z.string().max(1000).optional()
+});
+
+export const recordDriverDueCreditDto = z.object({
+  driverId: z.string().cuid(),
+  amount: z.number().positive().max(99_999_999.99),
+  reason: z.string().trim().min(2).max(1000)
+});
+
+export const payoutDriverCreditDto = z.object({
+  driverId: z.string().cuid(),
+  notes: z.string().max(1000).optional()
 });

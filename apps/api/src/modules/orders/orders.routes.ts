@@ -7,7 +7,10 @@ export const ordersRouter = Router();
 
 ordersRouter.get("/driver/stats", requireAuth, requireRole("DRIVER"), ordersController.driverOrderStats);
 ordersRouter.get("/driver/fines", requireAuth, requireRole("DRIVER"), ordersController.driverFines);
+ordersRouter.get("/driver/deductions", requireAuth, requireRole("DRIVER"), ordersController.driverDeductions);
+ordersRouter.get("/driver/debts", requireAuth, requireRole("DRIVER"), ordersController.driverDebts);
 ordersRouter.get("/driver/compensations", requireAuth, requireRole("DRIVER"), ordersController.driverCompensations);
+ordersRouter.get("/driver/commissions", requireAuth, requireRole("DRIVER"), ordersController.driverCommissions);
 ordersRouter.get("/driver/room", requireAuth, requireRole("DRIVER"), ordersController.driverOrderRoom);
 ordersRouter.get("/driver/reports", requireAuth, requireRole("DRIVER"), ordersController.driverReport);
 ordersRouter.get("/driver/orders", requireAuth, requireRole("DRIVER"), ordersController.listDriverOrders);

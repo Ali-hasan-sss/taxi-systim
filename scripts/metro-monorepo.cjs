@@ -27,6 +27,7 @@ function applyMonorepoMetroConfig(config, projectRoot) {
     "react-native": packageRootFrom(projectRoot, "react-native"),
     "@taxi/expo-theme": path.resolve(monorepoRoot, "packages/expo-theme"),
     "@taxi/expo-api-base": path.resolve(monorepoRoot, "packages/expo-api-base"),
+    "@taxi/expo-branding": path.resolve(monorepoRoot, "packages/expo-branding"),
     "@taxi/expo-push": path.resolve(monorepoRoot, "packages/expo-push"),
     "react-native-reanimated": path.resolve(monorepoRoot, "scripts/metro-stubs/react-native-reanimated"),
     "react-native-worklets": path.resolve(monorepoRoot, "scripts/metro-stubs/react-native-worklets")

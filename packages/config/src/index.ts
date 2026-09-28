@@ -18,6 +18,8 @@ export const socketEvents = {
   DRIVER_FORCE_OFFLINE: "DRIVER_FORCE_OFFLINE",
   /** المبلغ المترتب انخفض تحت حد الإيقاف — يمكن للسائق العودة للعمل */
   DRIVER_DEBT_CLEARED: "DRIVER_DEBT_CLEARED",
+  /** تغيّر رصيد/غرامات/خصومات/تعويضات السائق — لتحديث الرئيسية فورًا */
+  DRIVER_FINANCE_UPDATED: "DRIVER_FINANCE_UPDATED",
   /** إشعار داخل التطبيق للسائق */
   DRIVER_NOTIFICATION: "DRIVER_NOTIFICATION",
   /** رسالة محادثة جديدة في غرفة */

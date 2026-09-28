@@ -18,6 +18,7 @@ export {
   KeyboardAvoidingView,
   KeyboardStickyView,
   useKeyboardBottomInset,
+  useKeyboardCover,
   useKeyboardOpen
 } from "./KeyboardInsets";
 export { ThemeToggleRow } from "./ThemeToggleRow";

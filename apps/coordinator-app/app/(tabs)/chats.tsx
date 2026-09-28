@@ -1,7 +1,7 @@
 import { useTheme, useThemedStyles, ChatPeerAvatar } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
 import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io } from "socket.io-client";
@@ -24,6 +24,9 @@ export default function ChatTab() {
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const unreadByRoom = useCoordinatorStore((s) => s.unreadByRoom);
   const chatPreviewByRoom = useCoordinatorStore((s) => s.chatPreviewByRoom);
+  const loadInFlightRef = useRef(false);
+  const lastLoadAtRef = useRef(0);
+  const hasRoomsRef = useRef(false);
 
   const styles = useThemedStyles((t) => ({
     root: { flex: 1, backgroundColor: "transparent", direction: "rtl" as const },
@@ -85,13 +88,20 @@ export default function ChatTab() {
   }));
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadInFlightRef.current) return;
+    const now = Date.now();
+    if (now - lastLoadAtRef.current < 1500) return;
+    loadInFlightRef.current = true;
+    lastLoadAtRef.current = now;
+    if (!hasRoomsRef.current) setLoading(true);
     try {
       const data = await listChatRooms();
+      hasRoomsRef.current = true;
       setRooms(data);
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر تحميل المحادثات");
     } finally {
+      loadInFlightRef.current = false;
       setLoading(false);
     }
   }, []);

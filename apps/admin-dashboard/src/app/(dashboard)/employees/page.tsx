@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell } from "lucide-react";
+import { Bell, ChevronDown } from "lucide-react";
 import { api, type Employee, type VehicleKind } from "../../../lib/api";
 import { useDebouncedSearch } from "../../../lib/use-debounced-value";
 import {
@@ -13,6 +13,7 @@ import {
 } from "../../../lib/parse-drivers-excel";
 
 type RoleFilter = "ALL" | "ADMIN" | "COORDINATOR" | "DRIVER";
+type MoneyFormKind = "debt" | "credit" | "fine" | "deduction";
 
 const roleText: Record<Employee["role"], string> = {
   ADMIN: "أدمن",
@@ -37,6 +38,18 @@ function formatDriverVehicleRow(item: Employee): string {
   return parts.length ? parts.join(" · ") : "—";
 }
 
+function formatMoney(value: string | number): string {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return new Intl.NumberFormat("ar-SY", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+}
+
+function prepaidCredit(value: string | number | null | undefined): number {
+  const n = typeof value === "number" ? value : Number(value ?? 0);
+  if (!Number.isFinite(n) || n >= 0) return 0;
+  return Math.round(-n * 100) / 100;
+}
+
 function downloadBlobFile(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -46,6 +59,97 @@ function downloadBlobFile(blob: Blob, filename: string) {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+function EmployeeRowActions({
+  item,
+  open,
+  deleting,
+  showTopup,
+  onToggle,
+  onEdit,
+  onDelete,
+  onTopup,
+  onAddDebt,
+  onAddCredit,
+  onAddFine,
+  onAddDeduction
+}: {
+  item: Employee;
+  open: boolean;
+  deleting: boolean;
+  showTopup: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onTopup: () => void;
+  onAddDebt: () => void;
+  onAddCredit: () => void;
+  onAddFine: () => void;
+  onAddDeduction: () => void;
+}) {
+  const isDriver = item.role === "DRIVER" && Boolean(item.driver?.id);
+  return (
+    <div className={`employees-actions${open ? " employees-actions--open" : ""}`}>
+      <button
+        type="button"
+        className="btn btn-sm employees-actions__trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`إجراءات ${item.fullName}`}
+        onClick={onToggle}
+      >
+        إجراءات
+        <ChevronDown
+          size={16}
+          className={`employees-actions__chevron${open ? " employees-actions__chevron--open" : ""}`}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div className="employees-actions__menu" role="menu">
+          <Link href={`/employees/${item.id}`} className="employees-actions__item" role="menuitem">
+            عرض التفاصيل
+          </Link>
+          <button type="button" className="employees-actions__item" role="menuitem" onClick={onEdit}>
+            تعديل
+          </button>
+          {isDriver ? (
+            <>
+              <div className="employees-actions__sep" />
+              {showTopup ? (
+                <button type="button" className="employees-actions__item" role="menuitem" onClick={onTopup}>
+                  شحن رصيد
+                </button>
+              ) : null}
+              <button type="button" className="employees-actions__item" role="menuitem" onClick={onAddDebt}>
+                إضافة دين
+              </button>
+              <button type="button" className="employees-actions__item" role="menuitem" onClick={onAddDeduction}>
+                إضافة خصم
+              </button>
+              <button type="button" className="employees-actions__item" role="menuitem" onClick={onAddFine}>
+                إضافة غرامة
+              </button>
+              <button type="button" className="employees-actions__item" role="menuitem" onClick={onAddCredit}>
+                إضافة مبلغ
+              </button>
+            </>
+          ) : null}
+          <div className="employees-actions__sep" />
+          <button
+            type="button"
+            className="employees-actions__item employees-actions__item--danger"
+            role="menuitem"
+            disabled={deleting}
+            onClick={onDelete}
+          >
+            {deleting ? "جاري..." : "حذف"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function PushTokenBell({ item }: { item: Employee }) {
@@ -93,6 +197,19 @@ export default function EmployeesPage() {
   const [vehicleKind, setVehicleKind] = useState<"" | VehicleKind>("");
   const [vehicleColor, setVehicleColor] = useState("");
   const [plateNumber, setPlateNumber] = useState("");
+  const [commissionDebtLimit, setCommissionDebtLimit] = useState("");
+  const [globalDebtLimit, setGlobalDebtLimit] = useState("2000");
+  const [paymentMode, setPaymentMode] = useState<"POSTPAID" | "PREPAID">("POSTPAID");
+  const [topupDriver, setTopupDriver] = useState<Employee | null>(null);
+  const [topupAmount, setTopupAmount] = useState("");
+  const [topupNotes, setTopupNotes] = useState("");
+  const [topupSaving, setTopupSaving] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [moneyForm, setMoneyForm] = useState<{ kind: MoneyFormKind; employee: Employee } | null>(null);
+  const [moneyAmount, setMoneyAmount] = useState("");
+  const [moneyReason, setMoneyReason] = useState("");
+  const [moneySaving, setMoneySaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const token = useMemo(() => {
     const raw = typeof window !== "undefined" ? localStorage.getItem("taxi_admin_session") : null;
@@ -135,6 +252,37 @@ export default function EmployeesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roleFilter, searchQuery]);
 
+  useEffect(() => {
+    if (!openMenuId) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!(target instanceof Element) || !target.closest(".employees-actions")) {
+        setOpenMenuId(null);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenMenuId(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openMenuId]);
+
+  useEffect(() => {
+    if (!token) return;
+    void api.getCommissionSettings(token).then((setting) => {
+      if (setting?.commissionDebtLimit != null) setGlobalDebtLimit(String(setting.commissionDebtLimit));
+      if (setting?.paymentMode === "PREPAID" || setting?.paymentMode === "POSTPAID") {
+        setPaymentMode(setting.paymentMode);
+      }
+    }).catch(() => {
+      /* يبقى التلميح على القيمة الافتراضية */
+    });
+  }, [token]);
+
   const resetForm = () => {
     setEditId(null);
     setName("");
@@ -146,15 +294,28 @@ export default function EmployeesPage() {
     setVehicleKind("");
     setVehicleColor("");
     setPlateNumber("");
+    setCommissionDebtLimit("");
     setShowModal(false);
   };
 
-  const driverProfilePayload = () => ({
-    vehicleBrand: vehicleBrand.trim() || null,
-    vehicleKind: vehicleKind === "" ? null : vehicleKind,
-    vehicleColor: vehicleColor.trim() || null,
-    plateNumber: plateNumber.trim() || null
-  });
+  const driverProfilePayload = () => {
+    const trimmedLimit = commissionDebtLimit.trim().replace(",", ".");
+    let parsedLimit: number | null = null;
+    if (editId && role === "DRIVER" && trimmedLimit) {
+      const value = Number(trimmedLimit);
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error("الحد الأعلى للمبلغ المترتب يجب أن يكون رقمًا صالحًا غير سالب، أو فارغًا لاستخدام الحد العام.");
+      }
+      parsedLimit = value;
+    }
+    return {
+      vehicleBrand: vehicleBrand.trim() || null,
+      vehicleKind: vehicleKind === "" ? null : vehicleKind,
+      vehicleColor: vehicleColor.trim() || null,
+      plateNumber: plateNumber.trim() || null,
+      ...(editId && role === "DRIVER" ? { commissionDebtLimit: parsedLimit } : {})
+    };
+  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -169,6 +330,14 @@ export default function EmployeesPage() {
     }
     setSaving(true);
     setError(null);
+    let profile: ReturnType<typeof driverProfilePayload>;
+    try {
+      profile = driverProfilePayload();
+    } catch (err) {
+      setSaving(false);
+      setError(err instanceof Error ? err.message : "حد المبلغ المترتب غير صالح.");
+      return;
+    }
     try {
       if (editId) {
         const patch: Parameters<typeof api.updateEmployee>[2] = {
@@ -183,7 +352,7 @@ export default function EmployeesPage() {
           patch.phone = phone.trim();
         }
         if (role === "DRIVER") {
-          patch.driverProfile = driverProfilePayload();
+          patch.driverProfile = profile;
         }
         await api.updateEmployee(token, editId, patch);
       } else if (role === "ADMIN") {
@@ -200,7 +369,7 @@ export default function EmployeesPage() {
           phone: phone.trim(),
           password,
           role,
-          ...(role === "DRIVER" ? { driverProfile: driverProfilePayload() } : {})
+          ...(role === "DRIVER" ? { driverProfile: profile } : {})
         });
       }
       resetForm();
@@ -219,6 +388,7 @@ export default function EmployeesPage() {
   };
 
   const startEdit = (item: Employee) => {
+    setOpenMenuId(null);
     setEditId(item.id);
     setName(item.fullName);
     setEmail(item.email ?? "");
@@ -230,6 +400,9 @@ export default function EmployeesPage() {
     setVehicleKind(d?.vehicleKind ?? "");
     setVehicleColor(d?.vehicleColor?.trim() ?? "");
     setPlateNumber(d?.vehicleNumber?.trim() ?? "");
+    setCommissionDebtLimit(
+      d?.commissionDebtLimit == null || d.commissionDebtLimit === "" ? "" : String(d.commissionDebtLimit)
+    );
     setShowModal(true);
   };
 
@@ -318,6 +491,7 @@ export default function EmployeesPage() {
 
   const onDelete = async (item: Employee) => {
     if (!token) return;
+    setOpenMenuId(null);
     if (!confirm(`هل أنت متأكد من حذف الموظف ${item.fullName}؟`)) return;
     setRowLoadingId(item.id);
     try {
@@ -333,6 +507,138 @@ export default function EmployeesPage() {
       setError(message);
     } finally {
       setRowLoadingId(null);
+    }
+  };
+
+  const resetTopup = () => {
+    setTopupDriver(null);
+    setTopupAmount("");
+    setTopupNotes("");
+    setTopupSaving(false);
+  };
+
+  const openMoneyForm = (kind: MoneyFormKind, employee: Employee) => {
+    setOpenMenuId(null);
+    setError(null);
+    setNotice(null);
+    setMoneyAmount("");
+    setMoneyReason("");
+    setMoneyForm({ kind, employee });
+  };
+
+  const resetMoneyForm = () => {
+    if (moneySaving) return;
+    setMoneyForm(null);
+    setMoneyAmount("");
+    setMoneyReason("");
+  };
+
+  const submitMoneyForm = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !moneyForm?.employee.driver?.id) return;
+    const amount = Number(moneyAmount.trim().replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("أدخل مبلغاً صالحاً أكبر من صفر.");
+      return;
+    }
+    const reason = moneyReason.trim();
+    if (moneyForm.kind === "deduction" && reason.length < 2) {
+      setError("اكتب سبب الخصم.");
+      return;
+    }
+    if (moneyForm.kind === "credit" && reason.length < 2) {
+      setError("اكتب سبب إضافة المبلغ.");
+      return;
+    }
+    setMoneySaving(true);
+    setError(null);
+    try {
+      if (moneyForm.kind === "debt") {
+        const result = await api.recordDriverExtraDebt(token, {
+          driverId: moneyForm.employee.driver.id,
+          amount,
+          reason: reason || undefined
+        });
+        if (result.paidFromCredit > 0 && result.remainingExtraDebt > 0) {
+          setNotice(
+            `تم دفع مبلغ ${formatMoney(result.paidFromCredit)} ل.س من رصيد ${moneyForm.employee.fullName} وبقي يترتب عليه ${formatMoney(result.remainingExtraDebt)} ل.س.`
+          );
+        } else if (result.paidFromCredit > 0) {
+          setNotice(
+            `تم دفع مبلغ ${formatMoney(result.paidFromCredit)} ل.س من رصيد ${moneyForm.employee.fullName} ولم يبقَ دين.`
+          );
+        } else {
+          setNotice(
+            `تم إضافة دين بقيمة ${formatMoney(amount)} ل.س على ${moneyForm.employee.fullName}. باقي الديون ${formatMoney(result.remainingExtraDebt)} ل.س.`
+          );
+        }
+      } else if (moneyForm.kind === "fine") {
+        await api.recordDriverFine(token, {
+          driverId: moneyForm.employee.driver.id,
+          amount,
+          notes: reason || undefined
+        });
+        setNotice(`تم تسجيل غرامة بقيمة ${formatMoney(amount)} ل.س على ${moneyForm.employee.fullName}.`);
+      } else if (moneyForm.kind === "deduction") {
+        await api.recordDriverDeduction(token, {
+          driverId: moneyForm.employee.driver.id,
+          amount,
+          reason
+        });
+        setNotice(`تم خصم ${formatMoney(amount)} ل.س من ${moneyForm.employee.fullName}.`);
+      } else {
+        await api.recordDriverDueCredit(token, {
+          driverId: moneyForm.employee.driver.id,
+          amount,
+          reason
+        });
+        setNotice(`تم إضافة مبلغ ${formatMoney(amount)} ل.س لـ ${moneyForm.employee.fullName} ليُخصم من العمولات.`);
+      }
+      setMoneyForm(null);
+      setMoneyAmount("");
+      setMoneyReason("");
+      await loadEmployees();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر حفظ العملية";
+      if (message === "SESSION_EXPIRED") {
+        localStorage.removeItem("taxi_admin_session");
+        router.replace("/login");
+        return;
+      }
+      setError(message);
+    } finally {
+      setMoneySaving(false);
+    }
+  };
+
+  const submitTopup = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !topupDriver?.driver?.id) return;
+    const amount = Number(topupAmount.trim().replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("أدخل مبلغ شحن صالحًا أكبر من صفر.");
+      return;
+    }
+    setTopupSaving(true);
+    setError(null);
+    try {
+      await api.prepaidTopup(token, {
+        driverId: topupDriver.driver.id,
+        amount,
+        notes: topupNotes.trim() || undefined
+      });
+      resetTopup();
+      await loadEmployees();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "فشل شحن رصيد السائق";
+      if (message === "SESSION_EXPIRED") {
+        localStorage.removeItem("taxi_admin_session");
+        router.replace("/login");
+        return;
+      }
+      setError(message);
+    } finally {
+      setTopupSaving(false);
     }
   };
 
@@ -414,6 +720,7 @@ export default function EmployeesPage() {
         </div>
 
         {error ? <p className="form-error">{error}</p> : null}
+        {notice ? <p className="employees-notice">{notice}</p> : null}
         {loading ? (
           <p className="loading-row">
             <span className="spinner" aria-hidden />
@@ -430,6 +737,7 @@ export default function EmployeesPage() {
                   <th>الدور</th>
                   <th>إشعارات</th>
                   <th>المركبة (سائق)</th>
+                  {paymentMode === "PREPAID" ? <th>الرصيد المسبق</th> : null}
                   <th>الحالة</th>
                   <th>الإجراءات</th>
                 </tr>
@@ -445,6 +753,13 @@ export default function EmployeesPage() {
                       <PushTokenBell item={item} />
                     </td>
                     <td className="employees-vehicle-cell">{formatDriverVehicleRow(item)}</td>
+                    {paymentMode === "PREPAID" ? (
+                      <td>
+                        {item.role === "DRIVER"
+                          ? `${formatMoney(prepaidCredit(item.driver?.remainingDebt))} ل.س`
+                          : "—"}
+                      </td>
+                    ) : null}
                     <td>
                       <label className="switch-row">
                         <button
@@ -460,15 +775,24 @@ export default function EmployeesPage() {
                       </label>
                     </td>
                     <td className="cell-actions">
-                      <Link href={`/employees/${item.id}`} className="btn btn-sm">
-                        عرض التفاصيل
-                      </Link>
-                      <button type="button" className="btn btn-sm" onClick={() => startEdit(item)}>
-                        تعديل
-                      </button>
-                      <button type="button" className="btn btn-sm" disabled={rowLoadingId === item.id} onClick={() => void onDelete(item)}>
-                        {rowLoadingId === item.id ? "جاري..." : "حذف"}
-                      </button>
+                      <EmployeeRowActions
+                        item={item}
+                        open={openMenuId === item.id}
+                        deleting={rowLoadingId === item.id}
+                        showTopup={paymentMode === "PREPAID"}
+                        onToggle={() => setOpenMenuId((prev) => (prev === item.id ? null : item.id))}
+                        onEdit={() => startEdit(item)}
+                        onDelete={() => void onDelete(item)}
+                        onTopup={() => {
+                          setOpenMenuId(null);
+                          setError(null);
+                          setTopupDriver(item);
+                        }}
+                        onAddDebt={() => openMoneyForm("debt", item)}
+                        onAddCredit={() => openMoneyForm("credit", item)}
+                        onAddFine={() => openMoneyForm("fine", item)}
+                        onAddDeduction={() => openMoneyForm("deduction", item)}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -553,6 +877,24 @@ export default function EmployeesPage() {
                       value={vehicleColor}
                       onChange={(e) => setVehicleColor(e.target.value)}
                     />
+                    {editId && paymentMode === "POSTPAID" ? (
+                      <label className="settings-field" style={{ gridColumn: "1 / -1" }}>
+                        <span>الحد الأعلى للمبلغ المترتب قبل الإيقاف</span>
+                        <input
+                          className="input-styled"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder={`فارغ = الحد العام (${globalDebtLimit})`}
+                          value={commissionDebtLimit}
+                          onChange={(e) => setCommissionDebtLimit(e.target.value)}
+                        />
+                        <span className="settings-card__hint">
+                          اتركه فارغًا ليُستخدم الحد العام من إعدادات المنصة ({globalDebtLimit} ل.س). أي رقم هنا يرفع أو يخفض حد هذا السائق فقط.
+                          عند تجاوز الحد يُوقف فورًا، ويعود للعمل مباشرة بعد التسديد.
+                        </span>
+                      </label>
+                    ) : null}
                     <input
                       className="input-styled"
                       placeholder="رقم اللوحة"
@@ -698,6 +1040,132 @@ export default function EmployeesPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {topupDriver ? (
+        <div className="modal-backdrop" onClick={resetTopup} role="presentation">
+          <div className="card modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="modal-panel__header">
+              <h3>شحن رصيد {topupDriver.fullName}</h3>
+              <button type="button" className="btn btn-ghost" onClick={resetTopup}>
+                إغلاق
+              </button>
+            </div>
+            <form className="modal-form" onSubmit={submitTopup}>
+              <p className="settings-card__hint">
+                الرصيد الحالي: {formatMoney(prepaidCredit(topupDriver.driver?.remainingDebt))} ل.س. الشحن يُخزَّن كعمولة
+                سالبة ويظهر للسائق كرصيد موجب، وينقص مع كل عمولة حتى يصل إلى 0 فيُوقف عن العمل.
+              </p>
+              <input
+                className="input-styled"
+                inputMode="decimal"
+                value={topupAmount}
+                onChange={(e) => setTopupAmount(e.target.value)}
+                placeholder="مبلغ الشحن"
+                required
+              />
+              <textarea
+                className="input-styled"
+                value={topupNotes}
+                onChange={(e) => setTopupNotes(e.target.value)}
+                placeholder="ملاحظات (اختياري)"
+                rows={3}
+              />
+              <div className="modal-form__actions">
+                <button className="btn btn-primary" type="submit" disabled={topupSaving}>
+                  {topupSaving ? "جاري الشحن..." : "شحن الرصيد"}
+                </button>
+                <button className="btn" type="button" onClick={resetTopup} disabled={topupSaving}>
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {moneyForm ? (
+        <div className="modal-backdrop" onClick={resetMoneyForm} role="presentation">
+          <div className="card modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="modal-panel__header">
+              <h3>
+                {moneyForm.kind === "debt"
+                  ? `إضافة دين لـ ${moneyForm.employee.fullName}`
+                  : moneyForm.kind === "fine"
+                    ? `إضافة غرامة لـ ${moneyForm.employee.fullName}`
+                    : moneyForm.kind === "deduction"
+                      ? `إضافة خصم لـ ${moneyForm.employee.fullName}`
+                      : `إضافة مبلغ لـ ${moneyForm.employee.fullName}`}
+              </h3>
+              <button type="button" className="btn btn-ghost" onClick={resetMoneyForm} disabled={moneySaving}>
+                إغلاق
+              </button>
+            </div>
+            <form className="modal-form" onSubmit={submitMoneyForm}>
+              <p className="settings-card__hint">
+                {moneyForm.kind === "debt"
+                  ? "إذا كان للسائق رصيد يُخصم أولاً، ويظهر المتبقي كباقي دين في خانة الديون. سبب الدين اختياري."
+                  : moneyForm.kind === "fine"
+                    ? "تُضاف الغرامة إلى المترتب على السائق، ويصل إشعار إليه. الملاحظات اختيارية."
+                    : moneyForm.kind === "deduction"
+                      ? "يُضاف الخصم إلى المترتب على السائق مع سبب واضح، ويصل إشعار إليه."
+                      : "يُضاف المبلغ ليُخصم من عمولات السائق، ويظهر كمستحق إذا تجاوز المترتب، مع إشعار للسائق."}
+                {moneyForm.employee.driver?.remainingDebt != null
+                  ? ` المترتب الحالي: ${formatMoney(moneyForm.employee.driver.remainingDebt)} ل.س.`
+                  : ""}
+              </p>
+              {error ? <p className="form-error">{error}</p> : null}
+              <input
+                className="input-styled"
+                inputMode="decimal"
+                value={moneyAmount}
+                onChange={(e) => setMoneyAmount(e.target.value)}
+                placeholder={
+                  moneyForm.kind === "debt"
+                    ? "قيمة الدين"
+                    : moneyForm.kind === "fine"
+                      ? "قيمة الغرامة"
+                      : moneyForm.kind === "deduction"
+                        ? "قيمة الخصم"
+                        : "قيمة المبلغ"
+                }
+                required
+              />
+              <textarea
+                className="input-styled"
+                value={moneyReason}
+                onChange={(e) => setMoneyReason(e.target.value)}
+                placeholder={
+                  moneyForm.kind === "debt"
+                    ? "سبب الدين (اختياري)"
+                    : moneyForm.kind === "fine"
+                      ? "سبب الغرامة (اختياري)"
+                      : moneyForm.kind === "deduction"
+                        ? "سبب الخصم"
+                        : "سبب إضافة المبلغ"
+                }
+                rows={3}
+                required={moneyForm.kind === "credit" || moneyForm.kind === "deduction"}
+              />
+              <div className="modal-form__actions">
+                <button className="btn btn-primary" type="submit" disabled={moneySaving}>
+                  {moneySaving
+                    ? "جارٍ الحفظ..."
+                    : moneyForm.kind === "debt"
+                      ? "حفظ الدين"
+                      : moneyForm.kind === "fine"
+                        ? "حفظ الغرامة"
+                        : moneyForm.kind === "deduction"
+                          ? "حفظ الخصم"
+                          : "حفظ المبلغ"}
+                </button>
+                <button className="btn" type="button" onClick={resetMoneyForm} disabled={moneySaving}>
+                  إلغاء
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

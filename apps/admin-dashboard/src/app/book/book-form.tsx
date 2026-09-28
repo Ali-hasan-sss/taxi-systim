@@ -1,15 +1,15 @@
 "use client";
 
-import Image from "next/image";
 import { FormEvent, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import appLogo from "../../../../coordinator-app/assets/images/logo-removebg-preview.png";
+import { DashboardBrandLogo, usePlatformBranding } from "../../components/dashboard-brand-logo";
 import styles from "./book.module.css";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
 
 export default function PublicBookPage() {
   const searchParams = useSearchParams();
+  const { ready, appName } = usePlatformBranding();
   const promoCode = useMemo(() => searchParams.get("promo")?.trim() || "", [searchParams]);
   const [customerPhone, setCustomerPhone] = useState("");
   const [pickupAddress, setPickupAddress] = useState("");
@@ -53,9 +53,9 @@ export default function PublicBookPage() {
     <main className={styles.page}>
       <div className={styles.card}>
         <div className={styles.logoWrap}>
-          <Image src={appLogo} alt="Taxi Bro" className={styles.logo} priority />
+          <DashboardBrandLogo className={styles.logo} />
         </div>
-        <h1 className={styles.title}>اطلب تاكسي من Taxi Bro</h1>
+        <h1 className={styles.title}>{ready ? (appName ? `اطلب تاكسي من ${appName}` : "اطلب تاكسي") : "\u00A0"}</h1>
         <p className={styles.subtitle}>أدخل بياناتك وسيتواصل معك المنسق فورًا لتأكيد الطلب.</p>
         {promoCode ? <p className={styles.subtitle}>عرض مفعّل عبر الرابط: {promoCode}</p> : null}
 

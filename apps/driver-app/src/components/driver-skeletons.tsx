@@ -82,15 +82,21 @@ export function DriverHomeSkeleton() {
       borderColor: t.colors.border,
       alignItems: "flex-end" as const
     },
-    statWide: {
-      width: "100%" as const,
+    compactStat: {
+      flex: 1,
       backgroundColor: t.colors.surfaceCard,
-      borderRadius: 18,
-      padding: 16,
+      borderRadius: 14,
+      paddingVertical: 10,
+      paddingHorizontal: 8,
       borderWidth: 1,
       borderColor: t.colors.border,
       alignItems: "flex-end" as const
-    }
+    },
+    tripleRow: {
+      width: "100%" as const,
+      flexDirection: "row-reverse" as const,
+      gap: 8
+    },
   }));
 
   return (
@@ -112,10 +118,19 @@ export function DriverHomeSkeleton() {
           <SkeletonBone width={110} height={12} style={{ marginTop: 10 }} />
           <SkeletonBone width={90} height={10} style={{ marginTop: 8 }} />
         </View>
-        <View style={styles.statWide}>
-          <SkeletonBone width={88} height={26} />
-          <SkeletonBone width={130} height={12} style={{ marginTop: 10 }} />
-          <SkeletonBone width={100} height={10} style={{ marginTop: 8 }} />
+        <View style={styles.tripleRow}>
+          <View style={styles.compactStat}>
+            <SkeletonBone width={48} height={18} />
+            <SkeletonBone width={54} height={10} style={{ marginTop: 8 }} />
+          </View>
+          <View style={styles.compactStat}>
+            <SkeletonBone width={48} height={18} />
+            <SkeletonBone width={54} height={10} style={{ marginTop: 8 }} />
+          </View>
+          <View style={styles.compactStat}>
+            <SkeletonBone width={48} height={18} />
+            <SkeletonBone width={54} height={10} style={{ marginTop: 8 }} />
+          </View>
         </View>
       </View>
     </SkeletonGroup>

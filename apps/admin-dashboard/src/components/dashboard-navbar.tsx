@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { DashboardBrandLogo } from "./dashboard-brand-logo";
+import { DashboardBrandLogo, usePlatformBranding } from "./dashboard-brand-logo";
 
 interface DashboardNavbarProps {
   title: string;
@@ -18,6 +18,7 @@ const LogoutIcon = () => (
 
 export const DashboardNavbar = ({ title, subtitle }: DashboardNavbarProps) => {
   const router = useRouter();
+  const { ready, appName } = usePlatformBranding();
 
   const logout = () => {
     localStorage.removeItem("taxi_admin_session");
@@ -31,6 +32,7 @@ export const DashboardNavbar = ({ title, subtitle }: DashboardNavbarProps) => {
           <DashboardBrandLogo className="dashboard-navbar__brandLogoImage" />
         </div>
         <div className="dashboard-navbar__titles">
+          {ready && appName ? <p className="dashboard-navbar__appName">{appName}</p> : null}
           <h1 className="dashboard-navbar__title">{title}</h1>
           {subtitle ? <p className="dashboard-navbar__subtitle">{subtitle}</p> : null}
         </div>

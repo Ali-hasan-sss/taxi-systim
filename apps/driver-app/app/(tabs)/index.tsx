@@ -1,9 +1,12 @@
 import { themedRefreshProps, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { DriverCommissionsLedgerModal } from "../../src/components/DriverCommissionsLedgerModal";
 import { DriverCompensationsLedgerModal } from "../../src/components/DriverCompensationsLedgerModal";
+import { DriverDebtsLedgerModal } from "../../src/components/DriverDebtsLedgerModal";
+import { DriverDeductionsLedgerModal } from "../../src/components/DriverDeductionsLedgerModal";
 import { DriverFinesLedgerModal } from "../../src/components/DriverFinesLedgerModal";
 import { DriverHomeSkeleton } from "../../src/components/driver-skeletons";
 import { DriverTabScreen } from "../../src/components/DriverScreenBackground";
@@ -23,7 +26,11 @@ const emptyStats: DriverOrderStats = {
   unpaidCommissionAmount: 0,
   compensationAmount: 0,
   fineAmount: 0,
-  amountOwed: 0
+  deductionAmount: 0,
+  extraDebtAmount: 0,
+  amountOwed: 0,
+  commissionDebtLimit: 0,
+  paymentMode: "POSTPAID"
 };
 
 function formatMoney(value: number) {
@@ -37,7 +44,9 @@ function StatCard({
   accent,
   onPress,
   pressHint,
-  wide
+  wide,
+  compact,
+  hideValue
 }: {
   label: string;
   detail?: string;
@@ -46,6 +55,8 @@ function StatCard({
   onPress?: () => void;
   pressHint?: string;
   wide?: boolean;
+  compact?: boolean;
+  hideValue?: boolean;
 }) {
   const styles = useThemedStyles((t) => ({
     statCard: {
@@ -62,12 +73,27 @@ function StatCard({
       shadowRadius: 12,
       elevation: 4
     },
+    compactCard: {
+      flex: 1,
+      width: 0,
+      minWidth: 0,
+      paddingVertical: 10,
+      paddingHorizontal: 8,
+      borderRadius: 14,
+      marginBottom: 0,
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
+      elevation: 2
+    },
     statValue: {
       fontSize: 26,
       fontWeight: "800" as const,
       color: t.colors.text,
       ...rtlText,
       textAlign: "right" as const
+    },
+    compactValue: {
+      fontSize: 18
     },
     statLabel: {
       fontSize: 14,
@@ -76,6 +102,10 @@ function StatCard({
       ...rtlText,
       marginTop: 6,
       textAlign: "right" as const
+    },
+    compactLabel: {
+      fontSize: 12,
+      marginTop: 4
     },
     statDetail: {
       fontSize: 11,
@@ -91,22 +121,37 @@ function StatCard({
       ...rtlText,
       marginTop: 6,
       textAlign: "right" as const
+    },
+    compactHint: {
+      fontSize: 10,
+      marginTop: 4
     }
   }));
 
   const content = (
     <>
-      <Text style={styles.statValue}>{formatMoney(value)}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-      {detail ? <Text style={styles.statDetail}>{detail}</Text> : null}
-      {onPress && pressHint ? <Text style={styles.pressHint}>{pressHint}</Text> : null}
+      {hideValue ? null : (
+        <Text style={[styles.statValue, compact ? styles.compactValue : null]}>{formatMoney(value)}</Text>
+      )}
+      <Text style={[styles.statLabel, compact ? styles.compactLabel : null]}>{label}</Text>
+      {!compact && detail ? <Text style={styles.statDetail}>{detail}</Text> : null}
+      {onPress && pressHint ? (
+        <Text style={[styles.pressHint, compact ? styles.compactHint : null]}>{pressHint}</Text>
+      ) : null}
     </>
   );
+
+  const cardStyle = [
+    styles.statCard,
+    { borderColor: accent },
+    wide ? { width: "100%" as const } : null,
+    compact ? styles.compactCard : null
+  ];
 
   if (onPress) {
     return (
       <Pressable
-        style={[styles.statCard, { borderColor: accent }, wide ? { width: "100%" } : null]}
+        style={cardStyle}
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={`${label} — ${pressHint ?? "عرض التفاصيل"}`}
@@ -116,7 +161,7 @@ function StatCard({
     );
   }
 
-  return <View style={[styles.statCard, { borderColor: accent }, wide ? { width: "100%" } : null]}>{content}</View>;
+  return <View style={cardStyle}>{content}</View>;
 }
 
 function authFailureMessage(msg: string): boolean {
@@ -132,8 +177,12 @@ export default function DriverHomeTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [finesOpen, setFinesOpen] = useState(false);
+  const [deductionsOpen, setDeductionsOpen] = useState(false);
+  const [debtsOpen, setDebtsOpen] = useState(false);
   const [compensationsOpen, setCompensationsOpen] = useState(false);
+  const [commissionsOpen, setCommissionsOpen] = useState(false);
   const applyDebtWorkState = useDriverStore((s) => s.applyDebtWorkState);
+  const financeRevision = useDriverStore((s) => s.financeRevision);
   const readyRef = useRef(false);
 
   const styles = useThemedStyles((t) => ({
@@ -173,6 +222,11 @@ export default function DriverHomeTab() {
       gap: 12,
       justifyContent: "space-between" as const
     },
+    tripleRow: {
+      width: "100%",
+      flexDirection: "row-reverse" as const,
+      gap: 8
+    },
     owedCard: {
       width: "100%",
       borderRadius: 20,
@@ -205,6 +259,13 @@ export default function DriverHomeTab() {
       ...rtlText,
       textAlign: "right" as const,
       lineHeight: 18
+    },
+    owedLimit: {
+      fontSize: 13,
+      fontWeight: "800" as const,
+      marginTop: 10,
+      ...rtlText,
+      textAlign: "right" as const
     },
     owedNotice: {
       fontSize: 13,
@@ -253,9 +314,17 @@ export default function DriverHomeTab() {
     }, [loadStats])
   );
 
+  useEffect(() => {
+    if (financeRevision <= 0) return;
+    void loadStats();
+  }, [financeRevision, loadStats]);
+
   const scrollBottomPad = driverTabBarOuterHeight(insets.bottom) + 20;
+  const prepaid = stats.paymentMode === "PREPAID";
   const owed = stats.amountOwed;
-  const owedCredit = owed < 0;
+  const prepaidCredit = owed < 0 ? -owed : 0;
+  const owedCredit = prepaid ? prepaidCredit > 0 : owed < 0;
+  const displayOwed = prepaid ? prepaidCredit : owed;
   const owedBlocked = Boolean(stats.workBlocked);
   const owedWarning = Boolean(stats.debtWarning) && !owedBlocked;
   const owedNotice = owedBlocked
@@ -263,11 +332,17 @@ export default function DriverHomeTab() {
     : owedWarning
       ? stats.debtWarningMessage
       : null;
-  const owedLabel = owedCredit ? "رصيد تعويض" : "المبلغ المترتب عليك";
-  const owedDetail = owedCredit
-    ? "التعويض أكبر من العمولات والغرامات — سيتم خصمه من عمولاتك لاحقاً"
-    : "العمولات والغرامات غير المسددة − التعويض غير المستخدم";
-  const owedOverWarn = owed >= 1700;
+  const owedLabel = prepaid ? "الرصيد المسبق" : owedCredit ? "رصيد تعويض" : "المبلغ المترتب عليك";
+  const owedDetail = prepaid
+    ? owedBlocked
+      ? "رصيدك 0 — اشحن رصيدك لتعود للعمل"
+      : "تُخصم العمولة من الرصيد ويُضاف التعويض إليه فورًا"
+    : owedCredit
+      ? "الناتج بعد العمولات والديون والغرامات والخصومات والتعويضات"
+      : "الناتج = العمولات + الديون + الغرامات + الخصومات − التعويضات";
+  const debtLimit = stats.commissionDebtLimit ?? 0;
+  const owedLimitText =
+    prepaid || owedCredit || debtLimit <= 0 ? null : `الحد الأعلى لتسديد العمولة: ${formatMoney(debtLimit)} ل.س`;
   const owedCardColors = owedCredit
     ? {
         backgroundColor: theme.colors.successBg,
@@ -276,7 +351,7 @@ export default function DriverHomeTab() {
         value: theme.colors.success,
         detail: theme.colors.successText
       }
-    : owedOverWarn
+    : owedBlocked
       ? {
           backgroundColor: theme.colors.dangerBg,
           borderColor: theme.colors.danger,
@@ -284,13 +359,21 @@ export default function DriverHomeTab() {
           value: theme.colors.danger,
           detail: theme.colors.dangerText
         }
-      : {
-          backgroundColor: theme.colors.warningBg,
-          borderColor: theme.colors.warning,
-          label: theme.colors.warningText,
-          value: theme.colors.warning,
-          detail: theme.colors.warningText
-        };
+      : owedWarning
+        ? {
+            backgroundColor: theme.colors.warningBg,
+            borderColor: theme.colors.warning,
+            label: theme.colors.warningText,
+            value: theme.colors.warning,
+            detail: theme.colors.warningText
+          }
+        : {
+            backgroundColor: theme.colors.surfaceCard,
+            borderColor: theme.colors.border,
+            label: theme.colors.text,
+            value: theme.colors.text,
+            detail: theme.colors.textSecondary
+          };
 
   return (
     <DriverTabScreen>
@@ -329,11 +412,16 @@ export default function DriverHomeTab() {
                   {owedLabel}
                 </Text>
                 <Text style={[styles.owedValue, { color: owedCardColors.value }]}>
-                  {formatMoney(owed)}
+                  {formatMoney(displayOwed)}
                 </Text>
                 <Text style={[styles.owedDetail, { color: owedCardColors.detail }]}>
                   {owedDetail}
                 </Text>
+                {owedLimitText ? (
+                  <Text style={[styles.owedLimit, { color: owedCardColors.label }]}>
+                    {owedLimitText}
+                  </Text>
+                ) : null}
                 {owedNotice ? (
                   <Text style={[styles.owedNotice, { color: owedCardColors.label }]}>
                     {owedNotice}
@@ -343,27 +431,48 @@ export default function DriverHomeTab() {
 
               <StatCard
                 label="العمولة المترتبة"
-                detail="غير المدفوعة فقط"
-                value={stats.unpaidCommissionAmount}
+                detail={prepaid ? "تُخصم من الرصيد — اضغط للسجل" : "غير المدفوعة فقط"}
+                value={prepaid ? 0 : stats.unpaidCommissionAmount}
                 accent={theme.colors.busy}
+                hideValue={prepaid}
+                onPress={() => setCommissionsOpen(true)}
+                pressHint="السجل"
               />
               <StatCard
                 label="التعويضات"
-                detail="غير المستخدم بعد التسديد"
+                detail={prepaid ? "تُضاف إلى الرصيد — اضغط للسجل" : "المجموع — الناتج في المترتب"}
                 value={stats.compensationAmount}
                 accent={theme.colors.success}
+                hideValue={prepaid}
                 onPress={() => setCompensationsOpen(true)}
-                pressHint="اضغط لعرض السجل"
+                pressHint="السجل"
               />
-              <StatCard
-                label="الغرامات"
-                detail="غير المسددة بعد آخر تسديد"
-                value={stats.fineAmount}
-                accent={theme.colors.danger}
-                onPress={() => setFinesOpen(true)}
-                pressHint="اضغط لعرض السجل"
-                wide
-              />
+              <View style={styles.tripleRow}>
+                <StatCard
+                  compact
+                  label="الديون"
+                  value={stats.extraDebtAmount ?? 0}
+                  accent={theme.colors.info}
+                  onPress={() => setDebtsOpen(true)}
+                  pressHint="السجل"
+                />
+                <StatCard
+                  compact
+                  label="الخصومات"
+                  value={stats.deductionAmount ?? 0}
+                  accent={theme.colors.warning}
+                  onPress={() => setDeductionsOpen(true)}
+                  pressHint="السجل"
+                />
+                <StatCard
+                  compact
+                  label="الغرامات"
+                  value={stats.fineAmount}
+                  accent={theme.colors.danger}
+                  onPress={() => setFinesOpen(true)}
+                  pressHint="السجل"
+                />
+              </View>
             </View>
           )}
         </ScrollView>
@@ -376,11 +485,35 @@ export default function DriverHomeTab() {
           void goToLogin();
         }}
       />
+      <DriverDeductionsLedgerModal
+        open={deductionsOpen}
+        onClose={() => setDeductionsOpen(false)}
+        onAuthFailure={() => {
+          setDeductionsOpen(false);
+          void goToLogin();
+        }}
+      />
+      <DriverDebtsLedgerModal
+        open={debtsOpen}
+        onClose={() => setDebtsOpen(false)}
+        onAuthFailure={() => {
+          setDebtsOpen(false);
+          void goToLogin();
+        }}
+      />
       <DriverCompensationsLedgerModal
         open={compensationsOpen}
         onClose={() => setCompensationsOpen(false)}
         onAuthFailure={() => {
           setCompensationsOpen(false);
+          void goToLogin();
+        }}
+      />
+      <DriverCommissionsLedgerModal
+        open={commissionsOpen}
+        onClose={() => setCommissionsOpen(false)}
+        onAuthFailure={() => {
+          setCommissionsOpen(false);
           void goToLogin();
         }}
       />

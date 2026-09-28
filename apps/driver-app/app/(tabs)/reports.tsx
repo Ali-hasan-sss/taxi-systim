@@ -85,11 +85,13 @@ function formatAmount(amount: string): string {
 }
 
 function reportCommissionStatusLabel(order: DriverOrderRow): "مدفوع" | "غير مدفوع" {
-  return order.commission?.paymentStatus === "PAID" ? "مدفوع" : "غير مدفوع";
+  const remaining = Number(order.commission?.remainingAmount ?? 0);
+  if (order.commission?.paymentStatus === "PAID" || !(remaining > 0)) return "مدفوع";
+  return "غير مدفوع";
 }
 
 function reportCommissionStatusColors(order: DriverOrderRow, theme: AppTheme): { bg: string; fg: string } {
-  return order.commission?.paymentStatus === "PAID"
+  return reportCommissionStatusLabel(order) === "مدفوع"
     ? { bg: theme.colors.successBg, fg: theme.colors.successText }
     : { bg: theme.colors.dangerBg, fg: theme.colors.dangerText };
 }

@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRef } from "react";
 import { ChatThreadView } from "../../src/components/ChatThreadView";
 
 function paramText(value: string | string[] | undefined): string | undefined {
@@ -7,21 +8,25 @@ function paramText(value: string | string[] | undefined): string | undefined {
 }
 
 export default function ChatRoomScreen() {
-  const { roomId, title, subtitle, roomType } = useLocalSearchParams<{
+  const params = useLocalSearchParams<{
     roomId: string;
     title?: string;
     subtitle?: string;
     roomType?: string;
   }>();
   const router = useRouter();
-  if (!roomId) return null;
-  const titleText = paramText(title);
-  const subtitleText = paramText(subtitle);
-  const typeText = paramText(roomType);
+  const roomId = paramText(params.roomId);
+  const stableRoomIdRef = useRef(roomId);
+  if (roomId) stableRoomIdRef.current = roomId;
+  const resolvedRoomId = roomId ?? stableRoomIdRef.current;
+  if (!resolvedRoomId) return null;
+  const titleText = paramText(params.title);
+  const subtitleText = paramText(params.subtitle);
+  const typeText = paramText(params.roomType);
   const canArchive = typeText === "ORDER" || (!typeText && !!subtitleText);
   return (
     <ChatThreadView
-      roomId={roomId}
+      roomId={resolvedRoomId}
       title={titleText ? decodeURIComponent(titleText) : "محادثة"}
       subtitle={subtitleText ? decodeURIComponent(subtitleText) : null}
       roomType={typeText === "GLOBAL" ? "GLOBAL" : "ORDER"}

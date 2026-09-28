@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConfirmModal } from "../../../components/confirm-modal";
 import { DriverCompensationsModal } from "../../../components/driver-compensations-modal";
+import { DriverDeductionsModal } from "../../../components/driver-deductions-modal";
 import { DriverFinesModal } from "../../../components/driver-fines-modal";
 import { DriverSettlementInvoiceModal } from "../../../components/driver-settlement-invoice-modal";
 import { api, type DriverBalanceRow, type DriverSettlementInvoice, type Employee, type FinanceOrderRow, type FinancePaymentStatus, type FinanceOrderStatus } from "../../../lib/api";
@@ -107,8 +108,12 @@ export default function FinancePage() {
   const router = useRouter();
   const today = useMemo(() => syriaTodayYmd(), []);
   const driverDropdownRef = useRef<HTMLDivElement | null>(null);
+  const reportSectionRef = useRef<HTMLDivElement | null>(null);
   const compensationDriverDropdownRef = useRef<HTMLDivElement | null>(null);
   const fineDriverDropdownRef = useRef<HTMLDivElement | null>(null);
+  const debtDriverDropdownRef = useRef<HTMLDivElement | null>(null);
+  const topupDriverDropdownRef = useRef<HTMLDivElement | null>(null);
+  const deductionDriverDropdownRef = useRef<HTMLDivElement | null>(null);
   const exportDriverDropdownRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -130,6 +135,7 @@ export default function FinancePage() {
     dueCommissionAmount: "0.00",
     compensationAmount: "0.00",
     fineAmount: "0.00",
+    deductionAmount: "0.00",
     adjustedDueCommissionAmount: "0.00",
     from: today,
     to: today
@@ -161,8 +167,31 @@ export default function FinancePage() {
   const [fineAmount, setFineAmount] = useState("");
   const [fineNotes, setFineNotes] = useState("");
   const [finesLedgerOpen, setFinesLedgerOpen] = useState(false);
+  const [deductionModalOpen, setDeductionModalOpen] = useState(false);
+  const [recordingDeduction, setRecordingDeduction] = useState(false);
+  const [deductionDriverId, setDeductionDriverId] = useState("");
+  const [deductionDriverSearch, setDeductionDriverSearch] = useState("");
+  const [deductionDriverDropdownOpen, setDeductionDriverDropdownOpen] = useState(false);
+  const [deductionAmount, setDeductionAmount] = useState("");
+  const [deductionReason, setDeductionReason] = useState("");
+  const [deductionsLedgerOpen, setDeductionsLedgerOpen] = useState(false);
+  const [debtModalOpen, setDebtModalOpen] = useState(false);
+  const [recordingDebt, setRecordingDebt] = useState(false);
+  const [debtDriverId, setDebtDriverId] = useState("");
+  const [debtDriverSearch, setDebtDriverSearch] = useState("");
+  const [debtDriverDropdownOpen, setDebtDriverDropdownOpen] = useState(false);
+  const [debtAmount, setDebtAmount] = useState("");
+  const [debtReason, setDebtReason] = useState("");
+  const [topupModalOpen, setTopupModalOpen] = useState(false);
+  const [recordingTopup, setRecordingTopup] = useState(false);
+  const [topupDriverId, setTopupDriverId] = useState("");
+  const [topupDriverSearch, setTopupDriverSearch] = useState("");
+  const [topupDriverDropdownOpen, setTopupDriverDropdownOpen] = useState(false);
+  const [topupAmount, setTopupAmount] = useState("");
+  const [topupNotes, setTopupNotes] = useState("");
   const [compensationsLedgerOpen, setCompensationsLedgerOpen] = useState(false);
   const [balances, setBalances] = useState<DriverBalanceRow[]>([]);
+  const [paymentMode, setPaymentMode] = useState<"POSTPAID" | "PREPAID">("POSTPAID");
   const [loadingBalances, setLoadingBalances] = useState(true);
   const [balanceSearch, setBalanceSearch] = useState("");
   const [settlingDriverId, setSettlingDriverId] = useState<string | null>(null);
@@ -213,8 +242,14 @@ export default function FinancePage() {
     }
     setLoadingBalances(true);
     try {
-      const rows = await api.listDriverBalances(token);
+      const [rows, setting] = await Promise.all([
+        api.listDriverBalances(token),
+        api.getCommissionSettings(token).catch(() => null)
+      ]);
       setBalances(rows);
+      if (setting?.paymentMode === "PREPAID" || setting?.paymentMode === "POSTPAID") {
+        setPaymentMode(setting.paymentMode);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تحميل أرصدة السائقين";
       if (message === "SESSION_EXPIRED") {
@@ -324,9 +359,69 @@ export default function FinancePage() {
   }, [fineDriverDropdownOpen]);
 
   useEffect(() => {
+    if (!deductionDriverDropdownOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!deductionDriverDropdownRef.current?.contains(event.target as Node)) {
+        setDeductionDriverDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [deductionDriverDropdownOpen]);
+
+  useEffect(() => {
+    if (!debtDriverDropdownOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!debtDriverDropdownRef.current?.contains(event.target as Node)) {
+        setDebtDriverDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [debtDriverDropdownOpen]);
+
+  useEffect(() => {
+    if (!topupDriverDropdownOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!topupDriverDropdownRef.current?.contains(event.target as Node)) {
+        setTopupDriverDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [topupDriverDropdownOpen]);
+
+  useEffect(() => {
     if (!showReport) return;
     void loadReport();
   }, [loadReport, showReport]);
+
+  useEffect(() => {
+    if (!showReport) return;
+    const section = reportSectionRef.current;
+    if (!section) return;
+
+    const scrollToReport = () => {
+      const scroller = section.closest(".dashboard-content");
+      if (scroller instanceof HTMLElement) {
+        const top = section.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 12;
+        scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        return;
+      }
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (!cancelled) scrollToReport();
+      });
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [showReport]);
 
   const driverOptions = useMemo(
     () => drivers.filter((item) => item.role === "DRIVER" && item.driver?.id),
@@ -373,6 +468,36 @@ export default function FinancePage() {
     });
   }, [fineDriverSearch, driverOptions]);
 
+  const deductionFilteredDriverOptions = useMemo(() => {
+    const q = deductionDriverSearch.trim().toLowerCase();
+    if (!q) return driverOptions;
+    return driverOptions.filter((item) => {
+      const fullName = item.fullName.toLowerCase();
+      const phone = (item.phone ?? "").toLowerCase();
+      return fullName.includes(q) || phone.includes(q);
+    });
+  }, [deductionDriverSearch, driverOptions]);
+
+  const debtFilteredDriverOptions = useMemo(() => {
+    const q = debtDriverSearch.trim().toLowerCase();
+    if (!q) return driverOptions;
+    return driverOptions.filter((item) => {
+      const fullName = item.fullName.toLowerCase();
+      const phone = (item.phone ?? "").toLowerCase();
+      return fullName.includes(q) || phone.includes(q);
+    });
+  }, [debtDriverSearch, driverOptions]);
+
+  const topupFilteredDriverOptions = useMemo(() => {
+    const q = topupDriverSearch.trim().toLowerCase();
+    if (!q) return driverOptions;
+    return driverOptions.filter((item) => {
+      const fullName = item.fullName.toLowerCase();
+      const phone = (item.phone ?? "").toLowerCase();
+      return fullName.includes(q) || phone.includes(q);
+    });
+  }, [driverOptions, topupDriverSearch]);
+
   const filteredBalances = useMemo(() => {
     const q = balanceSearch.trim().toLowerCase();
     if (!q) return balances;
@@ -390,7 +515,7 @@ export default function FinancePage() {
   const paymentConfirm = useMemo(() => {
     if (!pendingPayment) return null;
     if (pendingPayment.kind === "driver") {
-      const copy = remainingBalanceCopy(pendingPayment.row.remainingDebt);
+      const copy = remainingBalanceCopy(pendingPayment.row.remainingDebt, paymentMode);
       return {
         title: "تأكيد تسديد المبلغ المترتب",
         description: "سيتم تحويل العمولات والغرامات غير المسددة إلى مسددة.",
@@ -457,6 +582,24 @@ export default function FinancePage() {
     const match = driverOptions.find((item) => item.driver?.id === fineDriverId);
     return match?.fullName ?? "اختر السائق";
   }, [fineDriverId, driverOptions]);
+
+  const deductionSelectedDriverLabel = useMemo(() => {
+    if (!deductionDriverId) return "اختر السائق";
+    const match = driverOptions.find((item) => item.driver?.id === deductionDriverId);
+    return match?.fullName ?? "اختر السائق";
+  }, [deductionDriverId, driverOptions]);
+
+  const debtSelectedDriverLabel = useMemo(() => {
+    if (!debtDriverId) return "اختر السائق";
+    const match = driverOptions.find((item) => item.driver?.id === debtDriverId);
+    return match?.fullName ?? "اختر السائق";
+  }, [debtDriverId, driverOptions]);
+
+  const topupSelectedDriverLabel = useMemo(() => {
+    if (!topupDriverId) return "اختر السائق";
+    const match = driverOptions.find((item) => item.driver?.id === topupDriverId);
+    return match?.fullName ?? "اختر السائق";
+  }, [driverOptions, topupDriverId]);
 
   const applyFilters = () => {
     const from = draftFrom.trim() || today;
@@ -556,7 +699,7 @@ export default function FinancePage() {
 
   const settleDriverBalance = async (row: DriverBalanceRow) => {
     if (!token) return;
-    const copy = remainingBalanceCopy(row.remainingDebt);
+    const copy = remainingBalanceCopy(row.remainingDebt, paymentMode);
     if (copy.kind !== "owe") {
       setPendingPayment(null);
       return;
@@ -703,6 +846,197 @@ export default function FinancePage() {
     }
   };
 
+  const openDeductionModal = () => {
+    setDeductionDriverId(filters.driverId || "");
+    setDeductionDriverSearch("");
+    setDeductionDriverDropdownOpen(false);
+    setDeductionAmount("");
+    setDeductionReason("");
+    setDeductionModalOpen(true);
+    setError(null);
+    setNotice(null);
+  };
+
+  const closeDeductionModal = () => {
+    if (recordingDeduction) return;
+    setDeductionModalOpen(false);
+    setDeductionDriverDropdownOpen(false);
+    setDeductionDriverSearch("");
+  };
+
+  const saveDeduction = async () => {
+    if (!token) {
+      handleSessionExpired();
+      return;
+    }
+    if (!deductionDriverId) {
+      setError("اختر السائق الذي تريد خصم مبلغ منه.");
+      return;
+    }
+    const amount = Number(deductionAmount.replace(",", ".").trim());
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("أدخل قيمة خصم صحيحة أكبر من صفر.");
+      return;
+    }
+    const reason = deductionReason.trim();
+    if (reason.length < 2) {
+      setError("أدخل سبب الخصم.");
+      return;
+    }
+
+    setRecordingDeduction(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.recordDriverDeduction(token, {
+        driverId: deductionDriverId,
+        amount,
+        reason
+      });
+      setDeductionModalOpen(false);
+      setDeductionDriverDropdownOpen(false);
+      setDeductionDriverSearch("");
+      setNotice(`تم خصم ${formatMoney(result.amount)} من السائق وإضافته إلى المبلغ المترتب عليه.`);
+      await loadBalances();
+      if (showReport) await loadReport();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر تسجيل الخصم";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setRecordingDeduction(false);
+    }
+  };
+
+  const openDebtModal = (driverId?: string) => {
+    setDebtDriverId(driverId || filters.driverId || "");
+    setDebtDriverSearch("");
+    setDebtDriverDropdownOpen(false);
+    setDebtAmount("");
+    setDebtReason("");
+    setDebtModalOpen(true);
+    setError(null);
+    setNotice(null);
+  };
+
+  const closeDebtModal = () => {
+    if (recordingDebt) return;
+    setDebtModalOpen(false);
+    setDebtDriverDropdownOpen(false);
+    setDebtDriverSearch("");
+  };
+
+  const saveDebt = async () => {
+    if (!token) {
+      handleSessionExpired();
+      return;
+    }
+    if (!debtDriverId) {
+      setError("اختر السائق الذي تريد إضافة دين له.");
+      return;
+    }
+    const amount = Number(debtAmount.replace(",", ".").trim());
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("أدخل قيمة دين صحيحة أكبر من صفر.");
+      return;
+    }
+
+    setRecordingDebt(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.recordDriverExtraDebt(token, {
+        driverId: debtDriverId,
+        amount,
+        reason: debtReason.trim() || undefined
+      });
+      setDebtModalOpen(false);
+      setDebtDriverDropdownOpen(false);
+      setDebtDriverSearch("");
+      const leftover = formatMoney(result.remainingExtraDebt);
+      const paid = formatMoney(result.paidFromCredit);
+      setNotice(
+        result.paidFromCredit > 0
+          ? `تم تسجيل الدين وخصم ${paid} من الرصيد، والمتبقي ${leftover}.`
+          : `تم تسجيل دين بقيمة ${formatMoney(result.amount)} للسائق المحدد.`
+      );
+      await loadBalances();
+      if (showReport) await loadReport();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر تسجيل الدين";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setRecordingDebt(false);
+    }
+  };
+
+  const openTopupModal = (driverId?: string) => {
+    setTopupDriverId(driverId || filters.driverId || "");
+    setTopupDriverSearch("");
+    setTopupDriverDropdownOpen(false);
+    setTopupAmount("");
+    setTopupNotes("");
+    setTopupModalOpen(true);
+    setError(null);
+    setNotice(null);
+  };
+
+  const closeTopupModal = () => {
+    if (recordingTopup) return;
+    setTopupModalOpen(false);
+    setTopupDriverDropdownOpen(false);
+    setTopupDriverSearch("");
+  };
+
+  const saveTopup = async () => {
+    if (!token) {
+      handleSessionExpired();
+      return;
+    }
+    if (!topupDriverId) {
+      setError("اختر السائق الذي تريد شحن رصيده.");
+      return;
+    }
+    const amount = Number(topupAmount.replace(",", ".").trim());
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("أدخل قيمة شحن صحيحة أكبر من صفر.");
+      return;
+    }
+
+    setRecordingTopup(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.prepaidTopup(token, {
+        driverId: topupDriverId,
+        amount,
+        notes: topupNotes.trim() || undefined
+      });
+      setTopupModalOpen(false);
+      setTopupDriverDropdownOpen(false);
+      setTopupDriverSearch("");
+      setNotice(`تم شحن ${formatMoney(result.amount)}، والرصيد المسبق الحالي ${formatMoney(result.prepaidCredit)}.`);
+      await loadBalances();
+      if (showReport) await loadReport();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر شحن الرصيد";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setRecordingTopup(false);
+    }
+  };
+
   const openExportModal = (mode: ExportMode) => {
     setExportMode(mode);
     setExportFrom(filters.from || today);
@@ -783,7 +1117,7 @@ export default function FinancePage() {
   };
 
   return (
-    <div className="dashboard-page">
+    <div className={`dashboard-page finance-page${showReport ? " finance-page--report-open" : ""}`}>
       <section className="card finance-toolbar">
         <div>
           <h2 className="finance-toolbar__title">تحصيل العمولات</h2>
@@ -793,11 +1127,22 @@ export default function FinancePage() {
         </div>
 
         <div className="finance-export-actions">
-          <button type="button" className="btn btn-ghost" onClick={openCompensationModal}>
-            إضافة تعويض لسائق
+          {paymentMode === "PREPAID" ? (
+            <button type="button" className="btn btn-ghost" onClick={() => openTopupModal()}>
+              شحن رصيد
+            </button>
+          ) : null}
+          <button type="button" className="btn btn-ghost" onClick={() => openDebtModal()}>
+            إضافة دين
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={openDeductionModal}>
+            إضافة خصم
           </button>
           <button type="button" className="btn btn-ghost" onClick={openFineModal}>
-            إضافة غرامة لسائق
+            إضافة غرامة
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={openCompensationModal}>
+            إضافة تعويض
           </button>
           <button type="button" className="btn btn-ghost" onClick={() => openExportModal("general")}>
             تصدير Excel عام
@@ -836,7 +1181,7 @@ export default function FinancePage() {
         ) : filteredBalances.length === 0 ? (
           <p className="finance-empty">لا يوجد سائقون مطابقون.</p>
         ) : (
-          <div className="table-scroll">
+          <div className="table-scroll finance-balances-scroll">
             <table className="data-table">
               <thead>
                 <tr>
@@ -848,7 +1193,7 @@ export default function FinancePage() {
               </thead>
               <tbody>
                 {filteredBalances.map((row) => {
-                  const copy = remainingBalanceCopy(row.remainingDebt);
+                  const copy = remainingBalanceCopy(row.remainingDebt, paymentMode);
                   return (
                     <tr key={row.driverId}>
                       <td>
@@ -871,9 +1216,17 @@ export default function FinancePage() {
                           >
                             {settlingDriverId === row.driverId ? "جارٍ التسديد..." : "تسديد المبلغ المترتب عليه"}
                           </button>
-                        ) : (
-                          "—"
-                        )}
+                        ) : null}
+                        {paymentMode === "PREPAID" ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => openTopupModal(row.driverId)}
+                          >
+                            شحن رصيد
+                          </button>
+                        ) : null}
+                        {copy.kind !== "owe" && paymentMode !== "PREPAID" ? "—" : null}
                       </td>
                     </tr>
                   );
@@ -885,7 +1238,7 @@ export default function FinancePage() {
       </section>
 
       {showReport ? (
-        <>
+        <div className="finance-report" ref={reportSectionRef}>
       <section className="card finance-toolbar">
         <div>
           <h2 className="finance-toolbar__title">تقرير الطلبات</h2>
@@ -990,7 +1343,9 @@ export default function FinancePage() {
             onClick={() => setPendingPayment({ kind: "filter" })}
             disabled={
               settlingAll ||
-              (Number(summary.dueCommissionAmount) <= 0 && Number(summary.fineAmount) <= 0)
+              (Number(summary.dueCommissionAmount) <= 0 &&
+                Number(summary.fineAmount) <= 0 &&
+                Number(summary.deductionAmount ?? 0) <= 0)
             }
           >
             {settlingAll ? "جارٍ التسديد..." : "تسديد جميع العمولات ضمن الفلتر"}
@@ -1016,7 +1371,7 @@ export default function FinancePage() {
           <h3 className="finance-summary-card__value">{formatMoney(summary.adjustedDueCommissionAmount)}</h3>
           <p className="finance-summary-card__subvalue">
             عمولات: {formatMoney(summary.dueCommissionAmount)} | تعويضات: {formatMoney(summary.compensationAmount)} | غرامات:{" "}
-            {formatMoney(summary.fineAmount)}
+            {formatMoney(summary.fineAmount)} | خصومات: {formatMoney(summary.deductionAmount ?? "0")}
           </p>
         </article>
         {filters.driverId ? (
@@ -1039,6 +1394,16 @@ export default function FinancePage() {
           >
             <p className="finance-summary-card__label">مجموع الغرامات</p>
             <h3 className="finance-summary-card__value">{formatMoney(summary.fineAmount)}</h3>
+            <p className="finance-summary-card__hint">اضغط لعرض السجل</p>
+          </button>
+          <button
+            type="button"
+            className="card finance-summary-card finance-summary-card--clickable"
+            onClick={() => setDeductionsLedgerOpen(true)}
+            aria-label="عرض سجل الخصومات"
+          >
+            <p className="finance-summary-card__label">مجموع الخصومات</p>
+            <h3 className="finance-summary-card__value">{formatMoney(summary.deductionAmount ?? "0")}</h3>
             <p className="finance-summary-card__hint">اضغط لعرض السجل</p>
           </button>
           </>
@@ -1152,7 +1517,7 @@ export default function FinancePage() {
           </>
         )}
       </section>
-        </>
+        </div>
       ) : null}
 
       {compensationModalOpen ? (
@@ -1353,6 +1718,308 @@ export default function FinancePage() {
         </div>
       ) : null}
 
+      {deductionModalOpen ? (
+        <div className="finance-export-modal" role="dialog" aria-modal="true">
+          <button type="button" className="finance-export-modal__backdrop" onClick={closeDeductionModal} aria-label="إغلاق" />
+          <div className="card finance-export-modal__card">
+            <div className="finance-export-modal__header">
+              <div>
+                <h3 className="finance-export-modal__title">خصم مبلغ من سائق</h3>
+                <p className="finance-export-modal__hint">
+                  يُضاف المبلغ إلى المترتب على السائق مع سبب الخصم، ويصل إشعار للسائق. الغرامات تبقى منفصلة.
+                </p>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={closeDeductionModal} disabled={recordingDeduction}>
+                إغلاق
+              </button>
+            </div>
+
+            <div className="finance-export-modal__grid">
+              <div className="finance-export-modal__field finance-export-modal__field--full">
+                <span>السائق</span>
+                <div className="finance-driver-dropdown finance-driver-dropdown--full" ref={deductionDriverDropdownRef}>
+                  <button
+                    type="button"
+                    className="input-styled finance-driver-dropdown__trigger"
+                    onClick={() => !loadingDrivers && setDeductionDriverDropdownOpen((prev) => !prev)}
+                    disabled={loadingDrivers}
+                  >
+                    <span>{loadingDrivers ? "جارٍ تحميل السائقين..." : deductionSelectedDriverLabel}</span>
+                    <span className="finance-driver-dropdown__chevron" aria-hidden>
+                      ▼
+                    </span>
+                  </button>
+                  {deductionDriverDropdownOpen ? (
+                    <div className="card finance-driver-dropdown__menu">
+                      <input
+                        className="input-styled finance-driver-dropdown__search"
+                        value={deductionDriverSearch}
+                        onChange={(e) => setDeductionDriverSearch(e.target.value)}
+                        placeholder="ابحث باسم السائق أو الهاتف"
+                      />
+                      <div className="finance-driver-dropdown__options">
+                        {deductionFilteredDriverOptions.map((driver) => (
+                          <button
+                            key={driver.id}
+                            type="button"
+                            className={`finance-driver-dropdown__option${
+                              deductionDriverId === (driver.driver?.id ?? "") ? " finance-driver-dropdown__option--active" : ""
+                            }`}
+                            onClick={() => {
+                              setDeductionDriverId(driver.driver?.id ?? "");
+                              setDeductionDriverDropdownOpen(false);
+                              setDeductionDriverSearch("");
+                            }}
+                          >
+                            <span>{driver.fullName}</span>
+                            <small>{driver.phone ?? "—"}</small>
+                          </button>
+                        ))}
+                        {deductionFilteredDriverOptions.length === 0 ? (
+                          <div className="finance-driver-dropdown__empty">لا يوجد سائق يطابق البحث.</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <label className="finance-export-modal__field">
+                <span>قيمة الخصم</span>
+                <input
+                  className="input-styled"
+                  value={deductionAmount}
+                  onChange={(e) => setDeductionAmount(e.target.value)}
+                  placeholder="مثال: 200"
+                />
+              </label>
+
+              <label className="finance-export-modal__field finance-export-modal__field--full">
+                <span>سبب الخصم</span>
+                <input
+                  className="input-styled"
+                  value={deductionReason}
+                  onChange={(e) => setDeductionReason(e.target.value)}
+                  placeholder="سبب الخصم (إلزامي)"
+                />
+              </label>
+            </div>
+
+            <div className="finance-export-modal__actions">
+              <button type="button" className="btn btn-ghost" onClick={closeDeductionModal} disabled={recordingDeduction}>
+                إلغاء
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void saveDeduction()}
+                disabled={recordingDeduction}
+              >
+                {recordingDeduction ? "جارٍ الحفظ..." : "حفظ الخصم"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {debtModalOpen ? (
+        <div className="finance-export-modal" role="dialog" aria-modal="true">
+          <button type="button" className="finance-export-modal__backdrop" onClick={closeDebtModal} aria-label="إغلاق" />
+          <div className="card finance-export-modal__card">
+            <div className="finance-export-modal__header">
+              <div>
+                <h3 className="finance-export-modal__title">إضافة دين لسائق</h3>
+                <p className="finance-export-modal__hint">
+                  إذا كان للسائق رصيد يُخصم أولاً، ويظهر المتبقي كباقي دين. سبب الدين اختياري.
+                </p>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={closeDebtModal} disabled={recordingDebt}>
+                إغلاق
+              </button>
+            </div>
+
+            <div className="finance-export-modal__grid">
+              <div className="finance-export-modal__field finance-export-modal__field--full">
+                <span>السائق</span>
+                <div className="finance-driver-dropdown finance-driver-dropdown--full" ref={debtDriverDropdownRef}>
+                  <button
+                    type="button"
+                    className="input-styled finance-driver-dropdown__trigger"
+                    onClick={() => !loadingDrivers && setDebtDriverDropdownOpen((prev) => !prev)}
+                    disabled={loadingDrivers}
+                  >
+                    <span>{loadingDrivers ? "جارٍ تحميل السائقين..." : debtSelectedDriverLabel}</span>
+                    <span className="finance-driver-dropdown__chevron" aria-hidden>
+                      ▼
+                    </span>
+                  </button>
+                  {debtDriverDropdownOpen ? (
+                    <div className="card finance-driver-dropdown__menu">
+                      <input
+                        className="input-styled finance-driver-dropdown__search"
+                        value={debtDriverSearch}
+                        onChange={(e) => setDebtDriverSearch(e.target.value)}
+                        placeholder="ابحث باسم السائق أو الهاتف"
+                      />
+                      <div className="finance-driver-dropdown__options">
+                        {debtFilteredDriverOptions.map((driver) => (
+                          <button
+                            key={driver.id}
+                            type="button"
+                            className={`finance-driver-dropdown__option${
+                              debtDriverId === (driver.driver?.id ?? "") ? " finance-driver-dropdown__option--active" : ""
+                            }`}
+                            onClick={() => {
+                              setDebtDriverId(driver.driver?.id ?? "");
+                              setDebtDriverDropdownOpen(false);
+                              setDebtDriverSearch("");
+                            }}
+                          >
+                            <span>{driver.fullName}</span>
+                            <small>{driver.phone ?? "—"}</small>
+                          </button>
+                        ))}
+                        {debtFilteredDriverOptions.length === 0 ? (
+                          <div className="finance-driver-dropdown__empty">لا يوجد سائق يطابق البحث.</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <label className="finance-export-modal__field">
+                <span>قيمة الدين</span>
+                <input
+                  className="input-styled"
+                  value={debtAmount}
+                  onChange={(e) => setDebtAmount(e.target.value)}
+                  placeholder="مثال: 5000"
+                />
+              </label>
+
+              <label className="finance-export-modal__field finance-export-modal__field--full">
+                <span>سبب الدين (اختياري)</span>
+                <input
+                  className="input-styled"
+                  value={debtReason}
+                  onChange={(e) => setDebtReason(e.target.value)}
+                  placeholder="سبب الدين"
+                />
+              </label>
+            </div>
+
+            <div className="finance-export-modal__actions">
+              <button type="button" className="btn btn-ghost" onClick={closeDebtModal} disabled={recordingDebt}>
+                إلغاء
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void saveDebt()} disabled={recordingDebt}>
+                {recordingDebt ? "جارٍ الحفظ..." : "حفظ الدين"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {topupModalOpen ? (
+        <div className="finance-export-modal" role="dialog" aria-modal="true">
+          <button type="button" className="finance-export-modal__backdrop" onClick={closeTopupModal} aria-label="إغلاق" />
+          <div className="card finance-export-modal__card">
+            <div className="finance-export-modal__header">
+              <div>
+                <h3 className="finance-export-modal__title">شحن رصيد مسبق</h3>
+                <p className="finance-export-modal__hint">
+                  يُضاف المبلغ إلى الرصيد المسبق للسائق ويُستخدم لتغطية العمولات والديون والغرامات والخصومات.
+                </p>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={closeTopupModal} disabled={recordingTopup}>
+                إغلاق
+              </button>
+            </div>
+
+            <div className="finance-export-modal__grid">
+              <div className="finance-export-modal__field finance-export-modal__field--full">
+                <span>السائق</span>
+                <div className="finance-driver-dropdown finance-driver-dropdown--full" ref={topupDriverDropdownRef}>
+                  <button
+                    type="button"
+                    className="input-styled finance-driver-dropdown__trigger"
+                    onClick={() => !loadingDrivers && setTopupDriverDropdownOpen((prev) => !prev)}
+                    disabled={loadingDrivers}
+                  >
+                    <span>{loadingDrivers ? "جارٍ تحميل السائقين..." : topupSelectedDriverLabel}</span>
+                    <span className="finance-driver-dropdown__chevron" aria-hidden>
+                      ▼
+                    </span>
+                  </button>
+                  {topupDriverDropdownOpen ? (
+                    <div className="card finance-driver-dropdown__menu">
+                      <input
+                        className="input-styled finance-driver-dropdown__search"
+                        value={topupDriverSearch}
+                        onChange={(e) => setTopupDriverSearch(e.target.value)}
+                        placeholder="ابحث باسم السائق أو الهاتف"
+                      />
+                      <div className="finance-driver-dropdown__options">
+                        {topupFilteredDriverOptions.map((driver) => (
+                          <button
+                            key={driver.id}
+                            type="button"
+                            className={`finance-driver-dropdown__option${
+                              topupDriverId === (driver.driver?.id ?? "") ? " finance-driver-dropdown__option--active" : ""
+                            }`}
+                            onClick={() => {
+                              setTopupDriverId(driver.driver?.id ?? "");
+                              setTopupDriverDropdownOpen(false);
+                              setTopupDriverSearch("");
+                            }}
+                          >
+                            <span>{driver.fullName}</span>
+                            <small>{driver.phone ?? "—"}</small>
+                          </button>
+                        ))}
+                        {topupFilteredDriverOptions.length === 0 ? (
+                          <div className="finance-driver-dropdown__empty">لا يوجد سائق يطابق البحث.</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <label className="finance-export-modal__field">
+                <span>قيمة الشحن</span>
+                <input
+                  className="input-styled"
+                  value={topupAmount}
+                  onChange={(e) => setTopupAmount(e.target.value)}
+                  placeholder="مثال: 10000"
+                />
+              </label>
+
+              <label className="finance-export-modal__field finance-export-modal__field--full">
+                <span>ملاحظة (اختياري)</span>
+                <input
+                  className="input-styled"
+                  value={topupNotes}
+                  onChange={(e) => setTopupNotes(e.target.value)}
+                  placeholder="ملاحظة الشحن"
+                />
+              </label>
+            </div>
+
+            <div className="finance-export-modal__actions">
+              <button type="button" className="btn btn-ghost" onClick={closeTopupModal} disabled={recordingTopup}>
+                إلغاء
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void saveTopup()} disabled={recordingTopup}>
+                {recordingTopup ? "جارٍ الشحن..." : "شحن الرصيد"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {exportModalOpen ? (
         <div className="finance-export-modal" role="dialog" aria-modal="true">
           <button type="button" className="finance-export-modal__backdrop" onClick={closeExportModal} aria-label="إغلاق" />
@@ -1468,6 +2135,18 @@ export default function FinancePage() {
           onClose={() => setFinesLedgerOpen(false)}
           onSessionExpired={handleSessionExpired}
           onSettled={() => void loadReport()}
+        />
+      ) : null}
+
+      {deductionsLedgerOpen && token && filters.driverId ? (
+        <DriverDeductionsModal
+          open={deductionsLedgerOpen}
+          token={token}
+          driverId={filters.driverId}
+          from={filters.from}
+          to={filters.to}
+          onClose={() => setDeductionsLedgerOpen(false)}
+          onSessionExpired={handleSessionExpired}
         />
       ) : null}
 

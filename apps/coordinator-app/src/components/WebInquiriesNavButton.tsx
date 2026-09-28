@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { rtlText } from "../lib/rtl-text";
 import { useCoordinatorStore } from "../store";
+import { GlassIconCircle } from "./GlassIconCircle";
 
 export function WebInquiriesNavButton() {
   const router = useRouter();
@@ -16,7 +17,8 @@ export function WebInquiriesNavButton() {
       borderRadius: 22,
       alignItems: "center" as const,
       justifyContent: "center" as const,
-      backgroundColor: "transparent"
+      backgroundColor: "transparent",
+      position: "relative" as const
     },
     iconWrap: {
       position: "relative" as const,
@@ -27,8 +29,8 @@ export function WebInquiriesNavButton() {
     },
     badgeDot: {
       position: "absolute" as const,
-      top: -6,
-      end: -8,
+      top: 0,
+      end: 0,
       minWidth: 16,
       height: 16,
       paddingHorizontal: 3,
@@ -37,7 +39,8 @@ export function WebInquiriesNavButton() {
       alignItems: "center" as const,
       justifyContent: "center" as const,
       borderWidth: 2,
-      borderColor: t.colors.badgeBorder
+      borderColor: t.colors.badgeBorder,
+      zIndex: 2
     },
     badgeText: {
       color: t.colors.badgeText,
@@ -55,14 +58,16 @@ export function WebInquiriesNavButton() {
       accessibilityLabel="طلبات الويب"
       hitSlop={8}
     >
-      <View style={styles.iconWrap}>
-        <Ionicons name="globe-outline" size={22} color={theme.colors.text} />
-        {webInquiryCount > 0 ? (
-          <View style={styles.badgeDot}>
-            <Text style={styles.badgeText}>{webInquiryCount > 9 ? "9+" : String(webInquiryCount)}</Text>
-          </View>
-        ) : null}
-      </View>
+      <GlassIconCircle>
+        <View style={styles.iconWrap}>
+          <Ionicons name="globe-outline" size={22} color={theme.colors.text} />
+        </View>
+      </GlassIconCircle>
+      {webInquiryCount > 0 ? (
+        <View style={styles.badgeDot}>
+          <Text style={styles.badgeText}>{webInquiryCount > 9 ? "9+" : String(webInquiryCount)}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }

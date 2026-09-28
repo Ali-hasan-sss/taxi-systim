@@ -10,7 +10,9 @@ const driverProfileDto = z
     vehicleKind: z.nativeEnum(VehicleKind).optional().nullable(),
     vehicleColor: z.string().max(80).optional().nullable(),
     /** رقم لوحة السيارة */
-    plateNumber: z.string().max(40).optional().nullable()
+    plateNumber: z.string().max(40).optional().nullable(),
+    /** null = استخدام الحد العام من إعدادات المنصة */
+    commissionDebtLimit: z.number().nonnegative().max(99_999_999.99).nullable().optional()
   })
   .optional();
 

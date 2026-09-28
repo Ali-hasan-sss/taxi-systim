@@ -3,7 +3,7 @@ import {
   ChatImageZoomModal,
   ChatVoiceMicButton,
   ChatVoiceMessage,
-  KeyboardAvoidingView,
+  KeyboardStickyView,
   MessageReceipt,
   TypingIndicator,
   useKeyboardOpen,
@@ -20,6 +20,7 @@ import {
   Keyboard,
   Platform,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View
@@ -44,6 +45,7 @@ import { getSocketOrigin } from "../lib/api";
 import { feedback } from "../lib/feedback";
 import { DriverChatThreadSkeleton } from "./driver-skeletons";
 import { DriverScreenBackground } from "./DriverScreenBackground";
+import { FrostedFill } from "./FrostedFill";
 import { rtlText } from "../lib/rtl-text";
 import { useDriverStore } from "../store";
 
@@ -133,10 +135,16 @@ export function ChatThreadView({
   const listRef = useRef<FlatList<ChatMessageRow>>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActiveRef = useRef(false);
+  const loadInFlightRef = useRef(false);
+  const hasMessagesRef = useRef(false);
+  const pendingInitialScrollRef = useRef(true);
+  const ackedMessageIdsRef = useRef(new Set<string>());
   const setActiveChatRoomId = useDriverStore((s) => s.setActiveChatRoomId);
   const markChatRoomRead = useDriverStore((s) => s.markChatRoomRead);
 
   const ackIncoming = useCallback((messageId: string) => {
+    if (ackedMessageIdsRef.current.has(messageId)) return;
+    ackedMessageIdsRef.current.add(messageId);
     const socket = socketRef.current;
     if (!socket) return;
     socket.emit(chatSocketEvents.DELIVERED, { messageId });
@@ -188,15 +196,18 @@ export function ChatThreadView({
 
   const styles = useThemedStyles((t) => ({
     root: { flex: 1, backgroundColor: "transparent", direction: "rtl" as const },
+    headerWrap: {
+      overflow: "hidden" as const,
+      backgroundColor: "transparent"
+    },
     header: {
+      zIndex: 1,
       flexDirection: "row-reverse" as const,
       alignItems: "center" as const,
       gap: 10,
       paddingHorizontal: 16,
       paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: t.colors.border,
-      backgroundColor: t.colors.surfaceCard
+      backgroundColor: "transparent"
     },
     headerTitle: { fontSize: 17, fontWeight: "800" as const, color: t.colors.text, lineHeight: 22, ...rtlText },
     headerSubtitle: { fontSize: 12, color: t.colors.textMuted, marginTop: 3, lineHeight: 18, ...rtlText },
@@ -271,14 +282,18 @@ export function ChatThreadView({
       marginTop: 4,
       backgroundColor: t.colors.surfaceInset
     },
+    composerWrap: {
+      overflow: "hidden" as const,
+      backgroundColor: "transparent"
+    },
     composer: {
+      zIndex: 1,
       flexDirection: "row-reverse" as const,
       alignItems: "flex-end" as const,
       gap: 8,
-      padding: 10,
-      borderTopWidth: 1,
-      borderTopColor: t.colors.border,
-      backgroundColor: t.colors.surfaceCard
+      paddingHorizontal: 10,
+      paddingTop: 10,
+      backgroundColor: "transparent"
     },
     input: {
       flex: 1,
@@ -306,9 +321,13 @@ export function ChatThreadView({
   }));
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+    if (!hasMessagesRef.current) setLoading(true);
     try {
       const page = await listChatMessages(roomId);
+      pendingInitialScrollRef.current = true;
+      hasMessagesRef.current = page.messages.length > 0;
       setMessages(page.messages);
       peerUserIdRef.current = page.room.peerUserId;
       peerDriverIdRef.current = page.room.peerDriverId;
@@ -316,11 +335,16 @@ export function ChatThreadView({
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر تحميل الرسائل");
     } finally {
+      loadInFlightRef.current = false;
       setLoading(false);
     }
   }, [roomId]);
 
   useEffect(() => {
+    hasMessagesRef.current = false;
+    pendingInitialScrollRef.current = true;
+    ackedMessageIdsRef.current = new Set();
+    setMessages([]);
     void load();
     void getChatAccessToken().then(setAccessToken);
     void getDriverSession().then((session) => {
@@ -352,17 +376,22 @@ export function ChatThreadView({
   }, [scrollToBottom]);
 
   useEffect(() => {
+    if (!myUserId) return;
     const socket = io(getSocketOrigin(), { transports: ["websocket"], auth: nativeAppSocketAuth("driver") });
     socketRef.current = socket;
     const onConnect = () => {
-      if (myUserId) socket.emit(chatSocketEvents.REGISTER, myUserId);
+      socket.emit(chatSocketEvents.REGISTER, myUserId);
       socket.emit(chatSocketEvents.JOIN_ROOM, roomId);
       socket.emit(chatSocketEvents.READ, { roomId });
     };
     const onMessage = (msg: ChatMessageRow) => {
       if (msg.roomId !== roomId) return;
-      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-      if (myUserId && msg.sender.id !== myUserId) {
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        hasMessagesRef.current = true;
+        return [...prev, msg];
+      });
+      if (msg.sender.id !== myUserId) {
         ackIncoming(msg.id);
       }
       setTimeout(() => scrollToBottom(true), 80);
@@ -413,8 +442,9 @@ export function ChatThreadView({
       socket.off(socketEvents.DRIVER_ONLINE, onDriverOnline);
       socket.off(socketEvents.DRIVER_OFFLINE, onDriverOffline);
       socket.disconnect();
+      socketRef.current = null;
     };
-  }, [roomId, scrollToBottom, myUserId, ackIncoming, updateReceipt]);
+  }, [roomId, myUserId, scrollToBottom, ackIncoming, updateReceipt]);
 
   const confirmArchive = () => {
     if (archiving) return;
@@ -538,10 +568,11 @@ export function ChatThreadView({
     );
   };
 
-  const composerBottomPad = keyboardOpen && Platform.OS === "ios" ? 10 : Math.max(insets.bottom, 10);
+  const composerBottomPad = keyboardOpen ? 8 : Math.max(insets.bottom, 8);
 
   const composer = (
-    <View style={{ position: "relative" }}>
+    <View style={styles.composerWrap}>
+      <FrostedFill intensity={64} androidOpacity={0.66} style={StyleSheet.absoluteFill} />
       <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>
         <Pressable
           style={styles.iconBtn}
@@ -584,8 +615,10 @@ export function ChatThreadView({
 
   return (
     <DriverScreenBackground>
-    <KeyboardAvoidingView style={styles.root} behavior="padding">
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+    <View style={styles.root}>
+      <View style={styles.headerWrap}>
+        <FrostedFill intensity={64} androidOpacity={0.66} style={StyleSheet.absoluteFill} />
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         {onBack ? (
           <Pressable style={styles.backBtn} onPress={onBack}>
             <Ionicons name="arrow-forward" size={22} color={theme.colors.text} />
@@ -619,19 +652,27 @@ export function ChatThreadView({
             )}
           </Pressable>
         ) : null}
+        </View>
       </View>
-      {loading ? (
-        <DriverChatThreadSkeleton />
+      {loading && messages.length === 0 ? (
+        <View style={{ flex: 1 }}>
+          <DriverChatThreadSkeleton />
+        </View>
       ) : (
         <FlatList
           ref={listRef}
+          style={{ flex: 1 }}
           data={messages}
           keyExtractor={(m) => m.id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          onContentSizeChange={() => scrollToBottom(false)}
+          onContentSizeChange={() => {
+            if (!pendingInitialScrollRef.current) return;
+            pendingInitialScrollRef.current = false;
+            scrollToBottom(false);
+          }}
           showsVerticalScrollIndicator={false}
           ListFooterComponent={
             typingFrom ? (
@@ -651,8 +692,10 @@ export function ChatThreadView({
         onClose={() => setZoomImageUri(null)}
         backdropColor={theme.colors.overlay}
       />
-      {composer}
-    </KeyboardAvoidingView>
+      <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
+        {composer}
+      </KeyboardStickyView>
+    </View>
     </DriverScreenBackground>
   );
 }

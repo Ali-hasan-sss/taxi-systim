@@ -4,12 +4,16 @@ import { sendExpoPush } from "./expo-push";
 export const DRIVER_NOTIFICATION_TYPE = {
   COMPENSATION: "COMPENSATION",
   FINE: "FINE",
+  DEDUCTION: "DEDUCTION",
+  DEBT: "DEBT",
+  CREDIT_PAYOUT: "CREDIT_PAYOUT",
   COMMISSION_PAID: "COMMISSION_PAID",
   DISABLED: "DISABLED",
   ENABLED: "ENABLED",
   DEBT_WARNING: "DEBT_WARNING",
   DEBT_SUSPENDED: "DEBT_SUSPENDED",
-  DEBT_CLEARED: "DEBT_CLEARED"
+  DEBT_CLEARED: "DEBT_CLEARED",
+  DEBT_LIMIT_RAISED: "DEBT_LIMIT_RAISED"
 } as const;
 
 export type DriverNotificationType =
@@ -143,6 +147,70 @@ export function notifyDriverFine(driverId: string, amount: number) {
   });
 }
 
+export function notifyDriverDeduction(driverId: string, amount: number, reason: string) {
+  const reasonText = reason.trim();
+  scheduleDriverNotification({
+    driverId,
+    type: DRIVER_NOTIFICATION_TYPE.DEDUCTION,
+    title: "خصم جديد",
+    body: reasonText
+      ? `تم خصم مبلغ ${formatSyp(amount)}. السبب: ${reasonText}`
+      : `تم خصم مبلغ ${formatSyp(amount)}.`
+  });
+}
+
+export function notifyDriverExtraDebt(
+  driverId: string,
+  opts: {
+    addedAmount: number;
+    paidFromCredit: number;
+    remainingExtraDebt: number;
+    reason?: string;
+  }
+) {
+  const reasonText = opts.reason?.trim() ?? "";
+  let body: string;
+  if (opts.paidFromCredit > 0 && opts.remainingExtraDebt > 0) {
+    body = `تم دفع مبلغ ${formatSyp(opts.paidFromCredit)} وبقي يترتب عليك مبلغ ${formatSyp(opts.remainingExtraDebt)}.`;
+  } else if (opts.paidFromCredit > 0) {
+    body = `تم دفع مبلغ ${formatSyp(opts.paidFromCredit)} من رصيدك ولم يبقَ دين.`;
+  } else if (opts.remainingExtraDebt > opts.addedAmount) {
+    body = `تم إضافة دين بقيمة ${formatSyp(opts.addedAmount)}. باقي الدين المترتب عليك ${formatSyp(opts.remainingExtraDebt)}.`;
+  } else {
+    body = `تم إضافة دين بقيمة ${formatSyp(opts.addedAmount)}.`;
+  }
+  if (reasonText && opts.remainingExtraDebt > 0) {
+    body = `${body} السبب: ${reasonText}`;
+  }
+  scheduleDriverNotification({
+    driverId,
+    type: DRIVER_NOTIFICATION_TYPE.DEBT,
+    title: "دين جديد",
+    body
+  });
+}
+
+export function notifyDriverDueCredit(driverId: string, amount: number, reason: string) {
+  const reasonText = reason.trim();
+  scheduleDriverNotification({
+    driverId,
+    type: DRIVER_NOTIFICATION_TYPE.COMPENSATION,
+    title: "مبلغ لحسابك",
+    body: reasonText
+      ? `تم إضافة مبلغ ${formatSyp(amount)} ليُخصم من عمولاتك. السبب: ${reasonText}`
+      : `تم إضافة مبلغ ${formatSyp(amount)} ليُخصم من عمولاتك.`
+  });
+}
+
+export function notifyDriverCreditPayout(driverId: string, amount: number) {
+  scheduleDriverNotification({
+    driverId,
+    type: DRIVER_NOTIFICATION_TYPE.CREDIT_PAYOUT,
+    title: "تقبيض مبلغ",
+    body: `تم تقبيضك مبلغ ${formatSyp(amount)}.`
+  });
+}
+
 export function notifyDriverCommissionPaid(driverId: string, amount: number) {
   scheduleDriverNotification({
     driverId,
@@ -170,21 +238,21 @@ export function notifyDriverEnabled(userId: string) {
   });
 }
 
-export function notifyDriverDebtWarning(driverId: string, remainingDebt: number) {
+export function notifyDriverDebtWarning(driverId: string, remainingDebt: number, limit: number) {
   scheduleDriverNotification({
     driverId,
     type: DRIVER_NOTIFICATION_TYPE.DEBT_WARNING,
     title: "تنبيه المبلغ المترتب",
-    body: `بلغ المبلغ المترتب عليك ${formatSyp(remainingDebt)}. يجب الدفع قبل تجاوز 2000 ل.س لتجنب الإيقاف عن العمل.`
+    body: `بلغ المبلغ المترتب عليك ${formatSyp(remainingDebt)}. يجب الدفع قبل تجاوز ${formatSyp(limit)} لتجنب الإيقاف عن العمل.`
   });
 }
 
-export function notifyDriverDebtSuspended(driverId: string) {
+export function notifyDriverDebtSuspended(driverId: string, limit: number) {
   scheduleDriverNotification({
     driverId,
     type: DRIVER_NOTIFICATION_TYPE.DEBT_SUSPENDED,
     title: "إيقاف عن العمل",
-    body: `تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز 2000 ل.س. سدّد المستحق لتعود للعمل تلقائياً.`
+    body: `تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز ${formatSyp(limit)}. سدّد المستحق لتعود للعمل تلقائياً.`
   });
 }
 
@@ -194,6 +262,42 @@ export function notifyDriverDebtCleared(driverId: string) {
     type: DRIVER_NOTIFICATION_TYPE.DEBT_CLEARED,
     title: "العودة للعمل",
     body: "تم تسديد المستحق ويمكنك العودة للعمل."
+  });
+}
+
+export function notifyDriverDebtLimitRaised(driverId: string, limit: number) {
+  scheduleDriverNotification({
+    driverId,
+    type: DRIVER_NOTIFICATION_TYPE.DEBT_LIMIT_RAISED,
+    title: "العودة للعمل",
+    body: `تم رفع الحد الأعلى للمبلغ المترتب عليك إلى ${formatSyp(limit)} ويمكنك العودة للعمل.`
+  });
+}
+
+export function notifyDriverPrepaidSuspended(driverId: string) {
+  scheduleDriverNotification({
+    driverId,
+    type: DRIVER_NOTIFICATION_TYPE.DEBT_SUSPENDED,
+    title: "إيقاف عن العمل",
+    body: "تم إيقافك عن العمل لأن رصيدك المسبق أصبح 0. اشحن رصيدك لتعود للعمل."
+  });
+}
+
+export function notifyDriverPrepaidCleared(driverId: string) {
+  scheduleDriverNotification({
+    driverId,
+    type: DRIVER_NOTIFICATION_TYPE.DEBT_CLEARED,
+    title: "العودة للعمل",
+    body: "تم شحن رصيدك ويمكنك العودة للعمل."
+  });
+}
+
+export function notifyDriverPrepaidTopup(driverId: string, amount: number) {
+  scheduleDriverNotification({
+    driverId,
+    type: DRIVER_NOTIFICATION_TYPE.COMMISSION_PAID,
+    title: "شحن رصيد مسبق",
+    body: `تم شحن رصيدك بمبلغ ${formatSyp(amount)}.`
   });
 }
 

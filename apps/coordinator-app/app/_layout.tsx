@@ -1,4 +1,5 @@
 import { ThemeProvider, useTheme, SystemChrome, KeyboardInsetsProvider, NetworkOfflineBanner, ForceUpdateGate } from "@taxi/expo-theme";
+import { BrandingProvider } from "@taxi/expo-branding";
 import { resolveExpoApiBase } from "@taxi/expo-api-base";
 import Constants from "expo-constants";
 import { Stack } from "expo-router";
@@ -49,7 +50,14 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <KeyboardInsetsProvider>
           <ThemeProvider accent="coordinator">
-            <RootLayoutInner />
+            <BrandingProvider
+              kind="coordinator"
+              apiBase={resolveExpoApiBase()}
+              fallbackLogo={require("../assets/images/logo-removebg-preview.png")}
+              fallbackBackground={require("../assets/images/background.jpeg")}
+            >
+              <RootLayoutInner />
+            </BrandingProvider>
           </ThemeProvider>
         </KeyboardInsetsProvider>
       </SafeAreaProvider>

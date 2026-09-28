@@ -254,7 +254,7 @@ export function DriverFinesLedgerModal({ open, onClose, onAuthFailure }: Props) 
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>سجل الغرامات</Text>
-            <Text style={styles.subtitle}>جميع الغرامات السابقة وحالتها</Text>
+            <Text style={styles.subtitle}>المجموع للمراجعة. الناتج يظهر في المترتب عليك، وفي مسبق الدفع المتبقي في الديون</Text>
           </View>
 
           {loading ? (

@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { AppState, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DriverAppHeader } from "../../src/components/DriverAppHeader";
+import { DriverTabBarBackground } from "../../src/components/DriverTabBarBackground";
 import { DriverSocketProvider } from "../../src/driver-socket-context";
 import { getDriverLocationAccessState, isDriverLocationReady } from "../../src/lib/location-access";
 import { getDriverSession } from "../../src/lib/session";
@@ -148,7 +149,7 @@ export default function TabsLayout() {
             lazy: false,
             headerShown: false,
             tabBarHideOnKeyboard: true,
-            tabBarBackground: () => <View style={{ flex: 1, backgroundColor: "transparent" }} />,
+            tabBarBackground: () => <DriverTabBarBackground />,
             tabBarStyle: {
               position: "absolute",
               left: 0,
@@ -164,7 +165,7 @@ export default function TabsLayout() {
               height: driverTabBarOuterHeight(insets.bottom)
             },
             tabBarActiveTintColor: theme.colors.tabActive,
-            tabBarInactiveTintColor: theme.colors.tabInactive,
+            tabBarInactiveTintColor: theme.mode === "dark" ? "#e7e5e4" : "#1c1917",
             tabBarLabelStyle: {
               fontSize: 11,
               fontWeight: "700",

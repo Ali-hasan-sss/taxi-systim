@@ -1,6 +1,7 @@
 import { Prisma, PromotionChannel, PromotionRewardType, type Promotion } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
+import { getCommissionPaymentMode } from "../../shared/driver-debt-block";
 
 const toNum = (d: Prisma.Decimal | number) => Number(d);
 
@@ -226,10 +227,15 @@ export async function compensateDriverForPromoDiscount(
     (await tx.driverBalance.findUnique({ where: { driverId: opts.driverId } })) ??
     (await tx.driverBalance.create({ data: { driverId: opts.driverId } }));
 
+  const nextDebt = toNum(balance.remainingDebt) - amount;
+  const paymentMode = await getCommissionPaymentMode(tx);
+
   await tx.driverBalance.update({
     where: { driverId: opts.driverId },
     data: {
-      remainingDebt: new Prisma.Decimal(Math.max(0, toNum(balance.remainingDebt) - amount).toFixed(2)),
+      remainingDebt: new Prisma.Decimal(
+        (paymentMode === "PREPAID" ? nextDebt : Math.max(0, nextDebt)).toFixed(2)
+      ),
       availableBalance: new Prisma.Decimal((toNum(balance.availableBalance) + amount).toFixed(2))
     }
   });

@@ -14,6 +14,7 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
   "/employees": { title: "الموظفون", subtitle: "إدارة المستخدمين والأدوار" },
   "/drivers-distribution": { title: "توزع السائقين", subtitle: "خريطة مباشرة لمواقع السائقين وإجراءات سريعة" },
   "/finance": { title: "المالية", subtitle: "تحصيل العمولات وأرصدة السائقين" },
+  "/debts-dues": { title: "الديون والمستحقات", subtitle: "ديون السائقين والمستحقات لهم مع التسديد والتقبيض" },
   "/settings": { title: "الإعدادات", subtitle: "حساب الأدمن والعمولة وكلمة المرور" }
 };
 
@@ -42,6 +43,8 @@ export const DashboardShell = ({ children }: { children: React.ReactNode }) => {
         ? titles["/drivers-distribution"]
       : pathname.startsWith("/finance")
         ? titles["/finance"]
+      : pathname.startsWith("/debts-dues")
+        ? titles["/debts-dues"]
       : pathname.startsWith("/settings")
         ? titles["/settings"]
         : { title: "لوحة التحكم" });

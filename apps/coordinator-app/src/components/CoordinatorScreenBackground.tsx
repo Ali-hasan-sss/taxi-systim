@@ -1,10 +1,9 @@
+import { useBranding } from "@taxi/expo-branding";
 import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import type { ReactNode } from "react";
 import { ImageBackground, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { coordinatorHeaderOuterHeight } from "../lib/tab-bar-inset";
-
-const COORDINATOR_BACKGROUND = require("../../assets/images/background.jpeg");
 
 export function CoordinatorScreenBackground({
   children,
@@ -14,12 +13,15 @@ export function CoordinatorScreenBackground({
   variant?: "default" | "auth";
 }) {
   const { theme } = useTheme();
-  const darkOverlay =
+  const { backgroundSource } = useBranding();
+  const overlayColor =
     theme.mode === "dark"
       ? variant === "auth"
         ? "rgba(28, 25, 23, 0.84)"
         : "rgba(28, 25, 23, 0.8)"
-      : null;
+      : variant === "auth"
+        ? "rgba(255, 247, 237, 0.38)"
+        : "rgba(255, 251, 235, 0.32)";
 
   const styles = useThemedStyles((t) => ({
     root: {
@@ -33,7 +35,7 @@ export function CoordinatorScreenBackground({
     },
     overlay: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: darkOverlay ?? "transparent"
+      backgroundColor: overlayColor
     },
     content: {
       flex: 1,
@@ -43,8 +45,8 @@ export function CoordinatorScreenBackground({
 
   return (
     <View style={styles.root}>
-      <ImageBackground source={COORDINATOR_BACKGROUND} style={styles.image} resizeMode="cover">
-        {darkOverlay ? <View pointerEvents="none" style={styles.overlay} /> : null}
+      <ImageBackground source={backgroundSource} style={styles.image} resizeMode="cover">
+        <View pointerEvents="none" style={styles.overlay} />
         <View style={styles.content}>{children}</View>
       </ImageBackground>
     </View>

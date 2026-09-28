@@ -1,3 +1,4 @@
+import { brandingCacheReady } from "@taxi/expo-branding";
 import { useEffect, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
 import { Redirect } from "expo-router";
@@ -24,6 +25,10 @@ export default function Index() {
       } catch {
         if (alive) setLoggedIn(false);
       } finally {
+        await Promise.race([
+          brandingCacheReady,
+          new Promise((resolve) => setTimeout(resolve, 4000))
+        ]);
         if (alive) {
           await SplashScreen.hideAsync().catch(() => {});
           setReady(true);

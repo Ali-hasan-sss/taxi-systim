@@ -50,8 +50,15 @@ export interface DriverOrderStats {
   compensationAmount: number;
   /** الغرامات غير المسددة بعد آخر تسديد */
   fineAmount: number;
-  /** المبلغ المترتب = عمولات غير مدفوعة + غرامات − تعويضات مطبّقة */
+  /** الخصومات غير المسددة */
+  deductionAmount: number;
+  /** الديون الإضافية غير المسددة */
+  extraDebtAmount: number;
+  /** المبلغ المترتب = عمولات غير مدفوعة + غرامات + خصومات + ديون − تعويضات مطبّقة */
   amountOwed: number;
+  /** الحد الأعلى للمبلغ المترتب قبل الإيقاف */
+  commissionDebtLimit?: number;
+  paymentMode?: "POSTPAID" | "PREPAID";
   workBlocked?: boolean;
   debtWarning?: boolean;
   workBlockMessage?: string | null;
@@ -151,7 +158,11 @@ export async function fetchDriverOrderStats(accessToken: string): Promise<Driver
     unpaidCommissionAmount: typeof data.unpaidCommissionAmount === "number" ? data.unpaidCommissionAmount : 0,
     compensationAmount: typeof data.compensationAmount === "number" ? data.compensationAmount : 0,
     fineAmount: typeof data.fineAmount === "number" ? data.fineAmount : 0,
+    deductionAmount: typeof data.deductionAmount === "number" ? data.deductionAmount : 0,
+    extraDebtAmount: typeof data.extraDebtAmount === "number" ? data.extraDebtAmount : 0,
     amountOwed: typeof data.amountOwed === "number" ? data.amountOwed : 0,
+    commissionDebtLimit: typeof data.commissionDebtLimit === "number" ? data.commissionDebtLimit : 0,
+    paymentMode: data.paymentMode === "PREPAID" ? "PREPAID" : "POSTPAID",
     workBlocked: Boolean(data.workBlocked),
     debtWarning: Boolean(data.debtWarning),
     workBlockMessage: typeof data.workBlockMessage === "string" ? data.workBlockMessage : null,
@@ -186,6 +197,52 @@ export async function fetchDriverFines(accessToken: string): Promise<DriverFines
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     throw new Error(body.message ?? "تعذر تحميل سجل الغرامات");
+  }
+  const data = (await res.json()) as Partial<DriverFinesLedger>;
+  return {
+    driver: data.driver ?? null,
+    from: typeof data.from === "string" ? data.from : null,
+    to: typeof data.to === "string" ? data.to : null,
+    totalAmount: typeof data.totalAmount === "string" ? data.totalAmount : "0.00",
+    count: typeof data.count === "number" ? data.count : 0,
+    unpaidAmount: typeof data.unpaidAmount === "string" ? data.unpaidAmount : undefined,
+    unpaidCount: typeof data.unpaidCount === "number" ? data.unpaidCount : undefined,
+    rows: Array.isArray(data.rows) ? data.rows : []
+  };
+}
+
+export async function fetchDriverDeductions(accessToken: string): Promise<DriverFinesLedger> {
+  const res = await driverFetchWithRefresh(
+    `/orders/driver/deductions?t=${Date.now()}`,
+    { cache: "no-store" },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر تحميل سجل الخصومات");
+  }
+  const data = (await res.json()) as Partial<DriverFinesLedger>;
+  return {
+    driver: data.driver ?? null,
+    from: typeof data.from === "string" ? data.from : null,
+    to: typeof data.to === "string" ? data.to : null,
+    totalAmount: typeof data.totalAmount === "string" ? data.totalAmount : "0.00",
+    count: typeof data.count === "number" ? data.count : 0,
+    unpaidAmount: typeof data.unpaidAmount === "string" ? data.unpaidAmount : undefined,
+    unpaidCount: typeof data.unpaidCount === "number" ? data.unpaidCount : undefined,
+    rows: Array.isArray(data.rows) ? data.rows : []
+  };
+}
+
+export async function fetchDriverDebts(accessToken: string): Promise<DriverFinesLedger> {
+  const res = await driverFetchWithRefresh(
+    `/orders/driver/debts?t=${Date.now()}`,
+    { cache: "no-store" },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر تحميل سجل الديون");
   }
   const data = (await res.json()) as Partial<DriverFinesLedger>;
   return {
@@ -244,6 +301,57 @@ export async function fetchDriverCompensations(accessToken: string): Promise<Dri
     count: typeof data.count === "number" ? data.count : 0,
     unusedAmount: typeof data.unusedAmount === "string" ? data.unusedAmount : undefined,
     unusedCount: typeof data.unusedCount === "number" ? data.unusedCount : undefined,
+    rows: Array.isArray(data.rows) ? data.rows : []
+  };
+}
+
+export interface DriverCommissionRow {
+  id: string;
+  orderId?: string;
+  amount: string;
+  remainingAmount?: string;
+  paidAmount?: string;
+  paymentStatus?: string;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
+  orderAmount?: string;
+  createdAt: string;
+  paidAt?: string | null;
+  driverId?: string;
+  driverName?: string;
+  isPaid?: boolean;
+}
+
+export interface DriverCommissionsLedger {
+  driver: { id: string; fullName: string; phone: string | null } | null;
+  from: string | null;
+  to: string | null;
+  totalAmount: string;
+  count: number;
+  unpaidAmount?: string;
+  unpaidCount?: number;
+  rows: DriverCommissionRow[];
+}
+
+export async function fetchDriverCommissions(accessToken: string): Promise<DriverCommissionsLedger> {
+  const res = await driverFetchWithRefresh(
+    `/orders/driver/commissions?t=${Date.now()}`,
+    { cache: "no-store" },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر تحميل سجل العمولات");
+  }
+  const data = (await res.json()) as Partial<DriverCommissionsLedger>;
+  return {
+    driver: data.driver ?? null,
+    from: typeof data.from === "string" ? data.from : null,
+    to: typeof data.to === "string" ? data.to : null,
+    totalAmount: typeof data.totalAmount === "string" ? data.totalAmount : "0.00",
+    count: typeof data.count === "number" ? data.count : 0,
+    unpaidAmount: typeof data.unpaidAmount === "string" ? data.unpaidAmount : undefined,
+    unpaidCount: typeof data.unpaidCount === "number" ? data.unpaidCount : undefined,
     rows: Array.isArray(data.rows) ? data.rows : []
   };
 }

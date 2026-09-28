@@ -146,6 +146,11 @@ export default function EmployeeDetailPage() {
   const [fineAmount, setFineAmount] = useState("");
   const [fineNotes, setFineNotes] = useState("");
   const [recordingFine, setRecordingFine] = useState(false);
+  const [paymentMode, setPaymentMode] = useState<"POSTPAID" | "PREPAID">("POSTPAID");
+  const [topupOpen, setTopupOpen] = useState(false);
+  const [topupAmount, setTopupAmount] = useState("");
+  const [topupNotes, setTopupNotes] = useState("");
+  const [topupSaving, setTopupSaving] = useState(false);
   const [finesLedgerOpen, setFinesLedgerOpen] = useState(false);
   const [compensationsLedgerOpen, setCompensationsLedgerOpen] = useState(false);
   const [showReport, setShowReport] = useState(false);
@@ -169,8 +174,14 @@ export default function EmployeeDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getEmployeeProfile(token, userId);
+      const [data, setting] = await Promise.all([
+        api.getEmployeeProfile(token, userId),
+        api.getCommissionSettings(token).catch(() => null)
+      ]);
       setProfile(data);
+      if (setting?.paymentMode === "PREPAID" || setting?.paymentMode === "POSTPAID") {
+        setPaymentMode(setting.paymentMode);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "تعذر تحميل تفاصيل الموظف";
       if (message === "SESSION_EXPIRED") {
@@ -368,6 +379,41 @@ export default function EmployeeDetailPage() {
     }
   };
 
+  const submitTopup = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !driverId) return;
+    const amount = Number(topupAmount.replace(",", ".").trim());
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("أدخل مبلغ شحن صالحًا أكبر من صفر.");
+      return;
+    }
+    setTopupSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.prepaidTopup(token, {
+        driverId,
+        amount,
+        notes: topupNotes.trim() || undefined
+      });
+      setTopupOpen(false);
+      setTopupAmount("");
+      setTopupNotes("");
+      setNotice(`تم شحن رصيد السائق. الرصيد الحالي ${formatMoney(result.prepaidCredit)} ل.س.`);
+      await loadProfile();
+      if (showReport) await loadReport();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "فشل شحن رصيد السائق";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setTopupSaving(false);
+    }
+  };
+
   const settleSingleOrder = async (row: FinanceOrderRow) => {
     if (!token || !row.commission || Number(row.commission.remainingAmount) <= 0) {
       setPendingPayment(null);
@@ -531,7 +577,7 @@ export default function EmployeeDetailPage() {
           .join(" · ") || "—"
       : "—";
 
-  const remainingCopy = remainingBalanceCopy(profile.stats.dueCommissionAmount);
+  const remainingCopy = remainingBalanceCopy(profile.stats.dueCommissionAmount, paymentMode);
   const paymentConfirm =
     pendingPayment?.kind === "driver"
       ? {
@@ -616,7 +662,7 @@ export default function EmployeeDetailPage() {
                 <button type="button" className="btn btn-sm" onClick={() => setFineOpen(true)}>
                   إضافة غرامة
                 </button>
-                {remainingCopy.kind === "owe" ? (
+                {remainingCopy.kind === "owe" && paymentMode === "POSTPAID" ? (
                   <button
                     type="button"
                     className="btn btn-sm btn-primary"
@@ -624,6 +670,11 @@ export default function EmployeeDetailPage() {
                     onClick={() => setPendingPayment({ kind: "driver" })}
                   >
                     {settlingBalance ? "جارٍ التسديد..." : "تسديد المبلغ المترتب عليه"}
+                  </button>
+                ) : null}
+                {paymentMode === "PREPAID" ? (
+                  <button type="button" className="btn btn-sm btn-primary" onClick={() => setTopupOpen(true)}>
+                    شحن رصيد
                   </button>
                 ) : null}
               </>
@@ -926,6 +977,48 @@ export default function EmployeeDetailPage() {
                   {recordingCompensation ? "جاري الحفظ..." : "تسجيل التعويض"}
                 </button>
                 <button type="button" className="btn" onClick={() => setCompensationOpen(false)}>
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {topupOpen && driverId ? (
+        <div className="modal-backdrop" onClick={() => !topupSaving && setTopupOpen(false)} role="presentation">
+          <div className="card modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="modal-panel__header">
+              <h3>شحن رصيد السائق</h3>
+              <button type="button" className="btn btn-ghost" onClick={() => setTopupOpen(false)}>
+                إغلاق
+              </button>
+            </div>
+            <form className="modal-form" onSubmit={submitTopup}>
+              <p className="settings-card__hint">
+                الرصيد الحالي: {remainingCopy.kind === "credit" ? remainingCopy.amountText : "0"} ل.س. الشحن يظهر للسائق
+                كرصيد موجب وينقص مع العمولات حتى 0.
+              </p>
+              <input
+                className="input-styled"
+                value={topupAmount}
+                onChange={(e) => setTopupAmount(e.target.value)}
+                placeholder="مبلغ الشحن"
+                inputMode="decimal"
+                required
+              />
+              <textarea
+                className="input-styled"
+                value={topupNotes}
+                onChange={(e) => setTopupNotes(e.target.value)}
+                placeholder="ملاحظات (اختياري)"
+                rows={3}
+              />
+              <div className="modal-form__actions">
+                <button type="submit" className="btn btn-primary" disabled={topupSaving}>
+                  {topupSaving ? "جاري الشحن..." : "شحن الرصيد"}
+                </button>
+                <button type="button" className="btn" onClick={() => setTopupOpen(false)} disabled={topupSaving}>
                   إلغاء
                 </button>
               </div>

@@ -7,6 +7,7 @@ import { useDebouncedSearch } from "../../../lib/use-debounced-value";
 import { CustomerOrdersModal } from "../../../components/customer-orders-modal";
 
 type CustomerFilter = "all" | "most_orders" | "inactive";
+type InactiveContactTab = "uncontacted" | "contacted";
 
 function formatDateTime(iso: string | null) {
   if (!iso) return "—";
@@ -25,6 +26,7 @@ export default function CustomersPage() {
   const router = useRouter();
   const [token, setToken] = useState("");
   const [filter, setFilter] = useState<CustomerFilter>("all");
+  const [inactiveContactTab, setInactiveContactTab] = useState<InactiveContactTab>("uncontacted");
   const [searchDraft, setSearchDraft] = useState("");
   const { query: searchQuery, isPending: searchPending } = useDebouncedSearch(searchDraft);
   const [page, setPage] = useState(1);
@@ -32,6 +34,7 @@ export default function CustomersPage() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CustomersListResponse | null>(null);
   const [historyCustomer, setHistoryCustomer] = useState<CustomerRow | null>(null);
+  const [contactingId, setContactingId] = useState<string | null>(null);
 
   const handleSessionExpired = useCallback(() => {
     localStorage.removeItem("taxi_admin_session");
@@ -45,6 +48,7 @@ export default function CustomersPage() {
     try {
       const res = await api.listCustomers(token, {
         filter,
+        contact: filter === "inactive" ? inactiveContactTab : undefined,
         q: searchQuery || undefined,
         page,
         limit: 30
@@ -60,7 +64,7 @@ export default function CustomersPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, handleSessionExpired, page, searchQuery, token]);
+  }, [filter, handleSessionExpired, inactiveContactTab, page, searchQuery, token]);
 
   useEffect(() => {
     const raw = localStorage.getItem("taxi_admin_session");
@@ -78,11 +82,56 @@ export default function CustomersPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [filter, searchQuery]);
+  }, [filter, inactiveContactTab, searchQuery]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const markContacted = async (customerId: string) => {
+    if (!token || contactingId) return;
+    const current = data?.customers.find((row) => row.id === customerId);
+    if (!current?.needsContact) return;
+
+    setContactingId(customerId);
+    setError(null);
+    const previous = data;
+    setData((prev) => {
+      if (!prev) return prev;
+      const remaining = inactiveContactTab === "uncontacted"
+        ? prev.customers.filter((row) => row.id !== customerId)
+        : prev.customers.map((row) =>
+            row.id === customerId
+              ? { ...row, needsContact: false, lastContactedAt: new Date().toISOString() }
+              : row
+          );
+      return {
+        ...prev,
+        uncontactedInactiveCount: Math.max(0, (prev.uncontactedInactiveCount ?? 0) - 1),
+        contactedInactiveCount: (prev.contactedInactiveCount ?? 0) + 1,
+        total: inactiveContactTab === "uncontacted" ? Math.max(0, prev.total - 1) : prev.total,
+        hasMore: inactiveContactTab === "uncontacted" ? remaining.length + (page - 1) * prev.limit < Math.max(0, prev.total - 1) : prev.hasMore,
+        customers: remaining
+      };
+    });
+
+    try {
+      await api.markCustomerContacted(token, customerId);
+      if (inactiveContactTab === "uncontacted" && previous && previous.customers.length <= 1 && page > 1) {
+        setPage((p) => Math.max(1, p - 1));
+      }
+    } catch (err) {
+      setData(previous ?? null);
+      const message = err instanceof Error ? err.message : "تعذر تسجيل التواصل مع الزبون";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setContactingId(null);
+    }
+  };
 
   const customers: CustomerRow[] = data?.customers ?? [];
 
@@ -103,7 +152,7 @@ export default function CustomersPage() {
             {searchPending ? <span className="employees-search__pending">...</span> : null}
           </label>
           <p className="employees-toolbar__hint">
-            المنقطع: لم يطلب منذ أسبوعين فأكثر ولديه أكثر من 10 طلبات في سجله.
+            المنقطع: لم يطلب منذ أسبوعين فأكثر ولديه أكثر من 10 طلبات في سجله. النقطة الحمراء تعني أنه لم يُتواصل معه بعد.
           </p>
         </div>
         <div className="orders-room-filters orders-page-filters">
@@ -119,11 +168,19 @@ export default function CustomersPage() {
                 key={item.key}
                 type="button"
                 className={`orders-room-filter${filter === item.key ? " orders-room-filter--active" : ""}`}
-                onClick={() => setFilter(item.key)}
+                onClick={() => {
+                  setFilter(item.key);
+                  if (item.key === "inactive") setInactiveContactTab("uncontacted");
+                }}
               >
                 {item.label}
                 {item.key === "inactive" && data ? (
                   <span className="orders-room-filter__count">{data.inactiveCount}</span>
+                ) : null}
+                {item.key === "inactive" && (data?.uncontactedInactiveCount ?? 0) > 0 ? (
+                  <span className="customers-uncontacted-badge" title="لم يتم التواصل">
+                    {(data?.uncontactedInactiveCount ?? 0) > 99 ? "99+" : String(data?.uncontactedInactiveCount)}
+                  </span>
                 ) : null}
                 {item.key === "all" && data ? (
                   <span className="orders-room-filter__count">{data.totalAll}</span>
@@ -131,6 +188,38 @@ export default function CustomersPage() {
               </button>
             ))}
           </div>
+          {filter === "inactive" ? (
+            <div className="orders-room-filters__row customers-contact-tabs">
+              <button
+                type="button"
+                className={`orders-room-filter customers-contact-tab${inactiveContactTab === "uncontacted" ? " orders-room-filter--active" : ""}`}
+                onClick={() => setInactiveContactTab("uncontacted")}
+              >
+                لم يتم التواصل
+                {data ? (
+                  (data.uncontactedInactiveCount ?? 0) > 0 ? (
+                    <span className="customers-uncontacted-badge" title="لم يتم التواصل">
+                      {(data.uncontactedInactiveCount ?? 0) > 99 ? "99+" : String(data.uncontactedInactiveCount)}
+                    </span>
+                  ) : (
+                    <span className="orders-room-filter__count">0</span>
+                  )
+                ) : null}
+              </button>
+              <button
+                type="button"
+                className={`orders-room-filter customers-contact-tab${inactiveContactTab === "contacted" ? " orders-room-filter--active" : ""}`}
+                onClick={() => setInactiveContactTab("contacted")}
+              >
+                تم التواصل
+                {data ? (
+                  <span className="orders-room-filter__count">
+                    {data.contactedInactiveCount ?? Math.max(0, data.inactiveCount - (data.uncontactedInactiveCount ?? 0))}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -153,6 +242,7 @@ export default function CustomersPage() {
                   <th>الهاتف</th>
                   <th>عدد الطلبات</th>
                   <th>آخر طلب</th>
+                  {filter === "inactive" && inactiveContactTab === "contacted" ? <th>آخر تواصل</th> : null}
                   <th>تاريخ الإضافة</th>
                   <th></th>
                 </tr>
@@ -164,12 +254,35 @@ export default function CustomersPage() {
                     className="customers-table__row"
                     onClick={() => setHistoryCustomer(row)}
                   >
-                    <td>{row.name?.trim() || "—"}</td>
+                    <td>
+                      <span className="customers-name-cell">
+                        {row.needsContact ? (
+                          <span className="customers-contact-dot" title="لم يتم التواصل" aria-label="لم يتم التواصل" />
+                        ) : null}
+                        {row.name?.trim() || "—"}
+                      </span>
+                    </td>
                     <td dir="ltr">{row.phoneDisplay}</td>
                     <td>{row.ordersCount}</td>
                     <td>{formatDateTime(row.lastOrderAt)}</td>
+                    {filter === "inactive" && inactiveContactTab === "contacted" ? (
+                      <td>{formatDateTime(row.lastContactedAt ?? null)}</td>
+                    ) : null}
                     <td>{formatDateTime(row.createdAt)}</td>
                     <td className="cell-actions">
+                      {row.needsContact ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          disabled={contactingId === row.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void markContacted(row.id);
+                          }}
+                        >
+                          {contactingId === row.id ? "جارٍ..." : "تم التواصل"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="btn btn-sm"

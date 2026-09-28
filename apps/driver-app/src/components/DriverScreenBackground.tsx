@@ -1,10 +1,9 @@
+import { useBranding } from "@taxi/expo-branding";
 import { useTheme, useThemedStyles } from "@taxi/expo-theme";
 import type { ReactNode } from "react";
 import { ImageBackground, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { driverHeaderOuterHeight } from "../lib/tab-bar-inset";
-
-const DRIVER_BACKGROUND = require("../../assets/images/background.jpeg");
 
 export function DriverScreenBackground({
   children,
@@ -14,6 +13,7 @@ export function DriverScreenBackground({
   variant?: "default" | "auth";
 }) {
   const { theme } = useTheme();
+  const { backgroundSource } = useBranding();
   const overlayColor =
     theme.mode === "dark"
       ? variant === "auth"
@@ -45,7 +45,7 @@ export function DriverScreenBackground({
 
   return (
     <View style={styles.root}>
-      <ImageBackground source={DRIVER_BACKGROUND} style={styles.image} resizeMode="cover">
+      <ImageBackground source={backgroundSource} style={styles.image} resizeMode="cover">
         <View pointerEvents="none" style={styles.overlay} />
         <View style={styles.content}>{children}</View>
       </ImageBackground>

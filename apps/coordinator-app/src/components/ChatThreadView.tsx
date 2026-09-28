@@ -3,7 +3,7 @@ import {
   useThemedStyles,
   ChatHeaderPeer,
   ChatImageZoomModal,
-  KeyboardAvoidingView,
+  KeyboardStickyView,
   useKeyboardOpen,
   MessageReceipt,
   TypingIndicator,
@@ -139,10 +139,19 @@ export function ChatThreadView({
   const listRef = useRef<FlatList<ChatMessageRow>>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActiveRef = useRef(false);
+  const loadInFlightRef = useRef(false);
+  const hasMessagesRef = useRef(false);
+  const pendingInitialScrollRef = useRef(true);
+  const lastContentHeightRef = useRef(0);
+  const messagesLenRef = useRef(0);
+  const ackedMessageIdsRef = useRef(new Set<string>());
+  const boundRoomIdRef = useRef<string | null>(null);
   const setActiveChatRoomId = useCoordinatorStore((s) => s.setActiveChatRoomId);
   const markChatRoomRead = useCoordinatorStore((s) => s.markChatRoomRead);
 
   const ackIncoming = useCallback((messageId: string) => {
+    if (ackedMessageIdsRef.current.has(messageId)) return;
+    ackedMessageIdsRef.current.add(messageId);
     const socket = socketRef.current;
     if (!socket) return;
     socket.emit(chatSocketEvents.DELIVERED, { messageId });
@@ -186,9 +195,28 @@ export function ChatThreadView({
     [roomId, myFullName, myUserId, stopTyping]
   );
 
+  messagesLenRef.current = messages.length;
+
   const scrollToBottom = useCallback((animated = true) => {
     requestAnimationFrame(() => {
       listRef.current?.scrollToEnd({ animated });
+    });
+  }, []);
+
+  const scrollToLatestOnOpen = useCallback(() => {
+    if (!pendingInitialScrollRef.current || !hasMessagesRef.current) return;
+    const lastIndex = messagesLenRef.current - 1;
+    if (lastIndex < 0) return;
+    requestAnimationFrame(() => {
+      try {
+        listRef.current?.scrollToIndex({
+          index: lastIndex,
+          animated: false,
+          viewPosition: 1
+        });
+      } catch {
+        listRef.current?.scrollToEnd({ animated: false });
+      }
     });
   }, []);
 
@@ -384,9 +412,13 @@ export function ChatThreadView({
   }));
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+    if (!hasMessagesRef.current) setLoading(true);
     try {
       const page = await listChatMessages(roomId);
+      pendingInitialScrollRef.current = true;
+      hasMessagesRef.current = page.messages.length > 0;
       setMessages(page.messages);
       peerUserIdRef.current = page.room.peerUserId;
       peerDriverIdRef.current = page.room.peerDriverId;
@@ -397,21 +429,31 @@ export function ChatThreadView({
     } catch (e) {
       feedback.error(e instanceof Error ? e.message : "تعذر تحميل الرسائل");
     } finally {
+      loadInFlightRef.current = false;
       setLoading(false);
     }
   }, [roomId]);
 
   useEffect(() => {
-    void load();
-    void getChatAccessToken().then(setAccessToken);
-    void getSession().then((session) => {
-      if (!session) return;
-      setMyUserId(session.user.id);
-      setMyFullName(session.user.fullName);
-    });
+    const roomChanged = boundRoomIdRef.current !== roomId;
+    boundRoomIdRef.current = roomId;
+    if (roomChanged) {
+      hasMessagesRef.current = false;
+      pendingInitialScrollRef.current = true;
+      lastContentHeightRef.current = 0;
+      ackedMessageIdsRef.current = new Set();
+      setMessages([]);
+      void load();
+      void getChatAccessToken().then(setAccessToken);
+      void getSession().then((session) => {
+        if (!session) return;
+        setMyUserId(session.user.id);
+        setMyFullName(session.user.fullName);
+      });
+      void markChatRoomReadOnServer(roomId);
+    }
     setActiveChatRoomId(roomId);
     markChatRoomRead(roomId);
-    void markChatRoomReadOnServer(roomId);
     return () => {
       stopTyping();
       setActiveChatRoomId(null);
@@ -419,10 +461,22 @@ export function ChatThreadView({
   }, [load, roomId, setActiveChatRoomId, markChatRoomRead, stopTyping]);
 
   useEffect(() => {
-    if (!loading) {
-      scrollToBottom(false);
-    }
-  }, [loading, scrollToBottom]);
+    if (loading) return;
+    pendingInitialScrollRef.current = true;
+    lastContentHeightRef.current = 0;
+    const frame = requestAnimationFrame(() => scrollToLatestOnOpen());
+    const retry = setTimeout(() => scrollToLatestOnOpen(), 80);
+    const settle = setTimeout(() => scrollToLatestOnOpen(), 200);
+    const lock = setTimeout(() => {
+      pendingInitialScrollRef.current = false;
+    }, 320);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(retry);
+      clearTimeout(settle);
+      clearTimeout(lock);
+    };
+  }, [loading, roomId, scrollToLatestOnOpen]);
 
   useEffect(() => {
     const event = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -433,17 +487,22 @@ export function ChatThreadView({
   }, [scrollToBottom]);
 
   useEffect(() => {
+    if (!myUserId) return;
     const socket = io(getSocketOrigin(), { transports: ["websocket"], auth: nativeAppSocketAuth("coordinator") });
     socketRef.current = socket;
     const onConnect = () => {
-      if (myUserId) socket.emit(chatSocketEvents.REGISTER, myUserId);
+      socket.emit(chatSocketEvents.REGISTER, myUserId);
       socket.emit(chatSocketEvents.JOIN_ROOM, roomId);
       socket.emit(chatSocketEvents.READ, { roomId });
     };
     const onMessage = (msg: ChatMessageRow) => {
       if (msg.roomId !== roomId) return;
-      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-      if (myUserId && msg.sender.id !== myUserId) {
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        hasMessagesRef.current = true;
+        return [...prev, msg];
+      });
+      if (msg.sender.id !== myUserId) {
         ackIncoming(msg.id);
       }
       setTimeout(() => scrollToBottom(true), 80);
@@ -494,8 +553,9 @@ export function ChatThreadView({
       socket.off(socketEvents.DRIVER_ONLINE, onDriverOnline);
       socket.off(socketEvents.DRIVER_OFFLINE, onDriverOffline);
       socket.disconnect();
+      socketRef.current = null;
     };
-  }, [roomId, scrollToBottom, myUserId, ackIncoming, updateReceipt]);
+  }, [roomId, myUserId, scrollToBottom, ackIncoming, updateReceipt]);
 
   const canEditAmount = !!orderId && orderStatus !== "CANCELLED";
   const isCompletedOrder = orderStatus === "COMPLETED";
@@ -654,7 +714,7 @@ export function ChatThreadView({
     );
   };
 
-  const composerBottomPad = keyboardOpen && Platform.OS === "ios" ? 10 : Math.max(insets.bottom, 10);
+  const composerBottomPad = keyboardOpen ? 8 : Math.max(insets.bottom, 8);
 
   const composer = (
     <View style={{ position: "relative" }}>
@@ -698,7 +758,7 @@ export function ChatThreadView({
 
   return (
     <CoordinatorScreenBackground>
-    <KeyboardAvoidingView style={styles.root} behavior="padding">
+    <View style={styles.root}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         {onBack ? (
           <Pressable style={styles.backBtn} onPress={onBack}>
@@ -744,20 +804,45 @@ export function ChatThreadView({
           </Pressable>
         ) : null}
       </View>
-      {loading ? (
+      {loading && messages.length === 0 ? (
         <View style={styles.centered}>
           <ActivityIndicator color={theme.colors.accent} />
         </View>
       ) : (
         <FlatList
           ref={listRef}
+          style={{ flex: 1 }}
           data={messages}
           keyExtractor={(m) => m.id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          onContentSizeChange={() => scrollToBottom(false)}
+          onContentSizeChange={(_w, h) => {
+            if (!pendingInitialScrollRef.current || !hasMessagesRef.current) return;
+            if (h <= lastContentHeightRef.current + 1) {
+              pendingInitialScrollRef.current = false;
+              return;
+            }
+            lastContentHeightRef.current = h;
+            scrollToLatestOnOpen();
+          }}
+          onLayout={() => scrollToLatestOnOpen()}
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => {
+              if (!pendingInitialScrollRef.current) return;
+              try {
+                listRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: false,
+                  viewPosition: 1
+                });
+              } catch {
+                listRef.current?.scrollToEnd({ animated: false });
+              }
+            }, 50);
+          }}
+          initialNumToRender={Math.max(messages.length, 16)}
           showsVerticalScrollIndicator={false}
           ListFooterComponent={
             typingFrom ? (
@@ -819,8 +904,10 @@ export function ChatThreadView({
           </Pressable>
         </Pressable>
       </Modal>
-      {composer}
-    </KeyboardAvoidingView>
+      <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
+        {composer}
+      </KeyboardStickyView>
+    </View>
     </CoordinatorScreenBackground>
   );
 }

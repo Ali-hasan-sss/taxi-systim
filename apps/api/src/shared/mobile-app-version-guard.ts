@@ -49,6 +49,8 @@ function requestPath(req: Request): string {
 function isExemptPath(path: string, method: string): boolean {
   if (method === "OPTIONS") return true;
   if (path === "/public/app-config" && method === "GET") return true;
+  if (path === "/public/branding" && method === "GET") return true;
+  if (path.startsWith("/public/branding/") && method === "GET") return true;
   if (path === "/public/taxi-request" && method === "POST") return true;
   return false;
 }

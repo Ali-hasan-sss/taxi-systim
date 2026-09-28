@@ -4,11 +4,12 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../lib/api";
 import { useAuthStore } from "../store/auth.store";
-import { DashboardBrandLogo } from "./dashboard-brand-logo";
+import { DashboardBrandLogo, usePlatformBranding } from "./dashboard-brand-logo";
 
 export const AdminLoginForm = () => {
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
+  const { ready, appName } = usePlatformBranding();
   const [email, setEmail] = useState("admin@taxi.local");
   const [password, setPassword] = useState("secret123");
   const [error, setError] = useState<string | null>(null);
@@ -49,8 +50,8 @@ export const AdminLoginForm = () => {
           <DashboardBrandLogo priority />
         </div>
         <div>
-          <h2 className="login-card__title">Taxi Bro</h2>
-          <p className="login-card__subtitle">لوحة إدارة شركة التكسي</p>
+          <h2 className="login-card__title">{ready ? appName || "\u00A0" : "\u00A0"}</h2>
+          <p className="login-card__subtitle">{ready ? "لوحة إدارة شركة التكسي" : "\u00A0"}</p>
         </div>
       </div>
 

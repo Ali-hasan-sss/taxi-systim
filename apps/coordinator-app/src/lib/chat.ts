@@ -253,7 +253,14 @@ export async function getChatAccessToken(): Promise<string | null> {
   return session?.accessToken ?? null;
 }
 
+const lastRoomReadAt = new Map<string, number>();
+const ROOM_READ_THROTTLE_MS = 1200;
+
 export async function markChatRoomReadOnServer(roomId: string): Promise<void> {
+  const now = Date.now();
+  const prev = lastRoomReadAt.get(roomId) ?? 0;
+  if (now - prev < ROOM_READ_THROTTLE_MS) return;
+  lastRoomReadAt.set(roomId, now);
   const session = await getSession();
   if (!session) return;
   await chatFetch(`/chat/rooms/${roomId}/read`, { method: "POST" }, session.accessToken);

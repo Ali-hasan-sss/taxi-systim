@@ -2,12 +2,32 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, type CommissionType } from "../../../lib/api";
+import { BrandingSettingsCard } from "../../../components/branding-settings-card";
+import { ConfirmModal } from "../../../components/confirm-modal";
+import {
+  api,
+  CommissionSettingsConflictError,
+  type BrandingSettings,
+  type CommissionPaymentMode,
+  type CommissionType,
+  type PaymentModeSwitchPreview
+} from "../../../lib/api";
 
 const commissionTypeLabels: Record<CommissionType, string> = {
   PERCENTAGE: "نسبة مئوية",
   FIXED: "مبلغ ثابت لكل طلب"
 };
+
+const paymentModeLabels: Record<CommissionPaymentMode, string> = {
+  POSTPAID: "ملحق الدفع",
+  PREPAID: "مسبق الدفع"
+};
+
+function formatSyrianMoney(value: string | number): string {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return new Intl.NumberFormat("ar-SY", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+}
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -24,7 +44,12 @@ export default function SettingsPage() {
 
   const [commissionType, setCommissionType] = useState<CommissionType>("PERCENTAGE");
   const [commissionValue, setCommissionValue] = useState("0");
+  const [commissionDebtLimit, setCommissionDebtLimit] = useState("2000");
+  const [paymentMode, setPaymentMode] = useState<CommissionPaymentMode>("POSTPAID");
+  const [savedPaymentMode, setSavedPaymentMode] = useState<CommissionPaymentMode>("POSTPAID");
+  const [modeSwitchPreview, setModeSwitchPreview] = useState<PaymentModeSwitchPreview | null>(null);
 
+  const [branding, setBranding] = useState<BrandingSettings | null>(null);
   const [driverMinVersion, setDriverMinVersion] = useState("0.0.0");
   const [driverAndroidUrl, setDriverAndroidUrl] = useState("");
   const [driverIosUrl, setDriverIosUrl] = useState("");
@@ -60,14 +85,19 @@ export default function SettingsPage() {
       setLoading(true);
       setError(null);
       try {
-        const [setting, versions, me] = await Promise.all([
+        const [setting, versions, me, brand] = await Promise.all([
           api.getCommissionSettings(token),
           api.getAppVersionSettings(token),
-          api.me(token)
+          api.me(token),
+          api.getBrandingSettings(token)
         ]);
         if (setting) {
           setCommissionType(setting.commissionType);
           setCommissionValue(String(setting.commissionValue ?? "0"));
+          setCommissionDebtLimit(String(setting.commissionDebtLimit ?? "2000"));
+          const mode = setting.paymentMode === "PREPAID" ? "PREPAID" : "POSTPAID";
+          setPaymentMode(mode);
+          setSavedPaymentMode(mode);
         }
         setDriverMinVersion(versions.driverMinVersion || "0.0.0");
         setDriverAndroidUrl(versions.driverAndroidUrl || "");
@@ -77,6 +107,7 @@ export default function SettingsPage() {
         setCoordinatorIosUrl(versions.coordinatorIosUrl || "");
         setAdminName(me.fullName);
         setAdminEmail(me.email ?? "");
+        setBranding(brand);
       } catch (err) {
         const message = err instanceof Error ? err.message : "تعذر تحميل الإعدادات";
         if (message === "SESSION_EXPIRED") {
@@ -119,12 +150,16 @@ export default function SettingsPage() {
     }
   };
 
-  const submitCommission = async (e: FormEvent) => {
-    e.preventDefault();
+  const saveCommission = async (confirmZeroBalances = false) => {
     if (!token) return;
     const parsedValue = Number(commissionValue.trim().replace(",", "."));
     if (!Number.isFinite(parsedValue) || parsedValue < 0) {
       setError("قيمة العمولة يجب أن تكون رقمًا صالحًا غير سالب.");
+      return;
+    }
+    const parsedDebtLimit = Number(commissionDebtLimit.trim().replace(",", "."));
+    if (!Number.isFinite(parsedDebtLimit) || parsedDebtLimit < 0) {
+      setError("الحد الأعلى للمبلغ المترتب يجب أن يكون رقمًا صالحًا غير سالب.");
       return;
     }
 
@@ -134,12 +169,31 @@ export default function SettingsPage() {
     try {
       const updated = await api.updateCommissionSettings(token, {
         commissionType,
-        commissionValue: parsedValue
+        commissionValue: parsedValue,
+        commissionDebtLimit: parsedDebtLimit,
+        paymentMode,
+        confirmZeroBalances
       });
+      const previousMode = savedPaymentMode;
       setCommissionType(updated.commissionType);
       setCommissionValue(String(updated.commissionValue ?? parsedValue));
-      setNotice("تم تحديث إعدادات العمولة بنجاح.");
+      setCommissionDebtLimit(String(updated.commissionDebtLimit ?? parsedDebtLimit));
+      const mode = updated.paymentMode === "PREPAID" ? "PREPAID" : "POSTPAID";
+      setPaymentMode(mode);
+      setSavedPaymentMode(mode);
+      setModeSwitchPreview(null);
+      setNotice(
+        mode !== previousMode
+          ? `تم تحديث إعدادات العمولة وتغيير وضع العمل إلى ${paymentModeLabels[mode]}.`
+          : "تم تحديث إعدادات العمولة بنجاح."
+      );
     } catch (err) {
+      if (err instanceof CommissionSettingsConflictError) {
+        setModeSwitchPreview(err.preview);
+        setError(err.message);
+        setCommissionSaving(false);
+        return;
+      }
       const message = err instanceof Error ? err.message : "فشل تحديث العمولة";
       if (message === "SESSION_EXPIRED") {
         handleSessionExpired();
@@ -149,6 +203,11 @@ export default function SettingsPage() {
     } finally {
       setCommissionSaving(false);
     }
+  };
+
+  const submitCommission = async (e: FormEvent) => {
+    e.preventDefault();
+    await saveCommission(false);
   };
 
   const submitAppVersions = async (e: FormEvent) => {
@@ -232,7 +291,7 @@ export default function SettingsPage() {
       <section className="card settings-hero">
         <h2 className="settings-hero__title">إعدادات النظام</h2>
         <p className="settings-hero__text">
-          من هنا يمكن للأدمن تعديل اسم حسابه، إعدادات العمولة، الحد الأدنى لنسخ التطبيقات، وتغيير كلمة المرور بشكل آمن.
+          من هنا يمكن للأدمن تعديل اسم حسابه، اسم التطبيق واللوجو وخلفيات التطبيقات، إعدادات العمولة، الحد الأدنى لنسخ التطبيقات، وتغيير كلمة المرور بشكل آمن.
         </p>
       </section>
 
@@ -240,6 +299,23 @@ export default function SettingsPage() {
       {notice ? <p className="settings-notice">{notice}</p> : null}
 
       <section className="settings-grid">
+        {token && branding ? (
+          <BrandingSettingsCard
+            token={token}
+            branding={branding}
+            onChange={setBranding}
+            onNotice={(message) => {
+              setError(null);
+              setNotice(message);
+            }}
+            onError={(message) => {
+              setNotice(null);
+              setError(message || null);
+            }}
+            onSessionExpired={handleSessionExpired}
+          />
+        ) : null}
+
         <article className="card settings-card">
           <h3 className="settings-card__title">حساب الأدمن</h3>
           <p className="settings-card__hint">يظهر هذا الاسم في لوحة التحكم وعند تسجيل الدخول.</p>
@@ -278,6 +354,21 @@ export default function SettingsPage() {
 
           <form className="settings-form" onSubmit={submitCommission}>
             <label className="settings-field">
+              <span>وضع عمل السائقين</span>
+              <div className="select-wrap">
+                <select
+                  className="select-styled"
+                  value={paymentMode}
+                  onChange={(e) => setPaymentMode(e.target.value as CommissionPaymentMode)}
+                >
+                  <option value="POSTPAID">{paymentModeLabels.POSTPAID}</option>
+                  <option value="PREPAID">{paymentModeLabels.PREPAID}</option>
+                </select>
+                <span className="select-wrap__chevron">▼</span>
+              </div>
+            </label>
+
+            <label className="settings-field">
               <span>نوع العمولة</span>
               <div className="select-wrap">
                 <select
@@ -305,8 +396,28 @@ export default function SettingsPage() {
               />
             </label>
 
+            <label className="settings-field">
+              <span>الحد الأعلى للمبلغ المترتب قبل إيقاف السائق</span>
+              <input
+                className="input-styled"
+                type="number"
+                min="0"
+                step="0.01"
+                value={commissionDebtLimit}
+                onChange={(e) => setCommissionDebtLimit(e.target.value)}
+                placeholder="مثال: 2000"
+              />
+            </label>
+
             <div className="settings-inline-note">
-              الوضع الحالي: <strong>{commissionTypeLabels[commissionType]}</strong>
+              {paymentMode === "PREPAID"
+                ? "في وضع مسبق الدفع يُوقف السائق عن العمل عندما يصبح رصيده 0، ويجب شحن رصيده من صفحة الموظفين لمتابعة العمل. الرصيد يُخزَّن كعمولة سالبة لكن يُعرض للسائق كرصيد موجب."
+                : "إذا تجاوز المبلغ المترتب على السائق هذا الحد يُوقف عن العمل فورًا، ويعود للعمل مباشرة بعد تسديد ما يُنزّله إلى الحد أو دونه. يمكن رفع أو خفض الحد لسائق معيّن من نموذج تعديل السائق، ومن لم يُحدَّد له حد خاص يُعامل بهذا الحد العام."}{" "}
+              الوضع الحالي: <strong>{paymentModeLabels[savedPaymentMode]}</strong> ·{" "}
+              <strong>{commissionTypeLabels[commissionType]}</strong>
+              {paymentMode !== savedPaymentMode
+                ? ` — سيتم التحويل إلى ${paymentModeLabels[paymentMode]} عند الحفظ.`
+                : null}
             </div>
 
             <div className="settings-actions">
@@ -460,6 +571,37 @@ export default function SettingsPage() {
           </form>
         </article>
       </section>
+
+      <ConfirmModal
+        open={Boolean(modeSwitchPreview)}
+        title="تصفير أرصدة السائقين"
+        description="سيتم تصفير جميع أرصدة السائقين مع تخزين جميع المستحقات والديون والتعويضات غير المستفادة في صفحة الديون والمستحقات."
+        details={
+          modeSwitchPreview
+            ? [
+                { label: "سائقون بأرصدة غير صفرية", value: String(modeSwitchPreview.nonzeroDriverCount) },
+                { label: "إجمالي الديون", value: `${formatSyrianMoney(modeSwitchPreview.totalDebt)} ل.س` },
+                {
+                  label: "أرصدة مسبقة متبقية",
+                  value: `${formatSyrianMoney(modeSwitchPreview.totalPrepaidCredit)} ل.س`
+                },
+                {
+                  label: "تعويضات غير مستفادة",
+                  value: `${formatSyrianMoney(modeSwitchPreview.unusedCompensationTotal)} ل.س`
+                }
+              ]
+            : undefined
+        }
+        confirmLabel="تصفير الأرصدة وتغيير الوضع"
+        cancelLabel="إلغاء"
+        busy={commissionSaving}
+        onConfirm={() => void saveCommission(true)}
+        onCancel={() => {
+          setModeSwitchPreview(null);
+          setPaymentMode(savedPaymentMode);
+          setError(null);
+        }}
+      />
     </div>
   );
 }

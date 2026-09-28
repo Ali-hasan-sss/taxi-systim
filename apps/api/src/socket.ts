@@ -346,7 +346,7 @@ export function emitOrderAssigned(io: Server, order: Order) {
 export async function forceDriverOffline(
   io: Server,
   driverDbId: string,
-  opts?: { notifyDriver?: boolean; reason?: "disabled" | "debt" }
+  opts?: { notifyDriver?: boolean; reason?: "disabled" | "debt"; message?: string }
 ) {
   if (!driverDbId) return;
   memOnline.delete(driverDbId);
@@ -369,7 +369,8 @@ export async function forceDriverOffline(
     if (opts?.notifyDriver !== false) {
       s.emit(socketEvents.DRIVER_FORCE_OFFLINE, {
         driverId: driverDbId,
-        reason: opts?.reason ?? "disabled"
+        reason: opts?.reason ?? "disabled",
+        message: opts?.message
       });
     }
   }
@@ -378,6 +379,13 @@ export async function forceDriverOffline(
 
 export function emitDriverDebtCleared(io: Server, driverDbId: string, remainingDebt: number) {
   io.to(`driver:${driverDbId}`).emit(socketEvents.DRIVER_DEBT_CLEARED, {
+    driverId: driverDbId,
+    remainingDebt
+  });
+}
+
+export function emitDriverFinanceUpdated(io: Server, driverDbId: string, remainingDebt: number) {
+  io.to(`driver:${driverDbId}`).emit(socketEvents.DRIVER_FINANCE_UPDATED, {
     driverId: driverDbId,
     remainingDebt
   });
@@ -573,11 +581,15 @@ export const initSocket = (io: Server) => {
           await forceDriverOffline(io, driverId, { notifyDriver: true, reason: "disabled" });
           return;
         }
-        const { isDriverBlockedByDebt, readDriverRemainingDebt, rememberDriverDebtSuspended } = await import("./shared/driver-debt-block");
-        const remainingDebt = await readDriverRemainingDebt(prisma, driverId);
-        if (isDriverBlockedByDebt(remainingDebt)) {
+        const { readDriverWorkBlockState, rememberDriverDebtSuspended } = await import("./shared/driver-debt-block");
+        const state = await readDriverWorkBlockState(prisma, driverId);
+        if (state.blocked) {
           rememberDriverDebtSuspended(driverId);
-          await forceDriverOffline(io, driverId, { notifyDriver: true, reason: "debt" });
+          await forceDriverOffline(io, driverId, {
+            notifyDriver: true,
+            reason: "debt",
+            message: state.message
+          });
           return;
         }
         isActive = true;

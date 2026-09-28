@@ -1,4 +1,5 @@
 import {
+  CommissionPaymentStatus,
   CommissionType,
   FinancialTransactionType,
   OrderBroadcastTarget,
@@ -21,11 +22,14 @@ import {
 import { SYRIA_TIME_ZONE, syriaCalendarDayIso } from "../../shared/syria-time";
 import { getDriverLocationsForNearest } from "../../socket";
 import type { CreateOrderDto } from "./orders.dto";
-import { applyDriverFineInTransaction } from "../accounting/accounting.service";
+import { applyDriverFineInTransaction, settleDriverCoveredLedgers } from "../accounting/accounting.service";
 import { driverMatchesOrderVehicle } from "./order-vehicle-filter";
 import {
+  assertDriverCanTakeOrder,
   assertDriverCanTakeWork,
   driverDebtHomeCopy,
+  getCommissionPaymentMode,
+  getEffectiveCommissionDebtLimit,
   markDriverOfflineInTxIfDebtBlocked,
   scheduleDriverDebtWorkSync
 } from "../../shared/driver-debt-block";
@@ -405,6 +409,8 @@ async function sumCommissionDueTodaySyriaForDriver(driverId: string): Promise<nu
     FROM "Commission" c
     INNER JOIN "Order" o ON o.id = c."orderId"
     WHERE c."driverId" = ${driverId}
+      AND c."paymentStatus"::text <> 'PAID'
+      AND c."remainingAmount" > 0
       AND o."completedAt" IS NOT NULL
       AND (
         (o."completedAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Damascus'
@@ -419,18 +425,18 @@ async function sumCommissionDueTodaySyriaForDriver(driverId: string): Promise<nu
 
 /**
  * ملخص مالية السائق للرئيسية:
- * - العمولة: المتبقي غير المدفوع فقط (لا تُحتسب العمولة المسددة مرتين)
- * - الغرامات: غير المسددة فقط (referenceId = null) — لا تُدفع الغرامة مرتين
- * - التعويضات: غير المستخدم في تسديد بعد (referenceId = null)
- * - المترتب = remainingDebt (يُصفَّر عند تسديد المترتب لأن التعويض يُستهلك ضمن الفاتورة)
+ * - لاحق الدفع: تُعرض مجاميع العمولة والديون والغرامات والخصومات والتعويضات، والناتج = remainingDebt
+ * - مسبق الدفع: العمولات/التعويضات/الغرامات/الخصومات 0، والمتبقي في الديون والرصيد
  */
 async function sumDriverHomeFinance(driverId: string): Promise<{
   unpaidCommissionAmount: number;
   compensationAmount: number;
   fineAmount: number;
+  deductionAmount: number;
+  extraDebtAmount: number;
   amountOwed: number;
 }> {
-  const [balance, commissionAgg, unpaidFineAgg, compensationAgg] = await Promise.all([
+  const [balance, commissionAgg, unpaidFineAgg, unpaidDeductionAgg, unpaidExtraDebtAgg, compensationAgg] = await Promise.all([
     prisma.driverBalance.findUnique({
       where: { driverId },
       select: { remainingDebt: true }
@@ -439,7 +445,8 @@ async function sumDriverHomeFinance(driverId: string): Promise<{
       where: {
         driverId,
         order: { status: OrderStatus.COMPLETED },
-        remainingAmount: { gt: 0 }
+        remainingAmount: { gt: 0 },
+        paymentStatus: { not: CommissionPaymentStatus.PAID }
       },
       _sum: { remainingAmount: true }
     }),
@@ -457,23 +464,69 @@ async function sumDriverHomeFinance(driverId: string): Promise<{
         driverId,
         type: FinancialTransactionType.MANUAL_ADJUSTMENT,
         referenceId: null,
+        notes: { startsWith: "خصم سائق" }
+      },
+      _sum: { amount: true }
+    }),
+    prisma.financialTransaction.aggregate({
+      where: {
+        driverId,
+        type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+        referenceId: null,
+        notes: { startsWith: "دين سائق" }
+      },
+      _sum: { amount: true }
+    }),
+    prisma.financialTransaction.aggregate({
+      where: {
+        driverId,
+        type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+        referenceId: null,
         notes: { startsWith: "تعويض سائق" }
       },
       _sum: { amount: true }
     })
   ]);
 
-  const unpaidCommissionAmount = Number(commissionAgg._sum.remainingAmount ?? 0) || 0;
-  const fineAmount = Number(unpaidFineAgg._sum.amount ?? 0) || 0;
+  const unpaidCommissionRaw = Number(commissionAgg._sum.remainingAmount ?? 0) || 0;
+  const unpaidCommissionAmount = unpaidCommissionRaw > 0.005 ? unpaidCommissionRaw : 0;
+  const fineAmountRaw = Number(unpaidFineAgg._sum.amount ?? 0) || 0;
+  const deductionAmountRaw = Number(unpaidDeductionAgg._sum.amount ?? 0) || 0;
+  const extraDebtRaw = Number(unpaidExtraDebtAgg._sum.amount ?? 0) || 0;
   const recordedCompensation = Number(compensationAgg._sum.amount ?? 0) || 0;
-  const reconstructed = unpaidCommissionAmount + fineAmount - recordedCompensation;
+  const reconstructed = unpaidCommissionRaw + fineAmountRaw + deductionAmountRaw + extraDebtRaw - recordedCompensation;
   const rawDebt = balance ? Number(balance.remainingDebt) : reconstructed;
   const amountOwed = Number.isFinite(rawDebt) ? rawDebt : 0;
+  const remainingPositive = amountOwed > 0 ? amountOwed : 0;
+  const paymentMode = await getCommissionPaymentMode(prisma);
+  const prepaid = paymentMode === "PREPAID";
+  if (!prepaid) {
+    return {
+      unpaidCommissionAmount,
+      compensationAmount: recordedCompensation,
+      fineAmount: fineAmountRaw,
+      deductionAmount: deductionAmountRaw,
+      extraDebtAmount: extraDebtRaw,
+      amountOwed
+    };
+  }
+
+  const fineRemainder = remainingPositive > 0 && fineAmountRaw > 0 ? Math.min(fineAmountRaw, remainingPositive) : 0;
+  const deductionRemainder =
+    remainingPositive > 0 && deductionAmountRaw > 0 ? Math.min(deductionAmountRaw, remainingPositive) : 0;
+  const commissionRemainder =
+    remainingPositive > 0 && unpaidCommissionAmount > 0 ? Math.min(unpaidCommissionAmount, remainingPositive) : 0;
+  const extraDebtAmount =
+    remainingPositive > 0
+      ? Math.min(remainingPositive, extraDebtRaw + fineRemainder + deductionRemainder + commissionRemainder)
+      : 0;
 
   return {
-    unpaidCommissionAmount,
-    compensationAmount: recordedCompensation,
-    fineAmount,
+    unpaidCommissionAmount: 0,
+    compensationAmount: 0,
+    fineAmount: 0,
+    deductionAmount: 0,
+    extraDebtAmount,
     amountOwed
   };
 }
@@ -645,7 +698,7 @@ export const ordersService = {
         });
         if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
         if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
-        await assertDriverCanTakeWork(tx, driver.id, "dispatcher");
+        await assertDriverCanTakeOrder(tx, driver.id, payload.amount, "dispatcher");
         if (!driverMatchesOrderVehicle(payload.vehicleRequirement, driver.vehicleKind)) {
           throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة/VIP)", 400);
         }
@@ -826,7 +879,7 @@ export const ordersService = {
       });
       if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
       if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
-      await assertDriverCanTakeWork(tx, driver.id, "dispatcher");
+      await assertDriverCanTakeOrder(tx, driver.id, toNum(order.amount), "dispatcher");
       if (!driverMatchesOrderVehicle(order.vehicleRequirement, driver.vehicleKind)) {
         throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة)", 400);
       }
@@ -870,7 +923,7 @@ export const ordersService = {
       });
       if (!driver) throw new AppError("السائق غير موجود أو غير مفعّل", 404);
       if (driver.isBusy) throw new AppError("السائق مشغول بطلب آخر", 400);
-      await assertDriverCanTakeWork(tx, driver.id, "dispatcher");
+      await assertDriverCanTakeOrder(tx, driver.id, toNum(order.amount), "dispatcher");
       if (!driverMatchesOrderVehicle(order.vehicleRequirement, driver.vehicleKind)) {
         throw new AppError("نوع سيارة السائق لا يطابق متطلب الطلب (عامة/خاصة/VIP)", 400);
       }
@@ -1312,6 +1365,8 @@ export const ordersService = {
       prisma.commission.aggregate({
         where: {
           driverId: driver.id,
+          remainingAmount: { gt: 0 },
+          paymentStatus: { not: CommissionPaymentStatus.PAID },
           order: {
             is: {
               createdAt: { gte: fromUtc, lt: toExclusive },
@@ -1448,7 +1503,11 @@ export const ordersService = {
         unpaidCommissionAmount: 0,
         compensationAmount: 0,
         fineAmount: 0,
+        deductionAmount: 0,
+        extraDebtAmount: 0,
         amountOwed: 0,
+        commissionDebtLimit: 0,
+        paymentMode: "POSTPAID",
         workBlocked: false,
         debtWarning: false,
         workBlockMessage: null,
@@ -1480,7 +1539,11 @@ export const ordersService = {
       sumDriverHomeFinance(driver.id)
     ]);
 
-    const debtCopy = driverDebtHomeCopy(finance.amountOwed);
+    const [debtLimit, paymentMode] = await Promise.all([
+      getEffectiveCommissionDebtLimit(prisma, driver.id),
+      getCommissionPaymentMode(prisma)
+    ]);
+    const debtCopy = driverDebtHomeCopy(finance.amountOwed, debtLimit, paymentMode);
 
     return {
       active,
@@ -1492,7 +1555,11 @@ export const ordersService = {
       unpaidCommissionAmount: finance.unpaidCommissionAmount,
       compensationAmount: finance.compensationAmount,
       fineAmount: finance.fineAmount,
+      deductionAmount: finance.deductionAmount,
+      extraDebtAmount: finance.extraDebtAmount,
       amountOwed: finance.amountOwed,
+      commissionDebtLimit: debtLimit,
+      paymentMode,
       workBlocked: debtCopy.workBlocked,
       debtWarning: debtCopy.debtWarning,
       workBlockMessage: debtCopy.workBlockMessage,
@@ -1693,7 +1760,6 @@ export const ordersService = {
       if (!driver) throw new AppError("ملف السائق غير موجود", 404);
       if (!driver.user.isActive) throw new AppError("حسابك معطّل. تواصل مع الإدارة.", 403);
       if (!driver.isOnline) throw new AppError("يجب أن تكون متصلاً لاستلام الطلبات من الغرفة", 400);
-      await assertDriverCanTakeWork(tx, driver.id, "self");
       if (driver.isBusy) throw new AppError("لديك طلب قيد التنفيذ. أنهِه أولًا.", 400);
 
       const busyOrder = await tx.order.findFirst({
@@ -1708,6 +1774,7 @@ export const ordersService = {
         where: { id: orderId, status: OrderStatus.PENDING, driverId: null }
       });
       if (!orderRow) throw new AppError("لقد تم استلام الطلب من سائق آخر", 409);
+      await assertDriverCanTakeOrder(tx, driver.id, toNum(orderRow.amount), "self");
       if (!driverMatchesOrderVehicle(orderRow.vehicleRequirement, driver.vehicleKind)) {
         throw new AppError("نوع سيارتك لا يطابق متطلب هذا الطلب (عامة/خاصة)", 400);
       }
@@ -1875,13 +1942,14 @@ export const ordersService = {
 
       const balance = await tx.driverBalance.findUnique({ where: { driverId: order.driverId } });
       const current = balance ?? (await tx.driverBalance.create({ data: { driverId: order.driverId } }));
+      const remainingDebt = toNum(current.remainingDebt) + calculated;
 
       await tx.driverBalance.update({
         where: { driverId: order.driverId },
         data: {
           totalEarnings: toNum(current.totalEarnings) + amount,
           totalCommissions: toNum(current.totalCommissions) + calculated,
-          remainingDebt: toNum(current.remainingDebt) + calculated,
+          remainingDebt,
           availableBalance: toNum(current.availableBalance) + (amount - calculated)
         }
       });
@@ -1910,6 +1978,15 @@ export const ordersService = {
       }
 
       if (order.driverId) {
+        const latestBalance = await tx.driverBalance.findUnique({
+          where: { driverId: order.driverId },
+          select: { remainingDebt: true }
+        });
+        await settleDriverCoveredLedgers(
+          tx,
+          order.driverId,
+          toNum(latestBalance?.remainingDebt ?? remainingDebt)
+        );
         await markDriverOfflineInTxIfDebtBlocked(tx, order.driverId);
       }
 
@@ -1998,7 +2075,8 @@ export const ordersService = {
 
       if (commission) {
         const paid = toNum(commission.paidAmount);
-        if (paid > 0) {
+        const paymentMode = await getCommissionPaymentMode(tx);
+        if (paid > 0 && paymentMode !== "PREPAID") {
           throw new AppError("لا يمكن تعديل الأجرة بعد تسديد جزء من عمولة السائق", 400);
         }
 
@@ -2006,6 +2084,7 @@ export const ordersService = {
         const dEarnings = newAmount - oldAmount;
         const dCommission = newCalculated - oldCalculated;
         const dAvailable = newAmount - newCalculated - (oldAmount - oldCalculated);
+        const prepaidPaid = paymentMode === "PREPAID" && paid > 0;
 
         await tx.commission.update({
           where: { orderId: order.id },
@@ -2014,19 +2093,28 @@ export const ordersService = {
             commissionType: setting.commissionType,
             commissionValue: setting.commissionValue,
             calculatedCommission: new Prisma.Decimal(newCalculated.toFixed(2)),
-            remainingAmount: new Prisma.Decimal(newCalculated.toFixed(2))
+            remainingAmount: new Prisma.Decimal(
+              (prepaidPaid ? 0 : newCalculated).toFixed(2)
+            ),
+            paidAmount: new Prisma.Decimal((prepaidPaid ? newCalculated : paid).toFixed(2)),
+            paymentStatus: prepaidPaid
+              ? CommissionPaymentStatus.PAID
+              : commission.paymentStatus,
+            paidAt: prepaidPaid ? new Date() : commission.paidAt
           }
         });
 
         if (order.driverId) {
           const balance = await tx.driverBalance.findUnique({ where: { driverId: order.driverId } });
+          let remainingDebt = balance ? toNum(balance.remainingDebt) + dCommission : dCommission;
           if (balance) {
+            remainingDebt = toNum(balance.remainingDebt) + dCommission;
             await tx.driverBalance.update({
               where: { driverId: order.driverId },
               data: {
                 totalEarnings: new Prisma.Decimal((toNum(balance.totalEarnings) + dEarnings).toFixed(2)),
                 totalCommissions: new Prisma.Decimal((toNum(balance.totalCommissions) + dCommission).toFixed(2)),
-                remainingDebt: new Prisma.Decimal((toNum(balance.remainingDebt) + dCommission).toFixed(2)),
+                remainingDebt: new Prisma.Decimal(remainingDebt.toFixed(2)),
                 availableBalance: new Prisma.Decimal((toNum(balance.availableBalance) + dAvailable).toFixed(2))
               }
             });
@@ -2041,6 +2129,7 @@ export const ordersService = {
               referenceId: order.id
             }
           });
+          await settleDriverCoveredLedgers(tx, order.driverId, remainingDebt);
         }
       }
 
@@ -2183,8 +2272,12 @@ export const ordersService = {
 
         if (order.status === OrderStatus.COMPLETED && order.driverId) {
           const amount = toNum(order.amount);
-          const balance = await tx.driverBalance.findUnique({ where: { driverId: order.driverId } });
+          const [balance, paymentMode] = await Promise.all([
+            tx.driverBalance.findUnique({ where: { driverId: order.driverId } }),
+            getCommissionPaymentMode(tx)
+          ]);
           if (balance) {
+            const nextDebt = toNum(balance.remainingDebt) - commissionAmount + paid;
             await tx.driverBalance.update({
               where: { driverId: order.driverId },
               data: {
@@ -2198,7 +2291,7 @@ export const ordersService = {
                   Math.max(0, toNum(balance.totalPaidCommissions) - paid).toFixed(2)
                 ),
                 remainingDebt: new Prisma.Decimal(
-                  Math.max(0, toNum(balance.remainingDebt) - commissionAmount + paid).toFixed(2)
+                  (paymentMode === "PREPAID" ? nextDebt : Math.max(0, nextDebt)).toFixed(2)
                 ),
                 availableBalance: new Prisma.Decimal(
                   Math.max(0, toNum(balance.availableBalance) - (amount - commissionAmount)).toFixed(2)

@@ -20,6 +20,9 @@ export interface EmployeeDriverProfile {
   vehicleKind: VehicleKind | null;
   vehicleColor: string | null;
   vehicleNumber: string | null;
+  /** null يعني استخدام الحد العام من إعدادات المنصة */
+  commissionDebtLimit?: string | number | null;
+  remainingDebt?: string | number | null;
 }
 
 export interface Employee {
@@ -102,13 +105,92 @@ export interface DriverCoordinatorOption {
 }
 
 export type CommissionType = "PERCENTAGE" | "FIXED";
+export type CommissionPaymentMode = "POSTPAID" | "PREPAID";
 
 export interface CommissionSetting {
   id: string;
   key: string;
   commissionType: CommissionType;
   commissionValue: string | number;
+  commissionDebtLimit?: string | number;
+  paymentMode?: CommissionPaymentMode;
   updatedAt?: string;
+}
+
+export interface PaymentModeSwitchPreview {
+  needsZeroing: boolean;
+  nonzeroDriverCount: number;
+  driverCount: number;
+  totalDebt: string;
+  totalPrepaidCredit: string;
+  unusedCompensationTotal: string;
+  unpaidCommissionTotal: string;
+  unpaidFinesTotal: string;
+  message: string;
+}
+
+export class CommissionSettingsConflictError extends Error {
+  code = "BALANCES_REQUIRE_ZEROING";
+  preview: PaymentModeSwitchPreview | null;
+
+  constructor(message: string, preview: PaymentModeSwitchPreview | null) {
+    super(message);
+    this.name = "CommissionSettingsConflictError";
+    this.preview = preview;
+  }
+}
+
+export interface PaymentModeSettlementItem {
+  id: string;
+  driverId: string;
+  driverName: string;
+  remainingDebt: string;
+  unusedCompensation: string;
+  unpaidCommission: string;
+  unpaidFines: string;
+}
+
+export interface PaymentModeSettlement {
+  id: string;
+  fromMode: CommissionPaymentMode;
+  toMode: CommissionPaymentMode;
+  createdByUserId: string | null;
+  notes: string | null;
+  createdAt: string;
+  items: PaymentModeSettlementItem[];
+}
+
+export type DebtsDuesKind = "debt" | "credit" | "zero";
+
+export interface DebtsDuesDriverRow {
+  driverId: string;
+  userId: string;
+  fullName: string;
+  phone: string | null;
+  isActive: boolean;
+  remainingDebt: string;
+  unusedCompensation: string;
+  unpaidCommission: string;
+  unpaidFines: string;
+  unpaidDeductions: string;
+  extraDebt: string;
+  kind: DebtsDuesKind;
+}
+
+export interface DebtsDuesSummary {
+  driverCount: number;
+  debtDriverCount: number;
+  creditDriverCount: number;
+  zeroDriverCount: number;
+  totalDebt: string;
+  totalCredit: string;
+}
+
+export interface DebtsDuesResponse {
+  paymentMode: CommissionPaymentMode;
+  summary: DebtsDuesSummary;
+  rows: DebtsDuesDriverRow[];
+  archives: PaymentModeSettlement[];
 }
 
 export interface AppVersionSettings {
@@ -121,6 +203,20 @@ export interface AppVersionSettings {
   coordinatorIosUrl: string;
   updatedAt?: string;
 }
+
+export interface BrandingAsset {
+  url: string | null;
+  version: string | null;
+}
+
+export interface BrandingSettings {
+  appName: string;
+  logo: BrandingAsset;
+  coordinatorBackground: BrandingAsset;
+  driverBackground: BrandingAsset;
+}
+
+export type BrandingSlot = "logo" | "coordinator-background" | "driver-background";
 
 export type FinanceOrderStatus =
   | "PENDING"
@@ -171,6 +267,7 @@ export interface FinanceReportSummary {
   dueCommissionAmount: string;
   compensationAmount: string;
   fineAmount: string;
+  deductionAmount: string;
   adjustedDueCommissionAmount: string;
   from: string;
   to: string;
@@ -251,12 +348,14 @@ export interface CustomerRow {
 
 export interface CustomersListResponse {
   filter: "all" | "most_orders" | "inactive";
+  contact?: "uncontacted" | "contacted" | null;
   page: number;
   limit: number;
   total: number;
   totalAll: number;
   inactiveCount: number;
   uncontactedInactiveCount?: number;
+  contactedInactiveCount?: number;
   hasMore: boolean;
   customers: CustomerRow[];
 }
@@ -745,10 +844,17 @@ export const api = {
 
   async listCustomers(
     accessToken: string,
-    params?: { filter?: "all" | "most_orders" | "inactive"; q?: string; page?: number; limit?: number }
+    params?: {
+      filter?: "all" | "most_orders" | "inactive";
+      contact?: "uncontacted" | "contacted";
+      q?: string;
+      page?: number;
+      limit?: number;
+    }
   ) {
     const query = new URLSearchParams();
     if (params?.filter) query.set("filter", params.filter);
+    if (params?.filter === "inactive" && params.contact) query.set("contact", params.contact);
     if (params?.q?.trim()) query.set("q", params.q.trim());
     if (params?.page) query.set("page", String(params.page));
     if (params?.limit) query.set("limit", String(params.limit));
@@ -775,6 +881,16 @@ export const api = {
     );
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب سجل طلبات الزبون"));
     return res.json() as Promise<CustomerOrdersResponse>;
+  },
+
+  async markCustomerContacted(accessToken: string, customerId: string) {
+    const res = await authorizedFetch(
+      `/customers/${encodeURIComponent(customerId)}/contacted`,
+      { method: "PATCH" },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تسجيل التواصل مع الزبون"));
+    return res.json() as Promise<{ id: string; lastContactedAt: string | null; needsContact: boolean }>;
   },
 
   async listPromotions(accessToken: string) {
@@ -900,6 +1016,7 @@ export const api = {
         vehicleKind?: VehicleKind | null;
         vehicleColor?: string | null;
         plateNumber?: string | null;
+        commissionDebtLimit?: number | null;
       };
     }
   ) {
@@ -942,7 +1059,13 @@ export const api = {
 
   async updateCommissionSettings(
     accessToken: string,
-    payload: { commissionType: CommissionType; commissionValue: number }
+    payload: {
+      commissionType: CommissionType;
+      commissionValue: number;
+      commissionDebtLimit: number;
+      paymentMode?: CommissionPaymentMode;
+      confirmZeroBalances?: boolean;
+    }
   ) {
     const res = await authorizedFetch(
       "/settings/commission",
@@ -952,6 +1075,16 @@ export const api = {
       },
       accessToken
     );
+    if (res.status === 409) {
+      const body = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        preview?: PaymentModeSwitchPreview;
+      };
+      throw new CommissionSettingsConflictError(
+        body.message ?? "سيتم تصفير جميع أرصدة السائقين مع تخزين جميع المستحقات والديون",
+        body.preview ?? null
+      );
+    }
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث إعدادات العمولة"));
     return res.json() as Promise<CommissionSetting>;
   },
@@ -983,6 +1116,30 @@ export const api = {
     );
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث إعدادات نسخ التطبيقات"));
     return res.json() as Promise<AppVersionSettings>;
+  },
+
+  async getBrandingSettings(accessToken: string) {
+    const res = await authorizedFetch("/settings/branding", { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل جلب هوية المنصة"));
+    return res.json() as Promise<BrandingSettings>;
+  },
+
+  async updateBrandingAppName(accessToken: string, appName: string) {
+    const res = await authorizedFetch(
+      "/settings/branding",
+      { method: "PATCH", body: JSON.stringify({ appName }) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل حفظ اسم التطبيق"));
+    return res.json() as Promise<BrandingSettings>;
+  },
+
+  async uploadBrandingImage(accessToken: string, slot: BrandingSlot, file: File) {
+    const body = new FormData();
+    body.append("image", file);
+    const res = await authorizedFetch(`/settings/branding/${slot}`, { method: "POST", body }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل رفع الصورة"));
+    return res.json() as Promise<BrandingSettings>;
   },
 
   async changePassword(
@@ -1054,6 +1211,36 @@ export const api = {
     );
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تسجيل الغرامة"));
     return res.json() as Promise<{ message: string; driverId: string; amount: number }>;
+  },
+
+  async recordDriverDeduction(
+    accessToken: string,
+    payload: { driverId: string; amount: number; reason: string }
+  ) {
+    const res = await authorizedFetch(
+      "/accounting/deductions",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تسجيل الخصم"));
+    return res.json() as Promise<{ message: string; driverId: string; amount: number; reason: string }>;
+  },
+
+  async listDriverDeductions(
+    accessToken: string,
+    opts?: { driverId?: string; from?: string; to?: string }
+  ) {
+    const params = new URLSearchParams();
+    if (opts?.driverId) params.set("driverId", opts.driverId);
+    if (opts?.from) params.set("from", opts.from);
+    if (opts?.to) params.set("to", opts.to);
+    const qs = params.toString();
+    const res = await authorizedFetch(`/accounting/deductions${qs ? `?${qs}` : ""}`, { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحميل سجل الخصومات"));
+    return res.json() as Promise<DriverFinesLedger>;
   },
 
   async listDriverFines(
@@ -1258,6 +1445,117 @@ export const api = {
       remainingDebt: string;
       invoice: DriverSettlementInvoice;
     }>;
+  },
+
+  async prepaidTopup(
+    accessToken: string,
+    payload: { driverId: string; amount: number; notes?: string }
+  ) {
+    const res = await authorizedFetch(
+      "/accounting/prepaid-topup",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل شحن رصيد السائق"));
+    return res.json() as Promise<{
+      message: string;
+      driverId: string;
+      amount: string;
+      remainingDebt: string;
+      prepaidCredit: string;
+    }>;
+  },
+
+  async listDebtsDues(accessToken: string) {
+    const res = await authorizedFetch("/accounting/debts-dues", {}, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "تعذر تحميل الديون والمستحقات"));
+    const body = (await res.json()) as Partial<DebtsDuesResponse> & { rows?: unknown };
+    const summary = body.summary;
+    return {
+      paymentMode: body.paymentMode === "PREPAID" ? "PREPAID" : "POSTPAID",
+      summary: {
+        driverCount: typeof summary?.driverCount === "number" ? summary.driverCount : 0,
+        debtDriverCount: typeof summary?.debtDriverCount === "number" ? summary.debtDriverCount : 0,
+        creditDriverCount: typeof summary?.creditDriverCount === "number" ? summary.creditDriverCount : 0,
+        zeroDriverCount: typeof summary?.zeroDriverCount === "number" ? summary.zeroDriverCount : 0,
+        totalDebt: typeof summary?.totalDebt === "string" ? summary.totalDebt : "0.00",
+        totalCredit: typeof summary?.totalCredit === "string" ? summary.totalCredit : "0.00"
+      },
+      rows: Array.isArray(body.rows) ? (body.rows as DebtsDuesDriverRow[]) : [],
+      archives: Array.isArray(body.archives) ? body.archives : []
+    } satisfies DebtsDuesResponse;
+  },
+
+  async downloadDebtsDuesExport(accessToken: string): Promise<FinanceExportFile> {
+    const res = await authorizedFetch("/accounting/debts-dues/export.xlsx", { method: "GET" }, accessToken);
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تصدير تقرير الديون والمستحقات"));
+    return {
+      blob: await res.blob(),
+      filename: parseDownloadFilename(res, "debts-dues.xlsx")
+    };
+  },
+
+  async recordDriverExtraDebt(
+    accessToken: string,
+    payload: { driverId: string; amount: number; reason?: string }
+  ) {
+    const res = await authorizedFetch(
+      "/accounting/debts-dues/debt",
+      { method: "POST", body: JSON.stringify(payload) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل إضافة الدين"));
+    return res.json() as Promise<{
+      message: string;
+      driverId: string;
+      amount: number;
+      reason: string;
+      paidFromCredit: number;
+      previousExtraDebt: number;
+      remainingExtraDebt: number;
+      remainingDebt: number;
+    }>;
+  },
+
+  async recordDriverDueCredit(
+    accessToken: string,
+    payload: { driverId: string; amount: number; reason: string }
+  ) {
+    const res = await authorizedFetch(
+      "/accounting/debts-dues/credit",
+      { method: "POST", body: JSON.stringify(payload) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل إضافة المبلغ للسائق"));
+    return res.json() as Promise<{ message: string; driverId: string; amount: number; reason: string }>;
+  },
+
+  async settleDriverDebt(accessToken: string, payload: { driverId: string; notes?: string }) {
+    const res = await authorizedFetch(
+      "/accounting/debts-dues/settle",
+      { method: "POST", body: JSON.stringify(payload) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تسديد الدين"));
+    return res.json() as Promise<{
+      message: string;
+      driverId: string;
+      remainingDebt: string;
+      invoice?: DriverSettlementInvoice;
+    }>;
+  },
+
+  async payoutDriverCredit(accessToken: string, payload: { driverId: string; notes?: string }) {
+    const res = await authorizedFetch(
+      "/accounting/debts-dues/payout",
+      { method: "POST", body: JSON.stringify(payload) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تقبيض المبلغ"));
+    return res.json() as Promise<{ message: string; driverId: string; amount: number; remainingDebt: string }>;
   },
 
   clearSession() {

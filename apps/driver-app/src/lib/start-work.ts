@@ -5,7 +5,7 @@ import { getDriverLocationAccessState, isDriverLocationReady } from "./location-
 import { getDriverSession } from "./session";
 
 export const DRIVER_DEBT_BLOCK_FALLBACK =
-  "تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز 2000 ل.س. سدّد العمولات والغرامات لتعود للعمل تلقائياً.";
+  "تم إيقافك عن العمل لأن المبلغ المترتب عليك تجاوز الحد المسموح. سدّد المستحق لتعود للعمل تلقائياً.";
 
 export type StartDriverWorkResult = "started" | "blocked" | "need-location" | "failed";
 

@@ -32,6 +32,9 @@ interface DriverState {
   workBlockMessage: string | null;
   setWorkBlocked: (blocked: boolean, message?: string | null) => void;
   applyDebtWorkState: (stats: { workBlocked?: boolean; workBlockMessage?: string | null }) => void;
+  /** يزيد عند تغيّر مالية السائق من السوكيت لتحديث الرئيسية */
+  financeRevision: number;
+  bumpFinanceRevision: () => void;
   /** عدد الطلبات المعلّقة في غرفة الطلبات (للبادج على التاب) */
   roomPendingCount: number;
   setRoomPendingCount: (n: number) => void;
@@ -89,6 +92,8 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       workBlocked: Boolean(stats.workBlocked),
       workBlockMessage: stats.workBlocked ? (stats.workBlockMessage ?? get().workBlockMessage) : null
     }),
+  financeRevision: 0,
+  bumpFinanceRevision: () => set((s) => ({ financeRevision: s.financeRevision + 1 })),
   roomPendingCount: 0,
   setRoomPendingCount: (n) => set({ roomPendingCount: Math.max(0, n) }),
   unreadChatCount: 0,

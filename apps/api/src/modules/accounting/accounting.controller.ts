@@ -4,9 +4,14 @@ import {
   financeReportQueryDto,
   listDriverCompensationsQueryDto,
   listDriverFinesQueryDto,
+  payoutDriverCreditDto,
   recordDriverCompensationDto,
+  recordDriverDeductionDto,
+  recordDriverDueCreditDto,
+  recordDriverExtraDebtDto,
   recordDriverFineDto,
   recordPaymentDto,
+  prepaidTopupDto,
   settleDriverBalanceDto,
   settleDriverFineDto,
   settleFilteredCommissionsDto,
@@ -90,6 +95,31 @@ export const accountingController = {
     }
   },
 
+  async recordDriverDeduction(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = recordDriverDeductionDto.parse(req.body);
+      const result = await accountingService.recordDriverDeduction(
+        dto.driverId,
+        dto.amount,
+        dto.reason,
+        req.auth!.userId
+      );
+      res.status(201).json({ message: "تم تسجيل الخصم", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listDriverDeductions(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const query = listDriverFinesQueryDto.parse(req.query);
+      const data = await accountingService.listDriverDeductions(query);
+      res.json(data);
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async settleDriverFine(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const dto = settleDriverFineDto.parse(req.body);
@@ -144,6 +174,92 @@ export const accountingController = {
       const dto = settleDriverBalanceDto.parse(req.body);
       const result = await accountingService.settleDriverBalance(dto.driverId, req.auth!.userId, dto.notes);
       res.status(201).json({ message: "تم تسديد المبلغ المترتب على السائق", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async recordPrepaidTopup(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = prepaidTopupDto.parse(req.body);
+      const result = await accountingService.recordPrepaidTopup(
+        dto.driverId,
+        dto.amount,
+        req.auth!.userId,
+        dto.notes
+      );
+      res.status(201).json({ message: "تم شحن رصيد السائق", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listPaymentModeSettlements(_req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await accountingService.listPaymentModeSettlements();
+      res.json(data);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async exportDebtsDuesXlsx(_req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const file = await accountingService.buildDebtsDuesExportXlsx();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", buildSafeContentDisposition(file.filename));
+      res.setHeader("Cache-Control", "no-store");
+      res.status(200).end(file.buffer);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async recordDriverExtraDebt(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = recordDriverExtraDebtDto.parse(req.body);
+      const result = await accountingService.recordDriverExtraDebt(
+        dto.driverId,
+        dto.amount,
+        dto.reason ?? "",
+        req.auth!.userId
+      );
+      res.status(201).json({ message: "تم إضافة الدين", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async recordDriverDueCredit(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = recordDriverDueCreditDto.parse(req.body);
+      const result = await accountingService.recordDriverDueCredit(
+        dto.driverId,
+        dto.amount,
+        dto.reason,
+        req.auth!.userId
+      );
+      res.status(201).json({ message: "تم إضافة المبلغ لحساب السائق", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async settleDriverDebt(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = settleDriverBalanceDto.parse(req.body);
+      const result = await accountingService.settleDriverBalance(dto.driverId, req.auth!.userId, dto.notes);
+      res.status(201).json({ message: "تم تسديد دين السائق", ...result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async payoutDriverCredit(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = payoutDriverCreditDto.parse(req.body);
+      const result = await accountingService.payoutDriverCredit(dto.driverId, req.auth!.userId, dto.notes);
+      res.status(201).json({ message: "تم تقبيض المبلغ للسائق", ...result });
     } catch (err) {
       next(err);
     }

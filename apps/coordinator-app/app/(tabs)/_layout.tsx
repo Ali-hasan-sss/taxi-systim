@@ -137,8 +137,8 @@ export default function TabsLayout() {
           height: coordinatorTabBarOuterHeight(insets.bottom),
           overflow: "visible" as const
         },
-        tabBarActiveTintColor: theme.colors.tabActive,
-        tabBarInactiveTintColor: theme.colors.tabInactive,
+            tabBarActiveTintColor: theme.colors.tabActive,
+            tabBarInactiveTintColor: theme.mode === "dark" ? "#e7e5e4" : "#1c1917",
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "700",
