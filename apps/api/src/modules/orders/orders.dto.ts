@@ -1,10 +1,34 @@
 import { z } from "zod";
 import { OrderBroadcastTarget, OrderVehicleRequirement } from "@prisma/client";
+import { isValidPhoneDigits, normalizePhoneDigits } from "../../shared/phone";
+
+/** رقم زبون: أرقام فقط (يُسمح بـ + والمسافات والشرطات)، بدون أحرف. */
+const customerPhoneField = z
+  .string()
+  .trim()
+  .min(3, "رقم الهاتف قصير جدًا")
+  .superRefine((val, ctx) => {
+    // رفض أي أحرف لاتينية أو عربية حتى لا يُلصق نص الرسالة في خانة الرقم
+    if (/[A-Za-z\u0621-\u064A\u0671-\u06D3]/.test(val)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "رقم الزبون يجب أن يحتوي على أرقام فقط بدون أحرف"
+      });
+      return;
+    }
+    const digits = normalizePhoneDigits(val);
+    if (!isValidPhoneDigits(digits)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "رقم هاتف غير صالح (8–15 رقمًا)"
+      });
+    }
+  });
 
 export const createOrderDto = z
   .object({
     customerName: z.string().min(2).optional(),
-    customerPhone: z.string().min(3).optional(),
+    customerPhone: customerPhoneField.optional(),
     pickupAddress: z.string().min(2),
     dropoffAddress: z.string().min(2),
     amount: z.number().positive(),
@@ -55,7 +79,7 @@ export type UpdateCompletedOrderAmountDto = z.infer<typeof updateCompletedOrderA
 export const updateOrderDetailsDto = z
   .object({
     customerName: z.string().trim().min(2).optional(),
-    customerPhone: z.string().trim().min(3).optional(),
+    customerPhone: customerPhoneField.optional(),
     pickupAddress: z.string().trim().min(2).optional(),
     dropoffAddress: z.string().trim().min(2).optional(),
     notes: z.string().trim().max(2000).optional()

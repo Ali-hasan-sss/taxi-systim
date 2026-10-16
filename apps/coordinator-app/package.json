@@ -1,7 +1,7 @@
 {
   "name": "@taxi/coordinator-app",
   "private": true,
-  "version": "1.0.16",
+  "version": "1.0.17",
   "main": "index",
   "scripts": {
     "dev": "expo start --offline --port 8082",
