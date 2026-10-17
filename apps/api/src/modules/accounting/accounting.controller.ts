@@ -263,5 +263,17 @@ export const accountingController = {
     } catch (err) {
       next(err);
     }
+  },
+
+  async reconcileCoveredLedgersFromCompensations(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await accountingService.reconcileCoveredLedgersFromCompensations(req.auth!.userId);
+      res.json({
+        message: `تمت مقاصة ${result.driversReconciled} سائق من أصل ${result.driversScanned}`,
+        ...result
+      });
+    } catch (err) {
+      next(err);
+    }
   }
 };

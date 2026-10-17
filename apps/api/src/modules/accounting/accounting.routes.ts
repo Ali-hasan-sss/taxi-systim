@@ -35,3 +35,9 @@ accountingRouter.post("/debts-dues/debt", requireAuth, requireRole("ADMIN"), acc
 accountingRouter.post("/debts-dues/credit", requireAuth, requireRole("ADMIN"), accountingController.recordDriverDueCredit);
 accountingRouter.post("/debts-dues/settle", requireAuth, requireRole("ADMIN"), accountingController.settleDriverDebt);
 accountingRouter.post("/debts-dues/payout", requireAuth, requireRole("ADMIN"), accountingController.payoutDriverCredit);
+accountingRouter.post(
+  "/debts-dues/reconcile-compensations",
+  requireAuth,
+  requireRole("ADMIN"),
+  accountingController.reconcileCoveredLedgersFromCompensations
+);
