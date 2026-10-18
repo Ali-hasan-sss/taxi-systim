@@ -2035,8 +2035,9 @@ export const ordersService = {
   },
 
   /**
-   * تعديل أجرة طلب مكتمل: يعيد حساب العمولة ويحدّث رصيد السائق إن وُجدت عمولة غير مُسدَّدة بعد.
-   * لا يُسمح إن وُجدت دفعات على سجل العمولة.
+   * تعديل أجرة طلب مكتمل: يعيد حساب العمولة ويحدّث رصيد السائق بفرق العمولة.
+   * إن وُجد تسديد سابق يُبقى المدفوع ويُحسب المتبقي = العمولة الجديدة − المدفوع
+   * (والفرق يُضاف أو يُخصم من المترتب على السائق).
    */
   async updateCompletedOrderAmountByCoordinator(coordinatorUserId: string, orderId: string, newAmount: number) {
     const coordinator = await prisma.coordinator.findUnique({ where: { userId: coordinatorUserId } });
@@ -2066,25 +2067,56 @@ export const ordersService = {
       if (!setting) throw new AppError("إعدادات العمولة غير موجودة", 400);
 
       const settingValue = toNum(setting.commissionValue);
-      const newCalculated =
+      const newCalculatedRaw =
         setting.commissionType === CommissionType.PERCENTAGE
           ? (newAmount * settingValue) / 100
           : settingValue;
+      const newCalculated = Math.round(newCalculatedRaw * 100) / 100;
 
       const commission = await tx.commission.findUnique({ where: { orderId: order.id } });
 
       if (commission) {
-        const paid = toNum(commission.paidAmount);
+        const paid = Math.round(toNum(commission.paidAmount) * 100) / 100;
         const paymentMode = await getCommissionPaymentMode(tx);
-        if (paid > 0 && paymentMode !== "PREPAID") {
-          throw new AppError("لا يمكن تعديل الأجرة بعد تسديد جزء من عمولة السائق", 400);
-        }
-
-        const oldCalculated = toNum(commission.calculatedCommission);
-        const dEarnings = newAmount - oldAmount;
-        const dCommission = newCalculated - oldCalculated;
-        const dAvailable = newAmount - newCalculated - (oldAmount - oldCalculated);
+        const oldCalculated = Math.round(toNum(commission.calculatedCommission) * 100) / 100;
+        const dEarnings = Math.round((newAmount - oldAmount) * 100) / 100;
+        const dCommission = Math.round((newCalculated - oldCalculated) * 100) / 100;
+        const dAvailable =
+          Math.round((newAmount - newCalculated - (oldAmount - oldCalculated)) * 100) / 100;
         const prepaidPaid = paymentMode === "PREPAID" && paid > 0;
+
+        let nextPaid = paid;
+        let nextRemaining: number;
+        let nextStatus: CommissionPaymentStatus;
+        let nextPaidAt: Date | null;
+
+        if (prepaidPaid) {
+          nextPaid = newCalculated;
+          nextRemaining = 0;
+          nextStatus = CommissionPaymentStatus.PAID;
+          nextPaidAt = new Date();
+        } else {
+          // ملحق الدفع: الإبقاء على المدفوع سابقاً، والمتبقي = الجديدة − المدفوع (لا يقل عن صفر)
+          nextPaid = paid;
+          nextRemaining = Math.max(0, Math.round((newCalculated - paid) * 100) / 100);
+          if (nextRemaining <= 0.005) {
+            nextRemaining = 0;
+            nextStatus =
+              paid > 0.005 || newCalculated <= 0.005
+                ? CommissionPaymentStatus.PAID
+                : CommissionPaymentStatus.UNPAID;
+            nextPaidAt =
+              nextStatus === CommissionPaymentStatus.PAID
+                ? commission.paidAt ?? new Date()
+                : null;
+          } else if (paid > 0.005) {
+            nextStatus = CommissionPaymentStatus.PARTIAL;
+            nextPaidAt = null;
+          } else {
+            nextStatus = CommissionPaymentStatus.UNPAID;
+            nextPaidAt = null;
+          }
+        }
 
         await tx.commission.update({
           where: { orderId: order.id },
@@ -2093,39 +2125,44 @@ export const ordersService = {
             commissionType: setting.commissionType,
             commissionValue: setting.commissionValue,
             calculatedCommission: new Prisma.Decimal(newCalculated.toFixed(2)),
-            remainingAmount: new Prisma.Decimal(
-              (prepaidPaid ? 0 : newCalculated).toFixed(2)
-            ),
-            paidAmount: new Prisma.Decimal((prepaidPaid ? newCalculated : paid).toFixed(2)),
-            paymentStatus: prepaidPaid
-              ? CommissionPaymentStatus.PAID
-              : commission.paymentStatus,
-            paidAt: prepaidPaid ? new Date() : commission.paidAt
+            remainingAmount: new Prisma.Decimal(nextRemaining.toFixed(2)),
+            paidAmount: new Prisma.Decimal(nextPaid.toFixed(2)),
+            paymentStatus: nextStatus,
+            paidAt: nextPaidAt
           }
         });
 
         if (order.driverId) {
           const balance = await tx.driverBalance.findUnique({ where: { driverId: order.driverId } });
-          let remainingDebt = balance ? toNum(balance.remainingDebt) + dCommission : dCommission;
+          let remainingDebt = dCommission;
           if (balance) {
-            remainingDebt = toNum(balance.remainingDebt) + dCommission;
+            remainingDebt = Math.round((toNum(balance.remainingDebt) + dCommission) * 100) / 100;
             await tx.driverBalance.update({
               where: { driverId: order.driverId },
               data: {
                 totalEarnings: new Prisma.Decimal((toNum(balance.totalEarnings) + dEarnings).toFixed(2)),
-                totalCommissions: new Prisma.Decimal((toNum(balance.totalCommissions) + dCommission).toFixed(2)),
+                totalCommissions: new Prisma.Decimal(
+                  (toNum(balance.totalCommissions) + dCommission).toFixed(2)
+                ),
                 remainingDebt: new Prisma.Decimal(remainingDebt.toFixed(2)),
-                availableBalance: new Prisma.Decimal((toNum(balance.availableBalance) + dAvailable).toFixed(2))
+                availableBalance: new Prisma.Decimal(
+                  (toNum(balance.availableBalance) + dAvailable).toFixed(2)
+                )
               }
             });
           }
+
+          const diffNote =
+            dCommission >= 0
+              ? `زيادة عمولة ${dCommission.toFixed(2)} (بعد خصم المدفوع ${paid.toFixed(2)} المتبقي ${nextRemaining.toFixed(2)})`
+              : `تخفيض عمولة ${Math.abs(dCommission).toFixed(2)} من المترتب (المدفوع ${paid.toFixed(2)} المتبقي ${nextRemaining.toFixed(2)})`;
 
           await tx.financialTransaction.create({
             data: {
               driverId: order.driverId,
               type: FinancialTransactionType.MANUAL_ADJUSTMENT,
               amount: new Prisma.Decimal(dCommission.toFixed(2)),
-              notes: `تعديل أجرة الطلب: ${oldAmount} → ${newAmount} (فرق عمولة ${dCommission})`,
+              notes: `تعديل أجرة الطلب: ${oldAmount} → ${newAmount} — ${diffNote}`,
               referenceId: order.id
             }
           });
