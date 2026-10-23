@@ -1476,6 +1476,236 @@ async function applyCommissionPayment(
   });
 }
 
+type AdjustmentKind = "compensation" | "deduction" | "extraDebt" | "fine";
+
+const ADJUSTMENT_PREFIXES: { kind: AdjustmentKind; prefix: string }[] = [
+  { kind: "compensation", prefix: "تعويض سائق" },
+  { kind: "deduction", prefix: "خصم سائق" },
+  { kind: "extraDebt", prefix: "دين سائق" },
+  { kind: "fine", prefix: "غرامة سائق" }
+];
+
+const MODE_SWITCH_WRITE_CHUNK = 200;
+const PAYMENT_MODE_SWITCH_TX = { maxWait: 10_000, timeout: 60_000 };
+
+type OpenAdjustmentRow = {
+  id: string;
+  driverId: string;
+  amount: Prisma.Decimal;
+  notes: string | null;
+};
+
+type OpenCommissionRow = {
+  id: string;
+  driverId: string;
+  remainingAmount: Prisma.Decimal;
+};
+
+type DriverModeSwitchLedger = {
+  compensations: OpenAdjustmentRow[];
+  deductions: OpenAdjustmentRow[];
+  extraDebts: OpenAdjustmentRow[];
+  fines: OpenAdjustmentRow[];
+  commissions: OpenCommissionRow[];
+  unusedCompensation: number;
+  unpaidCommission: number;
+  unpaidFines: number;
+  unpaidDeductions: number;
+  unpaidExtraDebt: number;
+};
+
+type ModeSwitchSettlementDraft = {
+  driverId: string;
+  driverName: string;
+  remainingDebt: Prisma.Decimal;
+  unusedCompensation: Prisma.Decimal;
+  unpaidCommission: Prisma.Decimal;
+  unpaidFines: Prisma.Decimal;
+};
+
+type ModeSwitchBalanceZero = {
+  driverId: string;
+  availableDelta: number;
+  paidCommissionDelta: number;
+};
+
+function adjustmentKind(notes: string | null): AdjustmentKind | null {
+  if (!notes) return null;
+  for (const entry of ADJUSTMENT_PREFIXES) {
+    if (notes.startsWith(entry.prefix)) return entry.kind;
+  }
+  return null;
+}
+
+function blankDriverModeSwitchLedger(): DriverModeSwitchLedger {
+  return {
+    compensations: [],
+    deductions: [],
+    extraDebts: [],
+    fines: [],
+    commissions: [],
+    unusedCompensation: 0,
+    unpaidCommission: 0,
+    unpaidFines: 0,
+    unpaidDeductions: 0,
+    unpaidExtraDebt: 0
+  };
+}
+
+function chunkItems<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function moneyDecimal(value: number) {
+  return new Prisma.Decimal(value.toFixed(2));
+}
+
+async function loadDriverModeSwitchLedgers(db: PrismaTx, driverIds: string[]) {
+  const byDriver = new Map<string, DriverModeSwitchLedger>();
+  for (const driverId of driverIds) byDriver.set(driverId, blankDriverModeSwitchLedger());
+  if (driverIds.length === 0) return byDriver;
+
+  const [adjustments, commissions] = await Promise.all([
+    db.financialTransaction.findMany({
+      where: {
+        driverId: { in: driverIds },
+        type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+        referenceId: null,
+        OR: ADJUSTMENT_PREFIXES.map((entry) => ({ notes: { startsWith: entry.prefix } }))
+      },
+      select: { id: true, driverId: true, amount: true, notes: true }
+    }),
+    db.commission.findMany({
+      where: {
+        driverId: { in: driverIds },
+        remainingAmount: { gt: 0 },
+        order: { status: OrderStatus.COMPLETED }
+      },
+      select: { id: true, driverId: true, remainingAmount: true }
+    })
+  ]);
+
+  for (const row of adjustments) {
+    const ledger = byDriver.get(row.driverId);
+    const kind = adjustmentKind(row.notes);
+    if (!ledger || !kind) continue;
+    const amount = toNum(row.amount);
+    if (!(amount > 0)) continue;
+    if (kind === "compensation") {
+      ledger.compensations.push(row);
+      ledger.unusedCompensation += amount;
+    } else if (kind === "deduction") {
+      ledger.deductions.push(row);
+      ledger.unpaidDeductions += amount;
+    } else if (kind === "extraDebt") {
+      ledger.extraDebts.push(row);
+      ledger.unpaidExtraDebt += amount;
+    } else {
+      ledger.fines.push(row);
+      ledger.unpaidFines += amount;
+    }
+  }
+
+  for (const row of commissions) {
+    const ledger = byDriver.get(row.driverId);
+    if (!ledger) continue;
+    const amount = toNum(row.remainingAmount);
+    if (!(amount > 0)) continue;
+    ledger.commissions.push(row);
+    ledger.unpaidCommission += amount;
+  }
+
+  return byDriver;
+}
+
+async function closeOpenAdjustments(tx: PrismaTx, rows: OpenAdjustmentRow[], adminUserId: string, notes: string) {
+  const createdIds: string[] = [];
+  for (const chunk of chunkItems(rows, MODE_SWITCH_WRITE_CHUNK)) {
+    const created = await tx.financialTransaction.createManyAndReturn({
+      data: chunk.map((row) => ({
+        driverId: row.driverId,
+        type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+        amount: moneyDecimal(toNum(row.amount)),
+        referenceId: row.id,
+        notes,
+        createdByUserId: adminUserId
+      })),
+      select: { id: true }
+    });
+    for (const payment of created) createdIds.push(payment.id);
+  }
+
+  for (const chunk of chunkItems(createdIds, MODE_SWITCH_WRITE_CHUNK)) {
+    await tx.$executeRaw`
+      UPDATE "FinancialTransaction" AS orig
+      SET "referenceId" = pay.id
+      FROM "FinancialTransaction" AS pay
+      WHERE pay.id IN (${Prisma.join(chunk)})
+        AND pay."referenceId" = orig.id
+        AND orig."referenceId" IS NULL
+    `;
+  }
+}
+
+async function closeOpenCommissions(tx: PrismaTx, rows: OpenCommissionRow[], adminUserId: string, notes: string) {
+  for (const chunk of chunkItems(rows, MODE_SWITCH_WRITE_CHUNK)) {
+    await tx.commissionPayment.createMany({
+      data: chunk.map((row) => ({
+        commissionId: row.id,
+        driverId: row.driverId,
+        amount: row.remainingAmount,
+        notes,
+        paidByUserId: adminUserId
+      }))
+    });
+    await tx.financialTransaction.createMany({
+      data: chunk.map((row) => ({
+        driverId: row.driverId,
+        type: FinancialTransactionType.COMMISSION_PAYMENT,
+        amount: row.remainingAmount,
+        referenceId: row.id,
+        notes
+      }))
+    });
+    await tx.$executeRaw`
+      UPDATE "Commission"
+      SET
+        "paidAmount" = "paidAmount" + "remainingAmount",
+        "remainingAmount" = 0,
+        "paymentStatus" = 'PAID'::"CommissionPaymentStatus",
+        "paidAt" = CURRENT_TIMESTAMP
+      WHERE id IN (${Prisma.join(chunk.map((row) => row.id))})
+        AND "remainingAmount" > 0
+    `;
+  }
+}
+
+async function zeroDriverBalancesForModeSwitch(tx: PrismaTx, rows: ModeSwitchBalanceZero[]) {
+  for (const chunk of chunkItems(rows, MODE_SWITCH_WRITE_CHUNK)) {
+    await tx.$executeRaw`
+      UPDATE "DriverBalance" AS b
+      SET
+        "remainingDebt" = 0,
+        "availableBalance" = b."availableBalance" + v.avail,
+        "totalPaidCommissions" = b."totalPaidCommissions" + v.paid,
+        "updatedAt" = CURRENT_TIMESTAMP
+      FROM (
+        VALUES ${Prisma.join(
+          chunk.map(
+            (row) =>
+              Prisma.sql`(CAST(${row.driverId} AS TEXT), CAST(${row.availableDelta.toFixed(2)} AS DECIMAL(10,2)), CAST(${row.paidCommissionDelta.toFixed(2)} AS DECIMAL(10,2)))`
+          )
+        )}
+      ) AS v(driver_id, avail, paid)
+      WHERE b."driverId" = v.driver_id
+    `;
+  }
+}
+
 export const accountingService = {
   async recordDriverCompensation(driverId: string, amount: number, adminUserId: string, notes?: string) {
     const result = await prisma.$transaction(async (tx) => {
@@ -3419,10 +3649,13 @@ export const accountingService = {
       where: { user: { deletedAt: null } },
       select: {
         id: true,
-        user: { select: { fullName: true } },
         balances: { select: { remainingDebt: true }, take: 1 }
       }
     });
+    const ledgers = await loadDriverModeSwitchLedgers(
+      prisma,
+      drivers.map((driver) => driver.id)
+    );
 
     let nonzeroDriverCount = 0;
     let totalDebt = 0;
@@ -3433,17 +3666,10 @@ export const accountingService = {
 
     for (const driver of drivers) {
       const remainingDebt = toNum(driver.balances[0]?.remainingDebt ?? 0);
-      const [unused, commissions, fines] = await Promise.all([
-        loadUnusedDriverCompensations(prisma, driver.id),
-        loadUnpaidDriverCommissions(prisma, driver.id),
-        loadUnpaidDriverFines(prisma, driver.id)
-      ]);
-      const unusedCompensation = unused.reduce((sum, row) => sum + toNum(row.amount), 0);
-      const unpaidCommission = commissions.reduce((sum, row) => sum + toNum(row.remainingAmount), 0);
-      const unpaidFines = fines.reduce((sum, row) => sum + toNum(row.amount), 0);
-      unusedCompensationTotal += unusedCompensation;
-      unpaidCommissionTotal += unpaidCommission;
-      unpaidFinesTotal += unpaidFines;
+      const ledger = ledgers.get(driver.id) ?? blankDriverModeSwitchLedger();
+      unusedCompensationTotal += ledger.unusedCompensation;
+      unpaidCommissionTotal += ledger.unpaidCommission;
+      unpaidFinesTotal += ledger.unpaidFines;
       if (remainingDebt > 0) totalDebt += remainingDebt;
       if (remainingDebt < 0) totalPrepaidCredit += -remainingDebt;
       if (!moneyEqZero(remainingDebt)) nonzeroDriverCount += 1;
@@ -3462,10 +3688,17 @@ export const accountingService = {
     };
   },
 
+  /**
+   * تصفير الأرصدة وحفظ وضع الدفع في معاملة واحدة.
+   * القراءة لكل سائق على حدة كانت تتجاوز مهلة Prisma الافتراضية (5 ثوانٍ) فيفشل التبديل قبل حفظ الوضع.
+   */
   async archiveAndZeroDriverBalancesForModeSwitch(opts: {
     fromMode: "POSTPAID" | "PREPAID";
     toMode: "POSTPAID" | "PREPAID";
     adminUserId: string;
+    commissionType: "PERCENTAGE" | "FIXED";
+    commissionValue: number;
+    commissionDebtLimit: number;
   }) {
     const notes = `تصفير الأرصدة عند التحويل من ${opts.fromMode === "PREPAID" ? "مسبق الدفع" : "ملحق الدفع"} إلى ${opts.toMode === "PREPAID" ? "مسبق الدفع" : "ملحق الدفع"}`;
     const result = await prisma.$transaction(async (tx) => {
@@ -3477,97 +3710,114 @@ export const accountingService = {
           balances: { select: { remainingDebt: true }, take: 1 }
         }
       });
+      const ledgers = await loadDriverModeSwitchLedgers(
+        tx,
+        drivers.map((driver) => driver.id)
+      );
 
-      const driverIds: string[] = [];
-      let itemCount = 0;
-      let settlementId: string | null = null;
+      const settlementItems: ModeSwitchSettlementDraft[] = [];
+      const adjustmentsToClose: OpenAdjustmentRow[] = [];
+      const commissionsToClose: OpenCommissionRow[] = [];
+      const balanceZeros: ModeSwitchBalanceZero[] = [];
+      const missingBalanceDriverIds: string[] = [];
 
       for (const driver of drivers) {
         const remainingDebt = toNum(driver.balances[0]?.remainingDebt ?? 0);
-        const unused = await loadUnusedDriverCompensations(tx, driver.id);
-        const commissions = await loadUnpaidDriverCommissions(tx, driver.id);
-        const fines = await loadUnpaidDriverFines(tx, driver.id);
-        const deductions = await loadUnpaidDriverDeductions(tx, driver.id);
-        const extraDebts = await loadUnpaidDriverExtraDebts(tx, driver.id);
-        const unusedCompensation = unused.reduce((sum, row) => sum + toNum(row.amount), 0);
-        const unpaidCommission = commissions.reduce((sum, row) => sum + toNum(row.remainingAmount), 0);
-        const unpaidFines = fines.reduce((sum, row) => sum + toNum(row.amount), 0);
-        const unpaidDeductions = deductions.reduce((sum, row) => sum + toNum(row.amount), 0);
-        const unpaidExtraDebt = extraDebts.reduce((sum, row) => sum + toNum(row.amount), 0);
+        const hasBalance = driver.balances.length > 0;
+        const ledger = ledgers.get(driver.id) ?? blankDriverModeSwitchLedger();
         const hasSnapshot =
           !moneyEqZero(remainingDebt) ||
-          unusedCompensation > 0 ||
-          unpaidCommission > 0 ||
-          unpaidFines > 0 ||
-          unpaidDeductions > 0 ||
-          unpaidExtraDebt > 0;
+          ledger.unusedCompensation > 0 ||
+          ledger.unpaidCommission > 0 ||
+          ledger.unpaidFines > 0 ||
+          ledger.unpaidDeductions > 0 ||
+          ledger.unpaidExtraDebt > 0;
 
         if (hasSnapshot) {
-          if (!settlementId) {
-            const settlement = await tx.paymentModeSettlement.create({
-              data: {
-                fromMode: opts.fromMode,
-                toMode: opts.toMode,
-                createdByUserId: opts.adminUserId,
-                notes
-              }
-            });
-            settlementId = settlement.id;
-          }
-          await tx.paymentModeSettlementItem.create({
-            data: {
-              settlementId,
-              driverId: driver.id,
-              driverName: driver.user.fullName?.trim() || "—",
-              remainingDebt: new Prisma.Decimal(remainingDebt.toFixed(2)),
-              unusedCompensation: new Prisma.Decimal(unusedCompensation.toFixed(2)),
-              unpaidCommission: new Prisma.Decimal(unpaidCommission.toFixed(2)),
-              unpaidFines: new Prisma.Decimal(unpaidFines.toFixed(2))
-            }
+          settlementItems.push({
+            driverId: driver.id,
+            driverName: driver.user.fullName?.trim() || "—",
+            remainingDebt: moneyDecimal(remainingDebt),
+            unusedCompensation: moneyDecimal(ledger.unusedCompensation),
+            unpaidCommission: moneyDecimal(ledger.unpaidCommission),
+            unpaidFines: moneyDecimal(ledger.unpaidFines)
           });
-          itemCount += 1;
         }
 
-        for (const commission of commissions) {
-          const amount = toNum(commission.remainingAmount);
-          if (amount > 0) {
-            await applyCommissionPayment(tx, commission, amount, opts.adminUserId, notes);
-          }
-        }
-        for (const fine of fines) {
-          await applyFinePayment(tx, fine, opts.adminUserId, notes);
-        }
-        for (const deduction of deductions) {
-          await applyDeductionPayment(tx, deduction, opts.adminUserId, notes);
-        }
-        for (const extraDebt of extraDebts) {
-          await applyExtraDebtPayment(tx, extraDebt, opts.adminUserId, notes);
-        }
-        for (const compensation of unused) {
-          await consumeCompensationOnSettlement(tx, compensation, opts.adminUserId, notes);
-        }
+        adjustmentsToClose.push(
+          ...ledger.compensations,
+          ...ledger.fines,
+          ...ledger.deductions,
+          ...ledger.extraDebts
+        );
+        commissionsToClose.push(...ledger.commissions);
 
-        const balance = await tx.driverBalance.findUnique({ where: { driverId: driver.id } });
-        if (balance) {
-          await tx.driverBalance.update({
-            where: { driverId: driver.id },
-            data: { remainingDebt: new Prisma.Decimal("0.00") }
+        const availableDelta = ledger.unpaidFines + ledger.unpaidDeductions + ledger.unpaidExtraDebt;
+        const paidCommissionDelta = ledger.unpaidCommission;
+        if (hasBalance && (!moneyEqZero(remainingDebt) || availableDelta > 0 || paidCommissionDelta > 0)) {
+          balanceZeros.push({
+            driverId: driver.id,
+            availableDelta,
+            paidCommissionDelta
           });
-        } else if (!moneyEqZero(remainingDebt)) {
-          await tx.driverBalance.create({
-            data: { driverId: driver.id, remainingDebt: new Prisma.Decimal("0.00") }
-          });
+        } else if (!hasBalance && !moneyEqZero(remainingDebt)) {
+          missingBalanceDriverIds.push(driver.id);
         }
-        driverIds.push(driver.id);
       }
 
-      return { settlementId, itemCount, driverIds };
-    });
+      if (settlementItems.length > 0) {
+        const settlement = await tx.paymentModeSettlement.create({
+          data: {
+            fromMode: opts.fromMode,
+            toMode: opts.toMode,
+            createdByUserId: opts.adminUserId,
+            notes
+          }
+        });
+        for (const chunk of chunkItems(settlementItems, MODE_SWITCH_WRITE_CHUNK)) {
+          await tx.paymentModeSettlementItem.createMany({
+            data: chunk.map((item) => ({ ...item, settlementId: settlement.id }))
+          });
+        }
+      }
+
+      await closeOpenAdjustments(tx, adjustmentsToClose, opts.adminUserId, notes);
+      await closeOpenCommissions(tx, commissionsToClose, opts.adminUserId, notes);
+      await zeroDriverBalancesForModeSwitch(tx, balanceZeros);
+      if (missingBalanceDriverIds.length > 0) {
+        await tx.driverBalance.createMany({
+          data: missingBalanceDriverIds.map((driverId) => ({
+            driverId,
+            remainingDebt: new Prisma.Decimal("0.00")
+          }))
+        });
+      }
+
+      return {
+        driverIds: drivers.map((driver) => driver.id),
+        setting: await tx.systemSettings.upsert({
+          where: { key: "commission" },
+          update: {
+            commissionType: opts.commissionType,
+            commissionValue: opts.commissionValue,
+            commissionDebtLimit: opts.commissionDebtLimit,
+            paymentMode: opts.toMode
+          },
+          create: {
+            key: "commission",
+            commissionType: opts.commissionType,
+            commissionValue: opts.commissionValue,
+            commissionDebtLimit: opts.commissionDebtLimit,
+            paymentMode: opts.toMode
+          }
+        })
+      };
+    }, PAYMENT_MODE_SWITCH_TX);
 
     for (const driverId of result.driverIds) {
       scheduleDriverDebtWorkSync(driverId);
     }
-    return result;
+    return result.setting;
   },
 
   async recordPrepaidTopup(driverId: string, amount: number, adminUserId: string, notes?: string) {

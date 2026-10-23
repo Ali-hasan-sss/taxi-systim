@@ -72,11 +72,17 @@ settingsRouter.patch("/commission", requireAuth, requireRole("ADMIN"), async (re
         });
         return;
       }
-      await accountingService.archiveAndZeroDriverBalancesForModeSwitch({
+      const setting = await accountingService.archiveAndZeroDriverBalancesForModeSwitch({
         fromMode: previousMode,
         toMode: nextMode,
-        adminUserId: req.auth!.userId
+        adminUserId: req.auth!.userId,
+        commissionType,
+        commissionValue,
+        commissionDebtLimit: nextLimit
       });
+      void syncAllDriversWorkBlockState();
+      res.json(setting);
+      return;
     }
 
     const setting = await prisma.systemSettings.upsert({
@@ -91,9 +97,7 @@ settingsRouter.patch("/commission", requireAuth, requireRole("ADMIN"), async (re
       }
     });
     const previousLimit = current ? Number(current.commissionDebtLimit) : null;
-    if (modeChanged) {
-      void syncAllDriversWorkBlockState();
-    } else if (previousLimit !== nextLimit) {
+    if (previousLimit !== nextLimit) {
       void syncDriversUsingGlobalDebtLimit();
     }
     res.json(setting);
