@@ -97,6 +97,13 @@ export const usersController = {
         });
       }
     }
+    if (user.role === Role.COORDINATOR && !dto.isActive) {
+      const io = req.app.get("io") as Server | undefined;
+      if (io) {
+        const { disconnectCoordinatorByUserId } = await import("../../socket");
+        await disconnectCoordinatorByUserId(io, user.id);
+      }
+    }
     res.json(user);
   },
 

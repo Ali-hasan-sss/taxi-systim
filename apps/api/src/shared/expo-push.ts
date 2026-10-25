@@ -122,9 +122,11 @@ async function tokenForDriverId(driverId: string | null | undefined): Promise<st
 async function tokenForCoordinatorId(coordinatorId: string): Promise<string | null> {
   const row = await prisma.coordinator.findUnique({
     where: { id: coordinatorId },
-    select: { user: { select: { expoPushToken: true, role: true } } }
+    select: { user: { select: { expoPushToken: true, role: true, isActive: true, deletedAt: true } } }
   });
-  if (!row?.user.expoPushToken || row.user.role !== Role.COORDINATOR) return null;
+  if (!row?.user.expoPushToken || row.user.role !== Role.COORDINATOR || !row.user.isActive || row.user.deletedAt) {
+    return null;
+  }
   return row.user.expoPushToken;
 }
 

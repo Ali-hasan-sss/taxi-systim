@@ -5,6 +5,7 @@ import type { Role } from "@prisma/client";
 import { Role as RoleEnum } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
+import { COORDINATOR_DISABLED_MESSAGE } from "../../shared/auth";
 import { normalizePhoneDigits } from "../../shared/phone";
 
 const FAR_FUTURE = new Date("2099-12-31T23:59:59.999Z");
@@ -163,7 +164,12 @@ export const authService = {
       where: { id: payload.sub },
       select: { id: true, role: true, isActive: true, deletedAt: true }
     });
-    if (!user || !user.isActive || user.deletedAt) throw new AppError("User is inactive", 403);
+    if (!user || !user.isActive || user.deletedAt) {
+      throw new AppError(
+        user?.role === RoleEnum.COORDINATOR ? COORDINATOR_DISABLED_MESSAGE : "User is inactive",
+        403
+      );
+    }
 
     if (isPermanentSessions()) {
       await prisma.refreshToken.update({

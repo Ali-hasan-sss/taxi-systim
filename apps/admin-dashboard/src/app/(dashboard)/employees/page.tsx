@@ -152,6 +152,31 @@ function EmployeeRowActions({
   );
 }
 
+function EmployeeStatusControl({
+  item,
+  loading,
+  onToggle
+}: {
+  item: Employee;
+  loading: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <label className="switch-row">
+      <button
+        type="button"
+        className={`switch ${item.isActive ? "switch--on" : ""}`}
+        disabled={loading}
+        onClick={onToggle}
+        aria-pressed={item.isActive}
+      >
+        <span className="switch__thumb" />
+      </button>
+      {loading ? <span className="spinner" aria-hidden /> : <span>{item.isActive ? "مفعل" : "معطل"}</span>}
+    </label>
+  );
+}
+
 function PushTokenBell({ item }: { item: Employee }) {
   const registered = item.hasPushToken === true;
   const label = registered ? "إشعارات الجوال: مسجّل" : "إشعارات الجوال: غير مسجّل";
@@ -642,6 +667,27 @@ export default function EmployeesPage() {
     }
   };
 
+  const renderEmployeeActions = (item: Employee) => (
+    <EmployeeRowActions
+      item={item}
+      open={openMenuId === item.id}
+      deleting={rowLoadingId === item.id}
+      showTopup={paymentMode === "PREPAID"}
+      onToggle={() => setOpenMenuId((prev) => (prev === item.id ? null : item.id))}
+      onEdit={() => startEdit(item)}
+      onDelete={() => void onDelete(item)}
+      onTopup={() => {
+        setOpenMenuId(null);
+        setError(null);
+        setTopupDriver(item);
+      }}
+      onAddDebt={() => openMoneyForm("debt", item)}
+      onAddCredit={() => openMoneyForm("credit", item)}
+      onAddFine={() => openMoneyForm("fine", item)}
+      onAddDeduction={() => openMoneyForm("deduction", item)}
+    />
+  );
+
   return (
     <div className="dashboard-page employees-page">
       <div className="card employees-toolbar">
@@ -727,78 +773,97 @@ export default function EmployeesPage() {
             جاري تحميل الموظفين...
           </p>
         ) : (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>الاسم</th>
-                  <th>البريد</th>
-                  <th>الهاتف</th>
-                  <th>الدور</th>
-                  <th>إشعارات</th>
-                  <th>المركبة (سائق)</th>
-                  {paymentMode === "PREPAID" ? <th>الرصيد المسبق</th> : null}
-                  <th>الحالة</th>
-                  <th>الإجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.fullName}</td>
-                    <td>{item.email ?? "—"}</td>
-                    <td>{item.phone ?? "—"}</td>
-                    <td>{roleText[item.role]}</td>
-                    <td className="employees-push-cell">
-                      <PushTokenBell item={item} />
-                    </td>
-                    <td className="employees-vehicle-cell">{formatDriverVehicleRow(item)}</td>
-                    {paymentMode === "PREPAID" ? (
-                      <td>
-                        {item.role === "DRIVER"
-                          ? `${formatMoney(prepaidCredit(item.driver?.remainingDebt))} ل.س`
-                          : "—"}
-                      </td>
-                    ) : null}
-                    <td>
-                      <label className="switch-row">
-                        <button
-                          type="button"
-                          className={`switch ${item.isActive ? "switch--on" : ""}`}
-                          disabled={rowLoadingId === item.id}
-                          onClick={() => void onToggleStatus(item)}
-                          aria-pressed={item.isActive}
-                        >
-                          <span className="switch__thumb" />
-                        </button>
-                        {rowLoadingId === item.id ? <span className="spinner" aria-hidden /> : <span>{item.isActive ? "مفعل" : "معطل"}</span>}
-                      </label>
-                    </td>
-                    <td className="cell-actions">
-                      <EmployeeRowActions
-                        item={item}
-                        open={openMenuId === item.id}
-                        deleting={rowLoadingId === item.id}
-                        showTopup={paymentMode === "PREPAID"}
-                        onToggle={() => setOpenMenuId((prev) => (prev === item.id ? null : item.id))}
-                        onEdit={() => startEdit(item)}
-                        onDelete={() => void onDelete(item)}
-                        onTopup={() => {
-                          setOpenMenuId(null);
-                          setError(null);
-                          setTopupDriver(item);
-                        }}
-                        onAddDebt={() => openMoneyForm("debt", item)}
-                        onAddCredit={() => openMoneyForm("credit", item)}
-                        onAddFine={() => openMoneyForm("fine", item)}
-                        onAddDeduction={() => openMoneyForm("deduction", item)}
-                      />
-                    </td>
+          <>
+            <div className="table-scroll employees-table-desktop">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>الاسم</th>
+                    <th>البريد</th>
+                    <th>الهاتف</th>
+                    <th>الدور</th>
+                    <th>إشعارات</th>
+                    <th>المركبة (سائق)</th>
+                    {paymentMode === "PREPAID" ? <th>الرصيد المسبق</th> : null}
+                    <th>الحالة</th>
+                    <th>الإجراءات</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {employees.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.fullName}</td>
+                      <td>{item.email ?? "—"}</td>
+                      <td>{item.phone ?? "—"}</td>
+                      <td>{roleText[item.role]}</td>
+                      <td className="employees-push-cell">
+                        <PushTokenBell item={item} />
+                      </td>
+                      <td className="employees-vehicle-cell">{formatDriverVehicleRow(item)}</td>
+                      {paymentMode === "PREPAID" ? (
+                        <td>
+                          {item.role === "DRIVER"
+                            ? `${formatMoney(prepaidCredit(item.driver?.remainingDebt))} ل.س`
+                            : "—"}
+                        </td>
+                      ) : null}
+                      <td>
+                        <EmployeeStatusControl
+                          item={item}
+                          loading={rowLoadingId === item.id}
+                          onToggle={() => void onToggleStatus(item)}
+                        />
+                      </td>
+                      <td className="cell-actions">{renderEmployeeActions(item)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="employees-cards">
+              {employees.map((item) => (
+                <article key={item.id} className="employees-card">
+                  <div className="employees-card__top">
+                    <div className="employees-card__identity">
+                      <h4 className="employees-card__name">{item.fullName}</h4>
+                      <span className="employees-card__role">{roleText[item.role]}</span>
+                    </div>
+                    <PushTokenBell item={item} />
+                  </div>
+                  <dl className="employees-card__fields">
+                    <div className="employees-card__field">
+                      <dt>البريد</dt>
+                      <dd>{item.email ?? "—"}</dd>
+                    </div>
+                    <div className="employees-card__field">
+                      <dt>الهاتف</dt>
+                      <dd>{item.phone ?? "—"}</dd>
+                    </div>
+                    {item.role === "DRIVER" ? (
+                      <div className="employees-card__field">
+                        <dt>المركبة</dt>
+                        <dd>{formatDriverVehicleRow(item)}</dd>
+                      </div>
+                    ) : null}
+                    {paymentMode === "PREPAID" && item.role === "DRIVER" ? (
+                      <div className="employees-card__field">
+                        <dt>الرصيد المسبق</dt>
+                        <dd>{formatMoney(prepaidCredit(item.driver?.remainingDebt))} ل.س</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  <div className="employees-card__foot">
+                    <EmployeeStatusControl
+                      item={item}
+                      loading={rowLoadingId === item.id}
+                      onToggle={() => void onToggleStatus(item)}
+                    />
+                    {renderEmployeeActions(item)}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
         )}
       </section>
 

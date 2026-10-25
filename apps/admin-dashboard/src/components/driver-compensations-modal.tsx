@@ -137,6 +137,9 @@ export function DriverCompensationsModal({
               <p className="finance-fines-modal__empty">لا توجد تعويضات مسجّلة.</p>
             ) : (
               <div className="table-scroll finance-fines-modal__table">
+                {ledger.rows.length < ledger.count ? (
+                  <p className="finance-fines-modal__empty">يُعرض أحدث {ledger.rows.length} سجلًا من أصل {ledger.count}.</p>
+                ) : null}
                 <table className="data-table">
                   <thead>
                     <tr>

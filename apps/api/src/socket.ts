@@ -6,6 +6,7 @@ import { chatService } from "./modules/chat/chat.service";
 import { setChatUserConnected } from "./modules/chat/chat-presence";
 import { prisma } from "./shared/prisma";
 import { AppError } from "./shared/app-error";
+import { COORDINATOR_DISABLED_MESSAGE } from "./shared/auth";
 import {
   APP_UPDATE_REQUIRED_CODE,
   evaluateMobileAppVersion,
@@ -433,6 +434,15 @@ export function getSocketServer(): Server | null {
   return socketServer;
 }
 
+export async function disconnectCoordinatorByUserId(io: Server, userId: string) {
+  const sockets = await io.fetchSockets();
+  await Promise.all(
+    sockets
+      .filter((remote) => remote.data.coordinatorUserId === userId || remote.data.chatUserId === userId)
+      .map((remote) => remote.disconnect(true))
+  );
+}
+
 async function rejectOutdatedSocket(socket: Socket, kind: MobileAppKind): Promise<boolean> {
   if (socket.data.appVersionOk === true) return false;
   const meta = readHandshakeAppMeta(socket.handshake);
@@ -478,9 +488,27 @@ export const initSocket = (io: Server) => {
       void socket.join("drivers");
     });
 
-    socket.on("coordinator:register", async (_coordinatorId: string) => {
+    socket.on("coordinator:register", async (coordinatorId: string) => {
+      if (typeof coordinatorId !== "string" || !coordinatorId) return;
       if (await rejectOutdatedSocket(socket, "coordinator")) return;
-      void socket.join(ROOM_COORDINATORS);
+      try {
+        const row = await prisma.coordinator.findUnique({
+          where: { id: coordinatorId },
+          select: {
+            userId: true,
+            user: { select: { role: true, isActive: true, deletedAt: true } }
+          }
+        });
+        if (!row || row.user.role !== "COORDINATOR" || !row.user.isActive || row.user.deletedAt) {
+          socket.emit("coordinator:disabled", { message: COORDINATOR_DISABLED_MESSAGE });
+          socket.disconnect(true);
+          return;
+        }
+        socket.data.coordinatorUserId = row.userId;
+        void socket.join(ROOM_COORDINATORS);
+      } catch {
+        socket.disconnect(true);
+      }
     });
 
     socket.on("admin:register", () => {
@@ -490,7 +518,15 @@ export const initSocket = (io: Server) => {
     socket.on(chatSocketEvents.REGISTER, async (userId: string) => {
       if (typeof userId !== "string" || !userId) return;
       try {
-        const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { role: true, isActive: true, deletedAt: true }
+        });
+        if (user?.role === "COORDINATOR" && (!user.isActive || user.deletedAt)) {
+          socket.emit("coordinator:disabled", { message: COORDINATOR_DISABLED_MESSAGE });
+          socket.disconnect(true);
+          return;
+        }
         if (user?.role === "DRIVER" && (await rejectOutdatedSocket(socket, "driver"))) return;
         if (user?.role === "COORDINATOR" && (await rejectOutdatedSocket(socket, "coordinator"))) return;
       } catch {

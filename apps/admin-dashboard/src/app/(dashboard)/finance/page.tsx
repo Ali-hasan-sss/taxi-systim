@@ -167,6 +167,7 @@ export default function FinancePage() {
   const [fineAmount, setFineAmount] = useState("");
   const [fineNotes, setFineNotes] = useState("");
   const [finesLedgerOpen, setFinesLedgerOpen] = useState(false);
+  const [finesLedgerGlobal, setFinesLedgerGlobal] = useState(false);
   const [deductionModalOpen, setDeductionModalOpen] = useState(false);
   const [recordingDeduction, setRecordingDeduction] = useState(false);
   const [deductionDriverId, setDeductionDriverId] = useState("");
@@ -190,6 +191,7 @@ export default function FinancePage() {
   const [topupAmount, setTopupAmount] = useState("");
   const [topupNotes, setTopupNotes] = useState("");
   const [compensationsLedgerOpen, setCompensationsLedgerOpen] = useState(false);
+  const [compensationsLedgerGlobal, setCompensationsLedgerGlobal] = useState(false);
   const [balances, setBalances] = useState<DriverBalanceRow[]>([]);
   const [paymentMode, setPaymentMode] = useState<"POSTPAID" | "PREPAID">("POSTPAID");
   const [loadingBalances, setLoadingBalances] = useState(true);
@@ -1144,6 +1146,26 @@ export default function FinancePage() {
           <button type="button" className="btn btn-ghost" onClick={openCompensationModal}>
             إضافة تعويض
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              setFinesLedgerGlobal(true);
+              setFinesLedgerOpen(true);
+            }}
+          >
+            سجل الغرامات
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              setCompensationsLedgerGlobal(true);
+              setCompensationsLedgerOpen(true);
+            }}
+          >
+            سجل التعويضات
+          </button>
           <button type="button" className="btn btn-ghost" onClick={() => openExportModal("general")}>
             تصدير Excel عام
           </button>
@@ -1379,7 +1401,10 @@ export default function FinancePage() {
           <button
             type="button"
             className="card finance-summary-card finance-summary-card--clickable"
-            onClick={() => setCompensationsLedgerOpen(true)}
+            onClick={() => {
+              setCompensationsLedgerGlobal(false);
+              setCompensationsLedgerOpen(true);
+            }}
             aria-label="عرض سجل التعويضات"
           >
             <p className="finance-summary-card__label">مجموع التعويضات</p>
@@ -1389,7 +1414,10 @@ export default function FinancePage() {
           <button
             type="button"
             className="card finance-summary-card finance-summary-card--clickable"
-            onClick={() => setFinesLedgerOpen(true)}
+            onClick={() => {
+              setFinesLedgerGlobal(false);
+              setFinesLedgerOpen(true);
+            }}
             aria-label="عرض سجل الغرامات"
           >
             <p className="finance-summary-card__label">مجموع الغرامات</p>
@@ -2125,14 +2153,17 @@ export default function FinancePage() {
         </div>
       ) : null}
 
-      {finesLedgerOpen && token && filters.driverId ? (
+      {finesLedgerOpen && token && (finesLedgerGlobal || filters.driverId) ? (
         <DriverFinesModal
           open={finesLedgerOpen}
           token={token}
-          driverId={filters.driverId}
-          from={filters.from}
-          to={filters.to}
-          onClose={() => setFinesLedgerOpen(false)}
+          driverId={finesLedgerGlobal ? undefined : filters.driverId}
+          from={finesLedgerGlobal ? undefined : filters.from}
+          to={finesLedgerGlobal ? undefined : filters.to}
+          onClose={() => {
+            setFinesLedgerOpen(false);
+            setFinesLedgerGlobal(false);
+          }}
           onSessionExpired={handleSessionExpired}
           onSettled={() => void loadReport()}
         />
@@ -2150,14 +2181,17 @@ export default function FinancePage() {
         />
       ) : null}
 
-      {compensationsLedgerOpen && token && filters.driverId ? (
+      {compensationsLedgerOpen && token && (compensationsLedgerGlobal || filters.driverId) ? (
         <DriverCompensationsModal
           open={compensationsLedgerOpen}
           token={token}
-          driverId={filters.driverId}
-          from={filters.from}
-          to={filters.to}
-          onClose={() => setCompensationsLedgerOpen(false)}
+          driverId={compensationsLedgerGlobal ? undefined : filters.driverId}
+          from={compensationsLedgerGlobal ? undefined : filters.from}
+          to={compensationsLedgerGlobal ? undefined : filters.to}
+          onClose={() => {
+            setCompensationsLedgerOpen(false);
+            setCompensationsLedgerGlobal(false);
+          }}
           onSessionExpired={handleSessionExpired}
         />
       ) : null}
