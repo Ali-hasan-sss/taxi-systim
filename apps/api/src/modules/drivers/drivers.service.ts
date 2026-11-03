@@ -25,13 +25,22 @@ async function syncMissingDriverRows() {
 
 export const driversService = {
   async profileForDriver(userId: string) {
-    await syncMissingDriverRows();
-    const driver = await prisma.driver.findFirst({
-      where: { userId, user: { role: Role.DRIVER, isActive: true } },
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, isActive: true, deletedAt: true }
+    });
+    if (!user || user.deletedAt || user.role !== Role.DRIVER) {
+      throw new AppError("ملف السائق غير موجود", 401);
+    }
+    if (!user.isActive) {
+      throw new AppError("حسابك معطّل. تواصل مع الإدارة.", 403);
+    }
+    return prisma.driver.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: { userId: user.id },
       select: { id: true, isBusy: true, isOnline: true }
     });
-    if (!driver) throw new AppError("ملف السائق غير موجود", 404);
-    return driver;
   },
 
   /** قائمة السائقين للإسناد (بحث بالاسم/الهاتف؛ لا نتائج إذا كان الاستعلام أقصر من حرفين) */

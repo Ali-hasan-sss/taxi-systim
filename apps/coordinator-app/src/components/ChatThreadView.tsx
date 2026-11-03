@@ -20,6 +20,7 @@ import {
   Keyboard,
   Modal,
   Platform,
+  Linking,
   Pressable,
   Text,
   TextInput,
@@ -278,6 +279,27 @@ export function ChatThreadView({
     sender: { fontSize: 11, fontWeight: "700" as const, color: t.colors.textMuted, marginBottom: 4, ...rtlText },
     body: { fontSize: 15, lineHeight: 22, color: t.colors.text, ...rtlText },
     bodyMine: { color: t.colors.textInverse },
+    mapBtn: {
+      marginTop: 8,
+      alignSelf: "flex-end" as const,
+      borderRadius: 10,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      backgroundColor: t.colors.surface,
+      borderWidth: 1,
+      borderColor: t.colors.border
+    },
+    mapBtnMine: {
+      backgroundColor: "rgba(255,255,255,0.16)",
+      borderColor: "rgba(255,255,255,0.4)"
+    },
+    mapBtnText: {
+      fontSize: 13,
+      fontWeight: "800" as const,
+      color: t.colors.primary,
+      ...rtlText
+    },
+    mapBtnTextMine: { color: t.colors.textInverse },
     metaRow: {
       flexDirection: "row-reverse" as const,
       alignItems: "center" as const,
@@ -698,6 +720,20 @@ export function ChatThreadView({
           <Text style={styles.body}>[انتهت صلاحية الرسالة الصوتية]</Text>
         ) : null}
         {item.body ? <Text style={[styles.body, mine && styles.bodyMine]}>{item.body}</Text> : null}
+        {typeof item.locationLat === "number" && typeof item.locationLng === "number" ? (
+          <Pressable
+            style={[styles.mapBtn, mine && styles.mapBtnMine]}
+            onPress={() =>
+              void Linking.openURL(
+                `https://www.google.com/maps/search/?api=1&query=${item.locationLat},${item.locationLng}`
+              )
+            }
+            accessibilityRole="button"
+            accessibilityLabel="عرض موقع السائق على الخريطة"
+          >
+            <Text style={[styles.mapBtnText, mine && styles.mapBtnTextMine]}>عرض موقع السائق على الخريطة</Text>
+          </Pressable>
+        ) : null}
         <View style={styles.metaRow}>
           <Text style={[styles.time, mine && styles.timeMine]}>
             {new Date(item.createdAt).toLocaleTimeString("ar-SY", { hour: "2-digit", minute: "2-digit" })}

@@ -21,6 +21,7 @@ import {
   type OrderVehicleRequirement
 } from "../lib/api";
 import { feedback } from "../lib/feedback";
+import { useOrderDraftSignal } from "../lib/order-draft-signal";
 import { getSession } from "../lib/session";
 import { rtlText } from "../lib/rtl-text";
 
@@ -198,6 +199,10 @@ export function CoordinatorCreateOrderModal({
   const scrollRef = useRef<ScrollView>(null);
   const fieldTopsRef = useRef<Partial<Record<OrderFieldKey, number>>>({});
   const [androidKeyboardPad, setAndroidKeyboardPad] = useState(0);
+  const drafting =
+    visible &&
+    [fromAddr, toAddr, phone, amountText, orderNotes].some((value) => value.trim().length > 0);
+  useOrderDraftSignal(drafting);
 
   const scrollToField = useCallback((key: OrderFieldKey) => {
     const y = fieldTopsRef.current[key];

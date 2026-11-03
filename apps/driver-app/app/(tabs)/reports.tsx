@@ -1,4 +1,4 @@
-import { themedRefreshProps, useTheme, useThemedStyles, type AppTheme } from "@taxi/expo-theme";
+import { themedRefreshProps, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -82,18 +82,6 @@ function formatAmount(amount: string): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
   }).format(n);
-}
-
-function reportCommissionStatusLabel(order: DriverOrderRow): "مدفوع" | "غير مدفوع" {
-  const remaining = Number(order.commission?.remainingAmount ?? 0);
-  if (order.commission?.paymentStatus === "PAID" || !(remaining > 0)) return "مدفوع";
-  return "غير مدفوع";
-}
-
-function reportCommissionStatusColors(order: DriverOrderRow, theme: AppTheme): { bg: string; fg: string } {
-  return reportCommissionStatusLabel(order) === "مدفوع"
-    ? { bg: theme.colors.successBg, fg: theme.colors.successText }
-    : { bg: theme.colors.dangerBg, fg: theme.colors.dangerText };
 }
 
 function authFailureMessage(msg: string): boolean {
@@ -529,41 +517,6 @@ export default function DriverReportsTab() {
       paddingHorizontal: 12,
       paddingVertical: 8
     },
-    reportCommissionRow: {
-      flexDirection: "row-reverse" as const,
-      alignItems: "center" as const,
-      justifyContent: "flex-end" as const,
-      gap: 8,
-      marginTop: 2,
-      flexWrap: "wrap" as const
-    },
-    reportCommissionAmount: {
-      color: t.colors.accent,
-      fontSize: 14,
-      fontWeight: "800" as const,
-      marginTop: -2,
-      marginBottom: 8,
-      ...rtlText,
-      textAlign: "right" as const,
-      alignSelf: "flex-end" as const
-    },
-    reportCommissionLabel: {
-      color: t.colors.textSubtle,
-      fontSize: 13,
-      fontWeight: "700" as const,
-      ...rtlText,
-      textAlign: "right" as const
-    },
-    reportCommissionBadge: {
-      borderRadius: 999,
-      paddingHorizontal: 10,
-      paddingVertical: 5
-    },
-    reportCommissionBadgeText: {
-      fontSize: 12,
-      fontWeight: "800" as const,
-      ...rtlText
-    },
     list: {
       paddingHorizontal: 20
     },
@@ -651,30 +604,7 @@ export default function DriverReportsTab() {
         <FlatList
           data={orders}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => {
-            const commissionColors = reportCommissionStatusColors(item, theme);
-            return (
-              <DriverOrderCard
-                item={item}
-                variant="archive"
-                afterAmountRow={
-                  <Text style={styles.reportCommissionAmount}>
-                    العمولة: {formatAmount(item.commission?.calculatedCommission ?? "0")}
-                  </Text>
-                }
-                footer={
-                  <View style={styles.reportCommissionRow}>
-                    <Text style={styles.reportCommissionLabel}>حالة العمولة:</Text>
-                    <View style={[styles.reportCommissionBadge, { backgroundColor: commissionColors.bg }]}>
-                      <Text style={[styles.reportCommissionBadgeText, { color: commissionColors.fg }]}>
-                        {reportCommissionStatusLabel(item)}
-                      </Text>
-                    </View>
-                  </View>
-                }
-              />
-            );
-          }}
+          renderItem={({ item }) => <DriverOrderCard item={item} variant="archive" />}
           contentContainerStyle={
             orders.length === 0
               ? [styles.emptyList, { paddingBottom: listBottomPad }]

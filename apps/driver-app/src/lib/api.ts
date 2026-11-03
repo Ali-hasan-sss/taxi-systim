@@ -50,6 +50,8 @@ export interface DriverOrderStats {
   compensationAmount: number;
   /** الغرامات غير المسددة بعد آخر تسديد */
   fineAmount: number;
+  /** عدد الغرامات المسجّلة — يُعرض في مسبق الدفع بدل القيمة */
+  fineCount?: number;
   /** الخصومات غير المسددة */
   deductionAmount: number;
   /** الديون الإضافية غير المسددة */
@@ -158,6 +160,7 @@ export async function fetchDriverOrderStats(accessToken: string): Promise<Driver
     unpaidCommissionAmount: typeof data.unpaidCommissionAmount === "number" ? data.unpaidCommissionAmount : 0,
     compensationAmount: typeof data.compensationAmount === "number" ? data.compensationAmount : 0,
     fineAmount: typeof data.fineAmount === "number" ? data.fineAmount : 0,
+    fineCount: typeof data.fineCount === "number" ? data.fineCount : 0,
     deductionAmount: typeof data.deductionAmount === "number" ? data.deductionAmount : 0,
     extraDebtAmount: typeof data.extraDebtAmount === "number" ? data.extraDebtAmount : 0,
     amountOwed: typeof data.amountOwed === "number" ? data.amountOwed : 0,
@@ -356,6 +359,33 @@ export async function fetchDriverCommissions(accessToken: string): Promise<Drive
   };
 }
 
+export async function driverNotifyAtCustomer(
+  accessToken: string,
+  orderId: string,
+  lat: number,
+  lng: number,
+  placeName?: string | null
+): Promise<DriverOrderRow> {
+  const res = await driverFetchWithRefresh(
+    `/orders/${encodeURIComponent(orderId)}/at-customer`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lat,
+        lng,
+        ...(placeName ? { placeName } : {})
+      })
+    },
+    accessToken
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "تعذر إبلاغ المنسق بالوصول");
+  }
+  return res.json() as Promise<DriverOrderRow>;
+}
+
 export async function driverMarkCustomerBoarded(accessToken: string, orderId: string): Promise<DriverOrderRow> {
   const res = await driverFetchWithRefresh(
     `/orders/${encodeURIComponent(orderId)}/board`,
@@ -397,6 +427,8 @@ export interface DriverOrderRow {
   vehicleRequirement?: DriverOrderVehicleRequirement;
   notes?: string | null;
   createdAt: string;
+  /** وُقت إبلاغ المنسق بالوصول إلى موقع الزبون. غيابه يعني أن الرقم ما زال مخفيًا. */
+  driverAtCustomerNotifiedAt?: string | null;
   coordinatorName?: string | null;
   driver: null | {
     id: string;

@@ -3,11 +3,12 @@ import { AppState } from "react-native";
 import * as Location from "expo-location";
 import { socketEvents } from "@taxi/config";
 import { nativeAppSocketAuth } from "@taxi/expo-api-base";
+import { router } from "expo-router";
 import { io, type Socket } from "socket.io-client";
 import { fetchDriverProfile, getSocketOrigin } from "./lib/api";
 import { getDriverLocationAccessState, isDriverLocationReady } from "./lib/location-access";
 import { playNewPendingOrderSound } from "./lib/pending-order-sound";
-import { getDriverSession } from "./lib/session";
+import { clearDriverSession, getDriverSession } from "./lib/session";
 import { feedback } from "./lib/feedback";
 import { tryStartDriverWork } from "./lib/start-work";
 import { useDriverStore } from "./store";
@@ -17,12 +18,15 @@ type DriverSocketContextValue = {
   myDriverId: string | null;
   /** اتصال السوكيت بالخادم (لا يعني «متصل» للعمل — انظر isOnline في الـ store) */
   socketConnected: boolean;
+  /** منسق يكتب طلبًا الآن */
+  orderDraftActive: boolean;
 };
 
 const DriverSocketContext = createContext<DriverSocketContextValue>({
   socket: null,
   myDriverId: null,
-  socketConnected: false
+  socketConnected: false,
+  orderDraftActive: false
 });
 
 /** فاصل بث الموقع للخادم — يكفي للإشراف التقريبي من لوحة المنسق */
@@ -32,6 +36,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [myDriverId, setMyDriverId] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [orderDraftActive, setOrderDraftActive] = useState(false);
   const myDriverIdRef = useRef<string | null>(null);
   const isOnline = useDriverStore((s) => s.isOnline);
   const setOnline = useDriverStore((s) => s.setOnline);
@@ -52,7 +57,12 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         myDriverIdRef.current = profile.id;
         setMyDriverId(profile.id);
-      } catch {
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (/ملف السائق غير موجود|Unauthorized|غير مصرح|401|403|معطّل/i.test(msg)) {
+          await clearDriverSession();
+          if (!cancelled) router.replace("/login");
+        }
         return;
       }
 
@@ -73,10 +83,18 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
         if (isOnlineRef.current) sock.emit("driver:online", id);
         else sock.emit("driver:offline", id);
       };
-      const onSockDisconnect = () => setSocketConnected(false);
+      const onSockDisconnect = () => {
+        setSocketConnected(false);
+      };
+      const onOrderDraft = (raw: unknown) => {
+        const active =
+          typeof raw === "object" && raw !== null && (raw as { active?: boolean }).active === true;
+        setOrderDraftActive(active);
+      };
 
       sock.on("connect", onSockConnect);
       sock.on("disconnect", onSockDisconnect);
+      sock.on(socketEvents.ORDER_DRAFT_TYPING, onOrderDraft);
       setSocketConnected(sock.connected);
       sock.connect();
     })();
@@ -89,6 +107,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       setMyDriverId(null);
       myDriverIdRef.current = null;
       setSocketConnected(false);
+      setOrderDraftActive(false);
     };
   }, []);
 
@@ -285,7 +304,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
   }, [isOnline, setOnline, socket]);
 
   return (
-    <DriverSocketContext.Provider value={{ socket, myDriverId, socketConnected }}>
+    <DriverSocketContext.Provider value={{ socket, myDriverId, socketConnected, orderDraftActive }}>
       {children}
     </DriverSocketContext.Provider>
   );

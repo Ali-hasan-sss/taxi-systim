@@ -1,5 +1,5 @@
 import { chatSocketEvents, socketEvents } from "@taxi/config";
-import { createContext, useContext, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { io, type Socket } from "socket.io-client";
@@ -13,6 +13,7 @@ const ChatSocketContext = createContext<Socket | null>(null);
 
 export function ChatSocketProvider({ children }: { children: ReactNode }) {
   const authEpoch = useCoordinatorStore((s) => s.authEpoch);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
   useEffect(() => {
     let socket: Socket | null = null;
@@ -42,6 +43,7 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
 
       socket?.disconnect();
       socket = io(getSocketOrigin(), { transports: ["websocket", "polling"], auth: nativeAppSocketAuth("coordinator") });
+      setSocket(socket);
       const myUserId = session.user.id;
 
       const onConnect = () => {
@@ -66,6 +68,7 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
       };
 
       socket.on("connect", onConnect);
+      if (socket.connected) onConnect();
       socket.on(socketEvents.CHAT_MESSAGE, onMessage);
       socket.on("disconnect", () => {
         if (!cancelled) scheduleReconnect();
@@ -94,10 +97,11 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
       socket?.off("connect_error");
       socket?.disconnect();
       socket = null;
+      setSocket(null);
     };
   }, [authEpoch]);
 
-  return <ChatSocketContext.Provider value={null}>{children}</ChatSocketContext.Provider>;
+  return <ChatSocketContext.Provider value={socket}>{children}</ChatSocketContext.Provider>;
 }
 
 export function useChatSocket() {

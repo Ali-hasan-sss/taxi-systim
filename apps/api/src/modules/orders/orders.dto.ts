@@ -90,6 +90,12 @@ export const updateOrderDetailsDto = z
 
 export type UpdateOrderDetailsDto = z.infer<typeof updateOrderDetailsDto>;
 
+export const driverAtCustomerDto = z.object({
+  lat: z.number().finite().gte(-90).lte(90),
+  lng: z.number().finite().gte(-180).lte(180),
+  placeName: z.string().trim().min(2).max(180).optional()
+});
+
 export const cancelOrderDto = z.object({
   reason: z.string().trim().min(2, "سبب الإلغاء مطلوب").max(500, "سبب الإلغاء طويل جدًا").optional()
 });

@@ -316,6 +316,19 @@
   margin-bottom: 4px;
 }
 
+.mapLink {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.82rem;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--brand-primary, #b45309);
+  border: 1px solid var(--brand-border);
+}
+
 .bubbleMeta {
   display: flex;
   align-items: center;

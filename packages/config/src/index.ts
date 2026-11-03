@@ -11,6 +11,8 @@ export const socketEvents = {
   ORDER_COMPLETED: "ORDER_COMPLETED",
   /** طلب تكسي جديد من صفحة الويب العامة — للمنسقين والأدمن فقط */
   WEB_ORDER_REQUEST: "WEB_ORDER_REQUEST",
+  /** منسق يكتب طلبًا الآن — وميض شعار تطبيق السائق */
+  ORDER_DRAFT_TYPING: "ORDER_DRAFT_TYPING",
   DRIVER_LOCATION_UPDATED: "DRIVER_LOCATION_UPDATED",
   DRIVER_ONLINE: "DRIVER_ONLINE",
   DRIVER_OFFLINE: "DRIVER_OFFLINE",

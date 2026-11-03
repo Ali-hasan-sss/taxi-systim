@@ -26,6 +26,7 @@ const emptyStats: DriverOrderStats = {
   unpaidCommissionAmount: 0,
   compensationAmount: 0,
   fineAmount: 0,
+  fineCount: 0,
   deductionAmount: 0,
   extraDebtAmount: 0,
   amountOwed: 0,
@@ -466,8 +467,8 @@ export default function DriverHomeTab() {
                 />
                 <StatCard
                   compact
-                  label="الغرامات"
-                  value={stats.fineAmount}
+                  label={prepaid ? "عدد الغرامات" : "الغرامات"}
+                  value={prepaid ? stats.fineCount ?? 0 : stats.fineAmount}
                   accent={theme.colors.danger}
                   onPress={() => setFinesOpen(true)}
                   pressHint="السجل"

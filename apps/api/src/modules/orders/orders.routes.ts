@@ -65,6 +65,13 @@ ordersRouter.patch(
   ordersController.markInvoiceSent
 );
 ordersRouter.patch("/:orderId/accept", requireAuth, requireRole("DRIVER"), orderMutationRateLimit, ordersController.acceptByDriver);
+ordersRouter.post(
+  "/:orderId/at-customer",
+  requireAuth,
+  requireRole("DRIVER"),
+  orderMutationRateLimit,
+  ordersController.notifyAtCustomer
+);
 ordersRouter.patch("/:orderId/board", requireAuth, requireRole("DRIVER"), orderMutationRateLimit, ordersController.boardCustomer);
 ordersRouter.patch(
   "/:orderId/driver-cancel",

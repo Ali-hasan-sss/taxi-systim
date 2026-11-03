@@ -115,7 +115,8 @@ export function DriverOrderCard({
   afterAmountRow,
   variant = "default",
   layout = "full",
-  takenHighlight = false
+  takenHighlight = false,
+  revealCustomerPhone = true
 }: {
   item: DriverOrderRow;
   footer?: ReactNode;
@@ -126,9 +127,11 @@ export function DriverOrderCard({
   layout?: "full" | "compact";
   /** إطار برتقالي عند استلام الطلب من سائق آخر قبل الإخفاء */
   takenHighlight?: boolean;
+  /** قبل إبلاغ الوصول يُخفى رقم الزبون عن السائق. */
+  revealCustomerPhone?: boolean;
 }) {
   const { theme } = useTheme();
-  const contactVisible = showCustomerContact(item.status, variant);
+  const contactVisible = revealCustomerPhone && showCustomerContact(item.status, variant);
   const displayPhone = resolveCustomerPhone(item);
   const showPhoneBlock = contactVisible && displayPhone != null;
   const pillColors = driverOrderStatusPill(mapStatusForPill(item.status), theme);

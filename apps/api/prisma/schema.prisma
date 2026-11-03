@@ -247,6 +247,8 @@ model Order {
   customerInfoSentAt DateTime?
   /** تاريخ إرسال الفاتورة للزبون عبر واتساب (منع الإرسال المكرر) */
   invoiceSentAt      DateTime?
+  /** وقت إبلاغ المنسق بوصول السائق إلى موقع الزبون. ليس حالة طلب ولا يغيّر مسار التنفيذ. */
+  driverAtCustomerNotifiedAt DateTime?
   customer         Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   promotion        Promotion?   @relation(fields: [promotionId], references: [id], onDelete: SetNull)
   promoRedemption  PromotionRedemption?
@@ -287,6 +289,9 @@ model ChatMessage {
   voicePath      String?
   voiceExpiresAt DateTime?
   voiceDurationMs Int?
+  /** موقع مرفق بالرسالة، مثل وصول السائق إلى الزبون */
+  locationLat    Float?
+  locationLng    Float?
   room           ChatRoom  @relation(fields: [roomId], references: [id], onDelete: Cascade)
   sender         User      @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
   receipts       ChatMessageReceipt[]

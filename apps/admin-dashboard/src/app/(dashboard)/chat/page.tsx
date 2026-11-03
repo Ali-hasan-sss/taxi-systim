@@ -594,6 +594,16 @@ export default function ChatPage() {
                     <p>[انتهت صلاحية الرسالة الصوتية]</p>
                   ) : null}
                   {m.body ? <p>{m.body}</p> : null}
+                  {typeof m.locationLat === "number" && typeof m.locationLng === "number" ? (
+                    <a
+                      className={styles.mapLink}
+                      href={`https://www.google.com/maps/search/?api=1&query=${m.locationLat},${m.locationLng}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      عرض موقع السائق على الخريطة
+                    </a>
+                  ) : null}
                   <div className={styles.bubbleMeta}>
                     <time>{new Date(m.createdAt).toLocaleTimeString("ar-SY")}</time>
                     {mine ? <ChatMessageReceipt status={m.receiptStatus} className={styles.receipt} /> : null}

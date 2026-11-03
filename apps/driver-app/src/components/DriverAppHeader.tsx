@@ -3,16 +3,74 @@ import { ThemeToggleRow, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Animated, Dimensions, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { shouldLoadExpoPushModule } from "../lib/push-environment";
 import { rtlText } from "../lib/rtl-text";
 import { clearDriverSession, getDriverSession } from "../lib/session";
 import { tryStartDriverWork } from "../lib/start-work";
+import { useDriverSocket } from "../driver-socket-context";
 import { useDriverStore } from "../store";
 import { DriverNotificationsButton } from "./DriverNotificationsButton";
 import { GlassIconCircle } from "./GlassIconCircle";
+
+function LogoPreparingPulse({ active, children }: { active: boolean; children: ReactNode }) {
+  const glow = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!active) {
+      glow.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 380, useNativeDriver: false }),
+        Animated.timing(glow, { toValue: 0.15, duration: 380, useNativeDriver: false })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [active, glow]);
+
+  const borderColor = glow.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(249,115,22,0.2)", "rgba(249,115,22,1)"]
+  });
+  const backgroundColor = glow.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(249,115,22,0.05)", "rgba(249,115,22,0.45)"]
+  });
+
+  return (
+    <Animated.View
+      collapsable={false}
+      style={[
+        pulseStyles.wrap,
+        active
+          ? {
+              borderWidth: 3,
+              borderColor,
+              backgroundColor
+            }
+          : null
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+const pulseStyles = StyleSheet.create({
+  wrap: {
+    alignSelf: "flex-start",
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 3,
+    borderColor: "transparent"
+  }
+});
 
 export function DriverAppHeader() {
   const router = useRouter();
@@ -20,6 +78,7 @@ export function DriverAppHeader() {
   const { theme } = useTheme();
   const { ready, appName, logoSource } = useBranding();
   const { isOnline, setOnline, workBlocked } = useDriverStore();
+  const { orderDraftActive } = useDriverSocket();
   const avatarAnchorRef = useRef<View>(null);
   const [userMenuAnchor, setUserMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(
     null
@@ -247,13 +306,15 @@ export function DriverAppHeader() {
         ]}
       >
         <View style={styles.logoCreamBox}>
-          <AppBrandMark
-            ready={ready}
-            logoSource={logoSource}
-            appName={appName}
-            nameColor={theme.colors.text}
-            accessibilityLabel={appName || "تطبيق السائق"}
-          />
+          <LogoPreparingPulse active={orderDraftActive}>
+            <AppBrandMark
+              ready={ready}
+              logoSource={logoSource}
+              appName={appName}
+              nameColor={theme.colors.text}
+              accessibilityLabel={appName || "تطبيق السائق"}
+            />
+          </LogoPreparingPulse>
         </View>
         <View style={styles.topBarActions}>
           <DriverNotificationsButton />

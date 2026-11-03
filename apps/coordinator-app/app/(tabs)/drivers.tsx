@@ -26,6 +26,7 @@ import {
   type LiveDriverStatusFilter
 } from "../../src/lib/api";
 import { feedback } from "../../src/lib/feedback";
+import { useOrderDraftSignal } from "../../src/lib/order-draft-signal";
 import { clearSession, getSession } from "../../src/lib/session";
 import { getGlobalChatRoom, openChatRoom } from "../../src/lib/chat";
 import { rtlRow, rtlText } from "../../src/lib/rtl-text";
@@ -582,6 +583,9 @@ export default function DriversTab() {
   const [quickPhone, setQuickPhone] = useState("");
   const [quickAmount, setQuickAmount] = useState("");
   const [quickSubmitting, setQuickSubmitting] = useState(false);
+  const quickDrafting =
+    quickOpen && [quickFrom, quickTo, quickPhone, quickAmount].some((value) => value.trim().length > 0);
+  useOrderDraftSignal(quickDrafting);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);

@@ -7,7 +7,7 @@ import {
   notifyDriverOrderAssignedPush,
   notifyDriverOrderResumedPush
 } from "../../shared/expo-push";
-import { assignOrderDto, cancelOrderDto, createOrderDto, updateCompletedOrderAmountDto, updateOrderDetailsDto } from "./orders.dto";
+import { assignOrderDto, cancelOrderDto, createOrderDto, driverAtCustomerDto, updateCompletedOrderAmountDto, updateOrderDetailsDto } from "./orders.dto";
 import {
   COORDINATOR_ORDERS_PAGE_DEFAULT,
   COORDINATOR_ORDERS_PAGE_MAX,
@@ -19,6 +19,8 @@ import type { AuthRequest } from "../../shared/auth";
 import { AppError } from "../../shared/app-error";
 import { prisma } from "../../shared/prisma";
 import { accountingService } from "../accounting/accounting.service";
+import { emitChatMessage } from "../chat/chat-socket";
+import { chatService } from "../chat/chat.service";
 import {
   dispatchNewPendingOrderToDrivers,
   emitDriverClaimedOrder,
@@ -370,6 +372,29 @@ export const ordersController = {
       next(e);
     }
   },
+  async notifyAtCustomer(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const dto = driverAtCustomerDto.parse(req.body);
+      const result = await ordersService.notifyDriverArrivedAtCustomer(
+        req.auth!.userId,
+        req.params.orderId,
+        dto.lat,
+        dto.lng,
+        dto.placeName
+      );
+      if (result.chat) {
+        const proto = req.get("x-forwarded-proto") ?? req.protocol;
+        const host = req.get("x-forwarded-host") ?? req.get("host") ?? "localhost:4000";
+        const message = chatService.clientMessage(result.chat.message, `${proto}://${host}/api`);
+        const io = req.app.get("io") as Server | undefined;
+        if (io) await emitChatMessage(io, result.chat.roomId, message, req.auth!.userId);
+      }
+      res.json(ordersService.serializeDriverOrderRow(result.order));
+    } catch (e) {
+      next(e);
+    }
+  },
+
   async boardCustomer(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const order = await ordersService.markCustomerBoardedByDriver(req.auth!.userId, req.params.orderId);

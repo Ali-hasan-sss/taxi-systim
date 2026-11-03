@@ -1,5 +1,6 @@
 import { themedRefreshProps, useTheme, useThemedStyles } from "@taxi/expo-theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Location from "expo-location";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -23,11 +24,13 @@ import {
   driverCompleteOrder,
   driverCancelOrder,
   driverMarkCustomerBoarded,
+  driverNotifyAtCustomer,
   fetchDriverOrderRoom,
   socketPayloadToDriverOrderRow
 } from "../../src/lib/api";
 import { SOCKET_EVENTS } from "../../src/lib/socket-events";
 import { clearDriverSession, getDriverSession } from "../../src/lib/session";
+import { isDriverLocationReady, requestDriverLocationAccess } from "../../src/lib/location-access";
 import { tryStartDriverWork } from "../../src/lib/start-work";
 import { useDriverStore } from "../../src/store";
 import { rtlText } from "../../src/lib/rtl-text";
@@ -43,6 +46,33 @@ function authFailureMessage(msg: string): boolean {
 
 function isEnRouteToCustomer(status: string): boolean {
   return status === "EN_ROUTE_TO_CUSTOMER" || status === "ACCEPTED" || status === "ARRIVED";
+}
+
+function cleanPlacePart(value: string | null | undefined): string | null {
+  const text = value?.replace(/\s+/g, " ").trim() ?? "";
+  if (text.length < 2 || /^[\d\s\-/]+$/.test(text)) return null;
+  return text;
+}
+
+/** اسم المكان أو أقرب شارع/حي من مزوّد خرائط الجهاز. */
+async function describeDriverPlace(lat: number, lng: number): Promise<string | null> {
+  try {
+    const [place] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+    if (!place) return null;
+    const seen = new Set<string>();
+    const parts: string[] = [];
+    for (const raw of [place.name, place.street, place.district, place.subregion, place.city, place.region]) {
+      const text = cleanPlacePart(raw);
+      if (!text) continue;
+      const key = text.toLocaleLowerCase("ar");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      parts.push(text);
+    }
+    return parts.length > 0 ? parts.join("، ").slice(0, 180) : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function DriverOrdersTab() {
@@ -63,6 +93,7 @@ export default function DriverOrdersTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
+  const [arriving, setArriving] = useState(false);
   const [expandedPendingIds, setExpandedPendingIds] = useState<Set<string>>(() => new Set());
   const { socket, myDriverId, socketConnected } = useDriverSocket();
 
@@ -291,6 +322,43 @@ export default function DriverOrdersTab() {
       }
     } finally {
       setActionOrderId(null);
+    }
+  };
+
+  const onArriveAtCustomer = async (orderId: string) => {
+    const access = await requestDriverLocationAccess();
+    if (!isDriverLocationReady(access)) {
+      Alert.alert("الموقع مطلوب", "فعّل الموقع حتى نُبلغ المنسق بمكانك الحقيقي.");
+      return;
+    }
+    const session = await getDriverSession();
+    if (!session?.accessToken) {
+      await goToLogin();
+      return;
+    }
+    setArriving(true);
+    setError(null);
+    try {
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() =>
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+      );
+      const placeName = await describeDriverPlace(pos.coords.latitude, pos.coords.longitude);
+      const row = await driverNotifyAtCustomer(
+        session.accessToken,
+        orderId,
+        pos.coords.latitude,
+        pos.coords.longitude,
+        placeName
+      );
+      setInProgress(row);
+      feedback.success("تم إبلاغ المنسق بوصولك إلى موقع الزبون.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "تعذر إبلاغ المنسق بالوصول";
+      setError(msg);
+      Alert.alert("تعذر الإبلاغ", msg);
+      if (authFailureMessage(msg)) await goToLogin();
+    } finally {
+      setArriving(false);
     }
   };
 
@@ -646,6 +714,33 @@ export default function DriverOrdersTab() {
       fontWeight: "800" as const,
       fontSize: 14,
       ...rtlText
+    },
+    btnArrive: {
+      backgroundColor: t.colors.success,
+      paddingVertical: 12,
+      borderRadius: 12,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      minHeight: 46
+    },
+    btnArriveText: {
+      color: t.colors.textInverse,
+      fontWeight: "800" as const,
+      fontSize: 15,
+      ...rtlText,
+      textAlign: "center" as const
+    },
+    btnArriveDone: {
+      backgroundColor: t.colors.buttonSecondaryBg,
+      borderWidth: 1,
+      borderColor: t.colors.borderStrong
+    },
+    btnArriveDoneText: {
+      color: t.colors.buttonSecondaryText
+    },
+    inProgressActions: {
+      gap: 8,
+      marginTop: 12
     }
   }));
 
@@ -721,41 +816,63 @@ export default function DriverOrdersTab() {
         <FlatList
           data={data}
           keyExtractor={(item) => item.id}
-          extraData={{ inProgress: !!inProgress, actionOrderId, expandedPendingIds, takenHighlightIds }}
+          extraData={{ inProgress: !!inProgress, actionOrderId, arriving, expandedPendingIds, takenHighlightIds }}
           renderItem={({ item }) => {
           const busy = actionOrderId === item.id;
           const pendingExpanded = expandedPendingIds.has(item.id);
           const takenHighlight = takenHighlightIds.has(item.id);
           if (inProgress) {
             if (isEnRouteToCustomer(item.status)) {
+              const arrived = !!item.driverAtCustomerNotifiedAt;
+              const rowBusy = !!busy || arriving;
               return (
                 <DriverOrderCard
                   item={item}
+                  revealCustomerPhone={arrived}
                   footer={
-                    <View style={styles.footerRow}>
-                      {chatBtn(item.id)}
+                    <View style={styles.inProgressActions}>
                       <Pressable
-                        style={[styles.btnWarning, busy && styles.btnDisabled]}
-                        disabled={!!busy}
-                        onPress={() => onCancelOrder(item.id)}
+                        style={[
+                          styles.btnArrive,
+                          arrived && styles.btnArriveDone,
+                          rowBusy && styles.btnDisabled
+                        ]}
+                        disabled={rowBusy || arrived}
+                        onPress={() => void onArriveAtCustomer(item.id)}
                       >
-                        {busy ? (
+                        {arriving ? (
                           <ActivityIndicator color={theme.colors.textInverse} />
                         ) : (
-                          <Text style={styles.btnWarningText}>إلغاء الطلب</Text>
+                          <Text style={[styles.btnArriveText, arrived && styles.btnArriveDoneText]}>
+                            {arrived ? "تم إبلاغ المنسق بالوصول" : "أنا في موقع الزبون"}
+                          </Text>
                         )}
                       </Pressable>
-                      <Pressable
-                        style={[styles.btnPrimary, busy && styles.btnDisabled]}
-                        disabled={!!busy}
-                        onPress={() => void onBoard(item.id)}
-                      >
-                        {busy ? (
-                          <ActivityIndicator color={theme.colors.textInverse} />
-                        ) : (
-                          <Text style={styles.btnPrimaryText}>تم استلام الزبون</Text>
-                        )}
-                      </Pressable>
+                      <View style={[styles.footerRow, { marginTop: 0 }]}>
+                        {chatBtn(item.id)}
+                        <Pressable
+                          style={[styles.btnWarning, rowBusy && styles.btnDisabled]}
+                          disabled={rowBusy}
+                          onPress={() => onCancelOrder(item.id)}
+                        >
+                          {busy ? (
+                            <ActivityIndicator color={theme.colors.textInverse} />
+                          ) : (
+                            <Text style={styles.btnWarningText}>إلغاء الطلب</Text>
+                          )}
+                        </Pressable>
+                        <Pressable
+                          style={[styles.btnPrimary, rowBusy && styles.btnDisabled]}
+                          disabled={rowBusy}
+                          onPress={() => void onBoard(item.id)}
+                        >
+                          {busy ? (
+                            <ActivityIndicator color={theme.colors.textInverse} />
+                          ) : (
+                            <Text style={styles.btnPrimaryText}>تم استلام الزبون</Text>
+                          )}
+                        </Pressable>
+                      </View>
                     </View>
                   }
                 />
@@ -765,6 +882,7 @@ export default function DriverOrdersTab() {
               return (
                 <DriverOrderCard
                   item={item}
+                  revealCustomerPhone={!!item.driverAtCustomerNotifiedAt}
                   footer={
                     <View style={styles.footerRow}>
                       {chatBtn(item.id)}
@@ -829,17 +947,10 @@ export default function DriverOrdersTab() {
               layout={pendingExpanded ? "full" : "compact"}
               takenHighlight={takenHighlight}
               footer={
-                pendingExpanded ? (
-                  <View style={styles.pendingActionsRow}>
-                    {toggleDetailsBtn}
-                    {acceptBtn}
-                  </View>
-                ) : (
-                  <View style={styles.pendingActionsRow}>
-                    {acceptBtn}
-                    {toggleDetailsBtn}
-                  </View>
-                )
+                <View style={styles.pendingActionsRow}>
+                  {toggleDetailsBtn}
+                  {acceptBtn}
+                </View>
               }
             />
           );

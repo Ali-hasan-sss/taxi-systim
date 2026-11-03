@@ -25,6 +25,58 @@ const memLastLocationAcceptedAt = new Map<string, number>();
 
 /** سائقون أرسلوا driver:online — طلبات «نوع السيارة: غير مهم» تُبث هنا ليصل الطلب للجميع */
 export const ROOM_DRIVERS_ONLINE = "drivers-online";
+const ROOM_ALL_DRIVERS = "drivers";
+const ORDER_DRAFT_TTL_MS = 25_000;
+const ORDER_DRAFT_DISCONNECT_GRACE_MS = 45_000;
+
+const orderDraftTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const driverSocketIds = new Set<string>();
+let lastOrderDraftBroadcast: boolean | null = null;
+
+function emitOrderDraftState(io: Server) {
+  const active = orderDraftTimers.size > 0;
+  const payload = { active };
+  io.to(ROOM_ALL_DRIVERS).emit(socketEvents.ORDER_DRAFT_TYPING, payload);
+  for (const socketId of driverSocketIds) {
+    io.to(socketId).emit(socketEvents.ORDER_DRAFT_TYPING, payload);
+  }
+  if (lastOrderDraftBroadcast !== active) {
+    lastOrderDraftBroadcast = active;
+    console.log(`[order-draft] active=${active} coordinators=${orderDraftTimers.size} drivers=${driverSocketIds.size}`);
+  }
+}
+
+function setOrderDraftActive(io: Server, socketId: string, active: boolean) {
+  const prev = orderDraftTimers.get(socketId);
+  if (prev) clearTimeout(prev);
+  if (!active) {
+    if (!orderDraftTimers.has(socketId)) return;
+    orderDraftTimers.delete(socketId);
+    emitOrderDraftState(io);
+    return;
+  }
+  orderDraftTimers.set(
+    socketId,
+    setTimeout(() => {
+      orderDraftTimers.delete(socketId);
+      emitOrderDraftState(io);
+    }, ORDER_DRAFT_TTL_MS)
+  );
+  emitOrderDraftState(io);
+}
+
+function holdOrderDraftAfterDisconnect(io: Server, socketId: string) {
+  if (!orderDraftTimers.has(socketId)) return;
+  const prev = orderDraftTimers.get(socketId);
+  if (prev) clearTimeout(prev);
+  orderDraftTimers.set(
+    socketId,
+    setTimeout(() => {
+      orderDraftTimers.delete(socketId);
+      emitOrderDraftState(io);
+    }, ORDER_DRAFT_DISCONNECT_GRACE_MS)
+  );
+}
 /** طلبات تتطلب سيارة عامة فقط */
 const ROOM_ORDER_VEHICLE_PUBLIC = "orders:vehicle:public";
 /** طلبات تتطلب سيارة خاصة فقط */
@@ -484,8 +536,10 @@ export const initSocket = (io: Server) => {
     socket.on("driver:register", async (driverId: string) => {
       if (typeof driverId !== "string" || !driverId) return;
       if (await rejectOutdatedSocket(socket, "driver")) return;
+      driverSocketIds.add(socket.id);
       void socket.join(`driver:${driverId}`);
-      void socket.join("drivers");
+      void socket.join(ROOM_ALL_DRIVERS);
+      socket.emit(socketEvents.ORDER_DRAFT_TYPING, { active: orderDraftTimers.size > 0 });
     });
 
     socket.on("coordinator:register", async (coordinatorId: string) => {
@@ -529,11 +583,16 @@ export const initSocket = (io: Server) => {
         }
         if (user?.role === "DRIVER" && (await rejectOutdatedSocket(socket, "driver"))) return;
         if (user?.role === "COORDINATOR" && (await rejectOutdatedSocket(socket, "coordinator"))) return;
+        if (user?.role) socket.data.appRole = user.role;
       } catch {
         socket.disconnect(true);
         return;
       }
       socket.data.chatUserId = userId;
+      if (socket.data.appRole === "COORDINATOR" && typeof socket.data.pendingOrderDraft === "boolean") {
+        setOrderDraftActive(io, socket.id, socket.data.pendingOrderDraft);
+        delete socket.data.pendingOrderDraft;
+      }
       void socket.join(`user:${userId}`);
       void socket.join(CHAT_GLOBAL_ROOM);
       const becameOnline = setChatUserConnected(userId, true);
@@ -692,7 +751,32 @@ export const initSocket = (io: Server) => {
       io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_OFFLINE, { driverId });
     });
 
+    socket.on("order:draft-typing", async (payload: { active?: boolean }) => {
+      const active = payload?.active === true;
+      if (socket.data.appRole !== "COORDINATOR") {
+        const handshakeKind = readHandshakeAppMeta(socket.handshake).kind;
+        if (handshakeKind === "coordinator") {
+          socket.data.appRole = "COORDINATOR";
+        } else {
+          const userId = socket.data.chatUserId as string | undefined;
+          if (!userId) {
+            socket.data.pendingOrderDraft = active;
+            return;
+          }
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true, isActive: true, deletedAt: true }
+          });
+          if (!user || user.role !== "COORDINATOR" || !user.isActive || user.deletedAt) return;
+          socket.data.appRole = user.role;
+        }
+      }
+      setOrderDraftActive(io, socket.id, active);
+    });
+
     socket.on("disconnect", () => {
+      driverSocketIds.delete(socket.id);
+      holdOrderDraftAfterDisconnect(io, socket.id);
       const userId = socket.data.chatUserId as string | undefined;
       if (!userId) return;
       const becameOffline = setChatUserConnected(userId, false);

@@ -12,6 +12,8 @@ export type ChatMessageRow = {
   voiceUrl: string | null;
   voiceExpired: boolean;
   voiceDurationMs: number | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
   sender: { id: string; fullName: string; role: string };
   createdAt: string;
   receiptStatus?: "sent" | "delivered" | "read";

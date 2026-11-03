@@ -1,4 +1,5 @@
 import {
+  ChatRoomType,
   CommissionPaymentStatus,
   CommissionType,
   FinancialTransactionType,
@@ -34,6 +35,7 @@ import {
   scheduleDriverDebtWorkSync
 } from "../../shared/driver-debt-block";
 import { notifyDriverCompensation, notifyDriverFine } from "../../shared/driver-notifications";
+import { reverseGeocodePlace, sanitizePlaceName } from "../../shared/reverse-geocode";
 
 const orderIncludeDriverUser = {
   driver: { include: { user: { select: { fullName: true, phone: true } } } },
@@ -432,6 +434,8 @@ async function sumDriverHomeFinance(driverId: string): Promise<{
   unpaidCommissionAmount: number;
   compensationAmount: number;
   fineAmount: number;
+  /** كل الغرامات المسجّلة، بما فيها المسددة من الرصيد في مسبق الدفع */
+  fineCount: number;
   deductionAmount: number;
   extraDebtAmount: number;
   amountOwed: number;
@@ -505,11 +509,20 @@ async function sumDriverHomeFinance(driverId: string): Promise<{
       unpaidCommissionAmount,
       compensationAmount: recordedCompensation,
       fineAmount: fineAmountRaw,
+      fineCount: 0,
       deductionAmount: deductionAmountRaw,
       extraDebtAmount: extraDebtRaw,
       amountOwed
     };
   }
+
+  const fineCount = await prisma.financialTransaction.count({
+    where: {
+      driverId,
+      type: FinancialTransactionType.MANUAL_ADJUSTMENT,
+      notes: { startsWith: "غرامة سائق" }
+    }
+  });
 
   const fineRemainder = remainingPositive > 0 && fineAmountRaw > 0 ? Math.min(fineAmountRaw, remainingPositive) : 0;
   const deductionRemainder =
@@ -525,6 +538,7 @@ async function sumDriverHomeFinance(driverId: string): Promise<{
     unpaidCommissionAmount: 0,
     compensationAmount: 0,
     fineAmount: 0,
+    fineCount,
     deductionAmount: 0,
     extraDebtAmount,
     amountOwed
@@ -643,6 +657,7 @@ export const ordersService = {
       cancelReason: row.cancelReason,
       customerInfoSentAt: row.customerInfoSentAt?.toISOString() ?? null,
       invoiceSentAt: row.invoiceSentAt?.toISOString() ?? null,
+      driverAtCustomerNotifiedAt: row.driverAtCustomerNotifiedAt?.toISOString() ?? null,
       coordinatorName: row.coordinator?.user.fullName?.trim() || "—",
       driver: row.driver
         ? {
@@ -818,7 +833,7 @@ export const ordersService = {
 
       return tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.EN_ROUTE_TO_CUSTOMER },
+        data: { status: OrderStatus.EN_ROUTE_TO_CUSTOMER, driverAtCustomerNotifiedAt: null },
         include: orderIncludeDriverUser
       });
     });
@@ -850,7 +865,7 @@ export const ordersService = {
 
       return tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.EN_ROUTE_TO_CUSTOMER },
+        data: { status: OrderStatus.EN_ROUTE_TO_CUSTOMER, driverAtCustomerNotifiedAt: null },
         include: orderIncludeDriverUser
       });
     });
@@ -1503,6 +1518,7 @@ export const ordersService = {
         unpaidCommissionAmount: 0,
         compensationAmount: 0,
         fineAmount: 0,
+        fineCount: 0,
         deductionAmount: 0,
         extraDebtAmount: 0,
         amountOwed: 0,
@@ -1555,6 +1571,7 @@ export const ordersService = {
       unpaidCommissionAmount: finance.unpaidCommissionAmount,
       compensationAmount: finance.compensationAmount,
       fineAmount: finance.fineAmount,
+      fineCount: finance.fineCount,
       deductionAmount: finance.deductionAmount,
       extraDebtAmount: finance.extraDebtAmount,
       amountOwed: finance.amountOwed,
@@ -1830,6 +1847,114 @@ export const ordersService = {
     });
   },
 
+  /**
+   * إبلاغ المنسق بوصول السائق إلى موقع الزبون.
+   * لا يغيّر حالة الطلب؛ يسجّل وقت الإبلاغ ويرسل رسالة محادثة فيها موقع السائق.
+   */
+  async notifyDriverArrivedAtCustomer(
+    driverUserId: string,
+    orderId: string,
+    lat: number,
+    lng: number,
+    placeName?: string | null
+  ) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      throw new AppError("موقع السائق غير صالح", 400);
+    }
+
+    const driver = await prisma.driver.findUnique({
+      where: { userId: driverUserId },
+      include: { user: { select: { fullName: true } } }
+    });
+    if (!driver) throw new AppError("ملف السائق غير موجود", 404);
+
+    const existing = await prisma.order.findFirst({
+      where: { id: orderId, driverId: driver.id }
+    });
+    if (!existing || !EN_ROUTE_LIKE.includes(existing.status)) {
+      throw new AppError("الطلب غير موجود أو لم يعد في الطريق إلى الزبون", 400);
+    }
+    if (existing.driverAtCustomerNotifiedAt) {
+      const order = await prisma.order.findFirstOrThrow({
+        where: { id: orderId },
+        include: orderIncludeDriverUser
+      });
+      return { order, chat: null };
+    }
+
+    const driverName = driver.user.fullName?.trim() || "السائق";
+    const place = sanitizePlaceName(placeName) ?? (await reverseGeocodePlace(lat, lng));
+    const body = place
+      ? `السائق ${driverName} وصل إلى موقع الزبون\nالموقع: ${place}`
+      : `السائق ${driverName} وصل إلى موقع الزبون`;
+
+    const sent = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          driverId: driver.id,
+          status: { in: EN_ROUTE_LIKE },
+          driverAtCustomerNotifiedAt: null
+        },
+        data: { driverAtCustomerNotifiedAt: new Date() }
+      });
+      if (claimed.count !== 1) return null;
+
+      const orderRow = await tx.order.findFirstOrThrow({
+        where: { id: orderId },
+        select: { customerName: true }
+      });
+      let room = await tx.chatRoom.findUnique({ where: { orderId } });
+      if (!room) {
+        room = await tx.chatRoom.create({
+          data: {
+            type: ChatRoomType.ORDER,
+            orderId,
+            title: `طلب: ${orderRow.customerName}`
+          }
+        });
+      } else if (room.archivedAt) {
+        room = await tx.chatRoom.update({
+          where: { id: room.id },
+          data: { archivedAt: null, archivedByUserId: null }
+        });
+      }
+      const message = await tx.chatMessage.create({
+        data: {
+          roomId: room.id,
+          senderUserId: driverUserId,
+          body,
+          locationLat: lat,
+          locationLng: lng
+        },
+        include: { sender: { select: { id: true, fullName: true, role: true } } }
+      });
+      await tx.chatRoom.update({
+        where: { id: room.id },
+        data: { updatedAt: new Date() }
+      });
+      const order = await tx.order.findFirstOrThrow({
+        where: { id: orderId },
+        include: orderIncludeDriverUser
+      });
+      return { order, roomId: room.id, message };
+    });
+
+    if (!sent) {
+      const order = await prisma.order.findFirst({
+        where: { id: orderId, driverId: driver.id },
+        include: orderIncludeDriverUser
+      });
+      if (order?.driverAtCustomerNotifiedAt) return { order, chat: null };
+      throw new AppError("الطلب غير موجود أو لم يعد في الطريق إلى الزبون", 400);
+    }
+
+    return {
+      order: sent.order,
+      chat: { roomId: sent.roomId, message: sent.message }
+    };
+  },
+
   async cancelByDriver(driverUserId: string, orderId: string) {
     const result = await prisma.$transaction(async (tx) => {
       const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
@@ -1869,6 +1994,7 @@ export const ordersService = {
           cancelledAt: null,
           cancelReason: null,
           customerInfoSentAt: null,
+          driverAtCustomerNotifiedAt: null,
           driversNotifiedAt: new Date()
         }
       });

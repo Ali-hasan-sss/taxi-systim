@@ -19,6 +19,8 @@ export type ChatMessagePayload = {
   voiceUrl: string | null;
   voiceExpired: boolean;
   voiceDurationMs: number | null;
+  locationLat: number | null;
+  locationLng: number | null;
   sender: { id: string; fullName: string; role: Role };
   createdAt: string;
   receiptStatus?: ChatReceiptStatus;
@@ -196,6 +198,8 @@ function messageToPayload(
     voicePath: string | null;
     voiceExpiresAt: Date | null;
     voiceDurationMs: number | null;
+    locationLat?: number | null;
+    locationLng?: number | null;
     createdAt: Date;
     sender: { id: string; fullName: string; role: Role };
   },
@@ -220,6 +224,8 @@ function messageToPayload(
         : null,
     voiceExpired: !!row.voicePath && voiceExpired,
     voiceDurationMs: row.voiceDurationMs,
+    locationLat: typeof row.locationLat === "number" ? row.locationLat : null,
+    locationLng: typeof row.locationLng === "number" ? row.locationLng : null,
     sender: {
       id: row.sender.id,
       fullName: row.sender.fullName,
@@ -709,6 +715,13 @@ export const chatService = {
     });
     await prisma.chatRoom.update({ where: { id: roomId }, data: { updatedAt: new Date() } });
     return { ...messageToPayload(message, apiBase), receiptStatus: "sent" as const };
+  },
+
+  clientMessage(
+    row: Parameters<typeof messageToPayload>[0],
+    apiBase: string
+  ): ChatMessagePayload {
+    return { ...messageToPayload(row, apiBase), receiptStatus: "sent" };
   },
 
   async sendImageMessage(
