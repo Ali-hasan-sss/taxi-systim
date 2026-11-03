@@ -471,6 +471,12 @@ body {
   direction: ltr;
 }
 
+.dashboard-chart__canvas .recharts-responsive-container,
+.dashboard-chart__canvas .recharts-wrapper,
+.dashboard-chart__canvas .recharts-surface {
+  direction: ltr !important;
+}
+
 .dashboard-chart__tooltip {
   background: #fff;
   border: 1px solid var(--brand-card-border);

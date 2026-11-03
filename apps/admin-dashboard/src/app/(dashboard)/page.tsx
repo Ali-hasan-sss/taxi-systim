@@ -136,11 +136,20 @@ function formatSyriaMonth(ym: string): string {
   }).format(new Date(Date.UTC(year, month - 1, 15, 12, 0, 0)));
 }
 
-function revenueBreakdown(commission: string, fines: string, compensations: string): string {
+function revenueBreakdown(
+  commission: string,
+  fines: string,
+  compensations: string,
+  prepaid: boolean
+): string {
+  if (prepaid) {
+    return `عمولات ${formatSyrianMoney(commission)} + غرامات ${formatSyrianMoney(fines)} · تعويضات مضافة للرصيد ${formatSyrianMoney(compensations)}`;
+  }
   return `عمولات ${formatSyrianMoney(commission)} + غرامات ${formatSyrianMoney(fines)} − تعويضات ${formatSyrianMoney(compensations)}`;
 }
 
 function buildKpiCards(stats: AdminDashboardStats) {
+  const prepaid = stats.paymentMode === "PREPAID";
   return [
     {
       title: "إيرادات اليوم",
@@ -148,7 +157,8 @@ function buildKpiCards(stats: AdminDashboardStats) {
       diff: `${stats.completedOrdersToday} رحلة مكتملة · ${revenueBreakdown(
         stats.commissionToday,
         stats.fineToday ?? "0",
-        stats.compensationToday ?? "0"
+        stats.compensationToday ?? "0",
+        prepaid
       )}`,
       icon: ProfitIcon,
       clickable: false
@@ -160,9 +170,15 @@ function buildKpiCards(stats: AdminDashboardStats) {
         ? `${formatSyriaMonth(stats.month)} · ${revenueBreakdown(
             stats.commissionMonth ?? "0",
             stats.fineMonth ?? "0",
-            stats.compensationMonth ?? "0"
+            stats.compensationMonth ?? "0",
+            prepaid
           )}`
-        : revenueBreakdown(stats.commissionMonth ?? "0", stats.fineMonth ?? "0", stats.compensationMonth ?? "0"),
+        : revenueBreakdown(
+            stats.commissionMonth ?? "0",
+            stats.fineMonth ?? "0",
+            stats.compensationMonth ?? "0",
+            prepaid
+          ),
       icon: MonthIcon,
       clickable: false
     },
@@ -254,7 +270,11 @@ export default function DashboardPage() {
       <section className="card dashboard-welcome">
         <h2 className="dashboard-welcome__heading">{welcome}</h2>
         <p className="dashboard-welcome__text">
-          مركز تحكم Taxi Bro — الإيرادات = العمولات + الغرامات − التعويضات (كل تعويض يُحسب مرة واحدة) ليوم{" "}
+          مركز تحكم Taxi Bro —{" "}
+          {stats?.paymentMode === "PREPAID"
+            ? "الإيرادات = العمولات + الغرامات، والتعويض يُضاف لرصيد السائق"
+            : "الإيرادات = العمولات + الغرامات − التعويضات (كل تعويض يُحسب مرة واحدة)"}{" "}
+          ليوم{" "}
           {stats ? formatSyriaDate(stats.today) : ""} بتوقيت دمشق.
         </p>
       </section>
@@ -297,7 +317,9 @@ export default function DashboardPage() {
         })}
       </section>
 
-      {stats?.revenueWeek?.length ? <RevenueWeekChart days={stats.revenueWeek} /> : null}
+      {stats?.revenueWeek?.length ? (
+        <RevenueWeekChart days={stats.revenueWeek} paymentMode={stats.paymentMode} />
+      ) : null}
 
       <section className="dashboard-two-col">
         <article className="card dashboard-panel">

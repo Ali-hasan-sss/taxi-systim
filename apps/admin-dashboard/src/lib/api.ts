@@ -406,6 +406,7 @@ export interface AdminDashboardStats {
   today: string;
   month?: string;
   weekStart?: string;
+  paymentMode?: "POSTPAID" | "PREPAID";
   revenueToday: string;
   commissionToday: string;
   fineToday?: string;

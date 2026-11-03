@@ -1,6 +1,7 @@
 import type { Server } from "socket.io";
 import { FinancialTransactionType, OrderStatus, Prisma, Role } from "@prisma/client";
 import { prisma } from "../../shared/prisma";
+import { getCommissionPaymentMode } from "../../shared/driver-debt-block";
 import { syriaCalendarDayIso } from "../../shared/syria-time";
 import { getConnectedOnlineDriverIds } from "../../socket";
 
@@ -96,10 +97,15 @@ function emptyRevenue() {
   return { commissions: 0, fines: 0, compensations: 0, revenue: 0 };
 }
 
-function withRevenue(parts: { commissions: number; fines: number; compensations: number }) {
+function withRevenue(
+  parts: { commissions: number; fines: number; compensations: number },
+  prepaid: boolean
+) {
+  const charged = parts.commissions + parts.fines;
   return {
     ...parts,
-    revenue: parts.commissions + parts.fines - parts.compensations
+    // مسبق الدفع: التعويض يُضاف لرصيد السائق فورًا، وطرحه يجعل المنحنى ينزل تحت الصفر كأنه مقلوب.
+    revenue: prepaid ? charged : charged - parts.compensations
   };
 }
 
@@ -129,7 +135,7 @@ function fineGrantWhere(from: Date, toExclusive: Date): Prisma.FinancialTransact
   };
 }
 
-async function sumRevenueInRange(from: Date, toExclusive: Date) {
+async function sumRevenueInRange(from: Date, toExclusive: Date, prepaid: boolean) {
   const [commissionAgg, fineAgg, compensationAgg] = await Promise.all([
     prisma.commission.aggregate({
       where: {
@@ -152,14 +158,17 @@ async function sumRevenueInRange(from: Date, toExclusive: Date) {
     })
   ]);
 
-  return withRevenue({
-    commissions: toNum(commissionAgg._sum.calculatedCommission),
-    fines: toNum(fineAgg._sum.amount),
-    compensations: toNum(compensationAgg._sum.amount)
-  });
+  return withRevenue(
+    {
+      commissions: toNum(commissionAgg._sum.calculatedCommission),
+      fines: toNum(fineAgg._sum.amount),
+      compensations: toNum(compensationAgg._sum.amount)
+    },
+    prepaid
+  );
 }
 
-async function dailyRevenueSeries(fromYmd: string, toYmdInclusive: string) {
+async function dailyRevenueSeries(fromYmd: string, toYmdInclusive: string, prepaid: boolean) {
   const { from } = syriaDayUtcRange(fromYmd);
   const { toExclusive } = syriaDayUtcRange(toYmdInclusive);
   const days = listYmdRange(fromYmd, toYmdInclusive);
@@ -219,7 +228,7 @@ async function dailyRevenueSeries(fromYmd: string, toYmdInclusive: string) {
   }
 
   return days.map((date) => {
-    const parts = withRevenue(buckets.get(date) ?? emptyRevenue());
+    const parts = withRevenue(buckets.get(date) ?? emptyRevenue(), prepaid);
     return { date, ...serializeRevenue(parts) };
   });
 }
@@ -236,6 +245,9 @@ export const adminService = {
       completedAt: { gte: todayFrom, lt: todayToExclusive }
     };
 
+    const paymentMode = await getCommissionPaymentMode(prisma);
+    const prepaid = paymentMode === "PREPAID";
+
     const [
       todayRevenue,
       monthRevenue,
@@ -249,9 +261,9 @@ export const adminService = {
       employeesByRole,
       connectedIds
     ] = await Promise.all([
-      sumRevenueInRange(todayFrom, todayToExclusive),
-      sumRevenueInRange(monthFrom, todayToExclusive),
-      dailyRevenueSeries(weekStart, today),
+      sumRevenueInRange(todayFrom, todayToExclusive, prepaid),
+      sumRevenueInRange(monthFrom, todayToExclusive, prepaid),
+      dailyRevenueSeries(weekStart, today, prepaid),
       prisma.commission.aggregate({
         where: {
           order: { status: OrderStatus.COMPLETED },
@@ -317,6 +329,7 @@ export const adminService = {
       today,
       month: today.slice(0, 7),
       weekStart,
+      paymentMode,
       revenueToday: money(todayRevenue.revenue),
       commissionToday: money(todayRevenue.commissions),
       fineToday: money(todayRevenue.fines),

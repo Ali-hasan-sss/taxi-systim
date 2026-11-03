@@ -861,17 +861,19 @@ export default function DriverOrdersTab() {
                             <Text style={styles.btnWarningText}>إلغاء الطلب</Text>
                           )}
                         </Pressable>
-                        <Pressable
-                          style={[styles.btnPrimary, rowBusy && styles.btnDisabled]}
-                          disabled={rowBusy}
-                          onPress={() => void onBoard(item.id)}
-                        >
-                          {busy ? (
-                            <ActivityIndicator color={theme.colors.textInverse} />
-                          ) : (
-                            <Text style={styles.btnPrimaryText}>تم استلام الزبون</Text>
-                          )}
-                        </Pressable>
+                        {arrived ? (
+                          <Pressable
+                            style={[styles.btnPrimary, rowBusy && styles.btnDisabled]}
+                            disabled={rowBusy}
+                            onPress={() => void onBoard(item.id)}
+                          >
+                            {busy ? (
+                              <ActivityIndicator color={theme.colors.textInverse} />
+                            ) : (
+                              <Text style={styles.btnPrimaryText}>تم استلام الزبون</Text>
+                            )}
+                          </Pressable>
+                        ) : null}
                       </View>
                     </View>
                   }

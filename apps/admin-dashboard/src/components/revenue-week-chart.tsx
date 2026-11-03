@@ -58,7 +58,14 @@ function TooltipContent({
   );
 }
 
-export function RevenueWeekChart({ days }: { days: AdminDashboardDayRevenue[] }) {
+export function RevenueWeekChart({
+  days,
+  paymentMode = "POSTPAID"
+}: {
+  days: AdminDashboardDayRevenue[];
+  paymentMode?: "POSTPAID" | "PREPAID";
+}) {
+  const prepaid = paymentMode === "PREPAID";
   const data: ChartRow[] = days.map((row) => ({
     date: row.date,
     label: weekdayLabel(row.date),
@@ -73,12 +80,16 @@ export function RevenueWeekChart({ days }: { days: AdminDashboardDayRevenue[] })
       <div className="dashboard-chart__head">
         <div>
           <h3 className="dashboard-panel__title">منحنى الإيرادات اليومية</h3>
-          <p className="dashboard-panel__desc">آخر 7 أيام بتوقيت دمشق — عمولات + غرامات − تعويضات.</p>
+          <p className="dashboard-panel__desc">
+            {prepaid
+              ? "آخر 7 أيام بتوقيت دمشق — عمولات + غرامات. التعويض يُضاف لرصيد السائق ولا يسحب المنحنى للأسفل."
+              : "آخر 7 أيام بتوقيت دمشق — عمولات + غرامات − تعويضات."}
+          </p>
         </div>
       </div>
-      <div className="dashboard-chart__canvas">
+      <div className="dashboard-chart__canvas" dir="ltr">
         <ResponsiveContainer width="100%" height={280}>
-          <AreaChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }} style={{ direction: "ltr" }}>
             <defs>
               <linearGradient id="adminRevenueFill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#ea580c" stopOpacity={0.28} />
@@ -88,6 +99,8 @@ export function RevenueWeekChart({ days }: { days: AdminDashboardDayRevenue[] })
             <CartesianGrid strokeDasharray="3 6" stroke="#fde68a" vertical={false} />
             <XAxis dataKey="label" tick={{ fill: "#78716c", fontSize: 12 }} axisLine={false} tickLine={false} />
             <YAxis
+              reversed={false}
+              domain={prepaid ? [0, (max: number) => (max > 0 ? max : 1)] : ["auto", "auto"]}
               tickFormatter={(value: number) =>
                 new Intl.NumberFormat("ar-SY", { notation: "compact" }).format(value)
               }
@@ -104,6 +117,7 @@ export function RevenueWeekChart({ days }: { days: AdminDashboardDayRevenue[] })
               stroke="#c2410c"
               strokeWidth={2.5}
               fill="url(#adminRevenueFill)"
+              baseValue={0}
               dot={{ r: 4, fill: "#ea580c", stroke: "#fff", strokeWidth: 2 }}
               activeDot={{ r: 6 }}
             />
