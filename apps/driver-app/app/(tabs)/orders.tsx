@@ -39,6 +39,7 @@ import { playDriverOrderPushSound } from "../../src/lib/order-push-sound";
 import { playOrderResumedSound } from "../../src/lib/order-resumed-sound";
 import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
 import { feedback } from "../../src/lib/feedback";
+import { readGpsFix } from "../../src/lib/gps-fix";
 
 function authFailureMessage(msg: string): boolean {
   return /Unauthorized|غير مصرح|Forbidden|401|403|تجديد الجلسة|انتهت صلاحية الجلسة|Invalid refresh/i.test(msg);
@@ -83,6 +84,7 @@ export default function DriverOrdersTab() {
   const workBlocked = useDriverStore((s) => s.workBlocked);
   const workBlockMessage = useDriverStore((s) => s.workBlockMessage);
   const setRoomPendingCount = useDriverStore((s) => s.setRoomPendingCount);
+  const setTelegramTripTracking = useDriverStore((s) => s.setTelegramTripTracking);
   const isOnlineRef = useRef(isOnline);
   isOnlineRef.current = isOnline;
 
@@ -154,6 +156,10 @@ export default function DriverOrdersTab() {
       takenTimersRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    setTelegramTripTracking(inProgress?.status === "STARTED" && inProgress.source === "TELEGRAM");
+  }, [inProgress?.status, inProgress?.source, setTelegramTripTracking]);
 
   const loadRoom = useCallback(async (isPull = false) => {
     const session = await getDriverSession();
@@ -339,15 +345,16 @@ export default function DriverOrdersTab() {
     setArriving(true);
     setError(null);
     try {
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() =>
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
-      );
-      const placeName = await describeDriverPlace(pos.coords.latitude, pos.coords.longitude);
+      const fix = await readGpsFix();
+      if (!fix) {
+        throw new Error("تعذر قراءة موقع GPS. عطّل الـ VPN وفعّل الموقع بدقة عالية ثم أعد المحاولة.");
+      }
+      const placeName = await describeDriverPlace(fix.lat, fix.lng);
       const row = await driverNotifyAtCustomer(
         session.accessToken,
         orderId,
-        pos.coords.latitude,
-        pos.coords.longitude,
+        fix.lat,
+        fix.lng,
         placeName
       );
       setInProgress(row);
@@ -371,7 +378,8 @@ export default function DriverOrdersTab() {
     setActionOrderId(orderId);
     setError(null);
     try {
-      const row = await driverMarkCustomerBoarded(session.accessToken, orderId);
+      const point = await readGpsFix();
+      const row = await driverMarkCustomerBoarded(session.accessToken, orderId, point);
       setInProgress(row);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "تعذر تأكيد الركوب";
@@ -420,8 +428,21 @@ export default function DriverOrdersTab() {
     setActionOrderId(orderId);
     setError(null);
     try {
-      await driverCompleteOrder(session.accessToken, orderId);
+      const point = await readGpsFix();
+      const row = await driverCompleteOrder(session.accessToken, orderId, point);
       setInProgress(null);
+      if (row.source === "TELEGRAM") {
+        const km =
+          row.tripDistanceMeters != null ? (row.tripDistanceMeters / 1000).toFixed(2) : null;
+        const fare = Number(row.amount);
+        const fareText = Number.isFinite(fare)
+          ? `${new Intl.NumberFormat("ar-SY", { maximumFractionDigits: 0 }).format(fare)} ل.س`
+          : `${row.amount} ل.س`;
+        feedback.success(
+          km ? `مسافة الرحلة ${km} كم\nأجرة الرحلة ${fareText}` : `أجرة الرحلة ${fareText}`,
+          "أجرة الرحلة"
+        );
+      }
       await loadRoom(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "تعذر إكمال التوصيل";

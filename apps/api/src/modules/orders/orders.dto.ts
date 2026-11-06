@@ -96,6 +96,16 @@ export const driverAtCustomerDto = z.object({
   placeName: z.string().trim().min(2).max(180).optional()
 });
 
+export const driverTripPointDto = z
+  .object({
+    lat: z.number().finite().gte(-90).lte(90).optional(),
+    lng: z.number().finite().gte(-180).lte(180).optional(),
+    accuracy: z.number().finite().positive().optional()
+  })
+  .refine((data) => (data.lat == null) === (data.lng == null), {
+    message: "أرسل خط العرض وخط الطول معًا"
+  });
+
 export const cancelOrderDto = z.object({
   reason: z.string().trim().min(2, "سبب الإلغاء مطلوب").max(500, "سبب الإلغاء طويل جدًا").optional()
 });

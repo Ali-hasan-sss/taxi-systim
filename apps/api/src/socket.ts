@@ -17,9 +17,11 @@ import { isNativeMobileUserAgent, readHandshakeAppMeta } from "./shared/mobile-a
 import { redis, redisEnabled } from "./shared/redis";
 import { orderToSocketPayload } from "./modules/orders/order-socket-payload";
 import { driverMatchesOrderVehicle, driverWhereMatchesOrderVehicle } from "./modules/orders/order-vehicle-filter";
+import { recordTelegramTripPoint } from "./modules/telegram/trip-track";
+import { isTeleport, isUsableGps } from "./shared/gps-point";
 
 const memOnline = new Map<string, boolean>();
-const memLocations = new Map<string, { lat: number; lng: number }>();
+const memLocations = new Map<string, { lat: number; lng: number; at: number }>();
 const memBusyState = new Map<string, { value: boolean; fetchedAt: number }>();
 const memLastLocationAcceptedAt = new Map<string, number>();
 
@@ -85,7 +87,7 @@ const ROOM_ORDER_VEHICLE_PRIVATE = "orders:vehicle:private";
 const ROOM_ORDER_VEHICLE_VIP = "orders:vehicle:vip";
 /** غرفة تطبيقات المنسقين — لاستلام NEW_ORDER دون إرساله لكل السوكيتات */
 const ROOM_COORDINATORS = "coordinators";
-const DRIVER_LOCATION_MIN_INTERVAL_MS = Math.max(1_000, Number(process.env.DRIVER_LOCATION_MIN_INTERVAL_MS ?? 120_000));
+const DRIVER_LOCATION_MIN_INTERVAL_MS = Math.max(1_000, Number(process.env.DRIVER_LOCATION_MIN_INTERVAL_MS ?? 8_000));
 const DRIVER_BUSY_CACHE_MS = Math.max(1_000, Number(process.env.DRIVER_BUSY_CACHE_MS ?? 15_000));
 const DRIVER_BUSY_STATUSES = new Set<OrderStatus>([
   OrderStatus.ACCEPTED,
@@ -232,12 +234,9 @@ async function isDriverOnline(driverId: string): Promise<boolean> {
   return false;
 }
 
-/** آخر مواقع السائقين (ذاكرة + Redis عند التوفر) */
+/** آخر مواقع السائقين. الذاكرة أحدث من Redis حتى لا يرجع موقع قديم. */
 export async function getDriverLocationsForNearest(): Promise<Array<{ driverId: string; lat: number; lng: number }>> {
   const merged = new Map<string, { lat: number; lng: number }>();
-  for (const [id, loc] of memLocations) {
-    merged.set(id, loc);
-  }
   if (redisEnabled) {
     try {
       const raw = await redis.hgetall("drivers:locations");
@@ -254,6 +253,9 @@ export async function getDriverLocationsForNearest(): Promise<Array<{ driverId: 
     } catch {
       /* ignore */
     }
+  }
+  for (const [id, loc] of memLocations) {
+    merged.set(id, { lat: loc.lat, lng: loc.lng });
   }
   const out: Array<{ driverId: string; lat: number; lng: number }> = [];
   for (const [driverId, loc] of merged) {
@@ -707,7 +709,9 @@ export const initSocket = (io: Server) => {
       io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_ONLINE, { driverId });
     });
 
-    socket.on("driver:location", async (payload: { driverId: string; lat: number; lng: number }) => {
+    socket.on(
+      "driver:location",
+      async (payload: { driverId: string; lat: number; lng: number; accuracy?: number; mocked?: boolean }) => {
       if (await rejectOutdatedSocket(socket, "driver")) return;
       if (
         typeof payload?.driverId !== "string" ||
@@ -717,13 +721,22 @@ export const initSocket = (io: Server) => {
       ) {
         return;
       }
-      if (Math.abs(payload.lat) > 90 || Math.abs(payload.lng) > 180) {
+      const accuracy = typeof payload.accuracy === "number" ? payload.accuracy : null;
+      if (payload.mocked === true || !isUsableGps(payload.lat, payload.lng, accuracy)) {
         return;
       }
+      const now = Date.now();
+      const previous = memLocations.get(payload.driverId);
+      if (previous && now - previous.at < 90_000 && isTeleport(previous, { lat: payload.lat, lng: payload.lng, at: now })) {
+        return;
+      }
+      void recordTelegramTripPoint(payload.driverId, payload.lat, payload.lng, { accuracy }).catch((error) => {
+        console.error("[telegram] trip point", error);
+      });
       if (!shouldAcceptDriverLocationUpdate(payload.driverId)) {
         return;
       }
-      memLocations.set(payload.driverId, { lat: payload.lat, lng: payload.lng });
+      memLocations.set(payload.driverId, { lat: payload.lat, lng: payload.lng, at: now });
       await socketWrite(() => redis.hset("drivers:locations", payload.driverId, JSON.stringify(payload)));
       const isBusy = await getDriverBusyState(payload.driverId);
       io.to(ROOM_COORDINATORS).emit(socketEvents.DRIVER_LOCATION_UPDATED, { ...payload, isBusy });

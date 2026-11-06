@@ -11,6 +11,7 @@ import { publicRouter } from "./modules/public/public.routes";
 import { customersRouter } from "./modules/customers/customers.routes";
 import { promotionsRouter } from "./modules/promotions/promotions.routes";
 import { notificationsRouter } from "./modules/notifications/notifications.routes";
+import { telegramRouter } from "./modules/telegram/telegram.routes";
 
 export const apiRouter = Router();
 
@@ -26,3 +27,4 @@ apiRouter.use("/users", usersRouter);
 apiRouter.use("/chat", chatRouter);
 apiRouter.use("/notifications", notificationsRouter);
 apiRouter.use("/admin", adminRouter);
+apiRouter.use("/telegram", telegramRouter);

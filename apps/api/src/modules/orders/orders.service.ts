@@ -36,6 +36,8 @@ import {
 } from "../../shared/driver-debt-block";
 import { notifyDriverCompensation, notifyDriverFine } from "../../shared/driver-notifications";
 import { reverseGeocodePlace, sanitizePlaceName } from "../../shared/reverse-geocode";
+import { telegramTripFare } from "../telegram/telegram-fare";
+import { measureTelegramTripMeters, recordTelegramTripPoint, rememberTelegramTrip } from "../telegram/trip-track";
 
 const orderIncludeDriverUser = {
   driver: { include: { user: { select: { fullName: true, phone: true } } } },
@@ -657,6 +659,7 @@ export const ordersService = {
       cancelReason: row.cancelReason,
       customerInfoSentAt: row.customerInfoSentAt?.toISOString() ?? null,
       invoiceSentAt: row.invoiceSentAt?.toISOString() ?? null,
+      tripDistanceMeters: row.tripDistanceMeters,
       driverAtCustomerNotifiedAt: row.driverAtCustomerNotifiedAt?.toISOString() ?? null,
       coordinatorName: row.coordinator?.user.fullName?.trim() || "—",
       driver: row.driver
@@ -687,7 +690,11 @@ export const ordersService = {
     };
   },
 
-  async createOrder(coordinatorUserId: string, payload: CreateOrderDto) {
+  async createOrder(
+    coordinatorUserId: string,
+    payload: CreateOrderDto,
+    options?: { source?: OrderSource; skipPromotions?: boolean }
+  ) {
     const coordinator = await prisma.coordinator.upsert({
       where: { userId: coordinatorUserId },
       update: {},
@@ -725,11 +732,13 @@ export const ordersService = {
         name: payload.customerName
       });
       const ordersCount = customerId ? await getCustomerOrdersCount(tx, customerId) : 0;
-      const promotion = await findEligiblePromotion(tx, {
-        customerId,
-        ordersCount,
-        channel: "APP"
-      });
+      const promotion = options?.skipPromotions
+        ? null
+        : await findEligiblePromotion(tx, {
+            customerId,
+            ordersCount,
+            channel: "APP"
+          });
 
       const now = new Date();
       const order = await tx.order.create({
@@ -747,7 +756,7 @@ export const ordersService = {
           pickupLat: payload.pickupLat,
           pickupLng: payload.pickupLng,
           coordinatorId: coordinator.id,
-          source: OrderSource.APP,
+          source: options?.source ?? OrderSource.APP,
           ...(assignDriver
             ? {
                 driverId: assignDriver.id,
@@ -1820,8 +1829,12 @@ export const ordersService = {
     });
   },
 
-  async markCustomerBoardedByDriver(driverUserId: string, orderId: string) {
-    return prisma.$transaction(async (tx) => {
+  async markCustomerBoardedByDriver(
+    driverUserId: string,
+    orderId: string,
+    point?: { lat?: number; lng?: number; accuracy?: number }
+  ) {
+    const updated = await prisma.$transaction(async (tx) => {
       const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
       if (!driver) throw new AppError("ملف السائق غير موجود", 404);
 
@@ -1845,6 +1858,17 @@ export const ordersService = {
         include: orderIncludeDriverUser
       });
     });
+    if (updated.source === OrderSource.TELEGRAM && updated.driverId) {
+      rememberTelegramTrip(updated.driverId, updated.id);
+      if (point?.lat != null && point.lng != null) {
+        await recordTelegramTripPoint(updated.driverId, point.lat, point.lng, {
+          orderId: updated.id,
+          force: true,
+          accuracy: point.accuracy
+        });
+      }
+    }
+    return updated;
   },
 
   /**
@@ -2012,7 +2036,28 @@ export const ordersService = {
     return result;
   },
 
-  async completeOrder(orderId: string, driverUserId: string) {
+  async completeOrder(
+    orderId: string,
+    driverUserId: string,
+    point?: { lat?: number; lng?: number; accuracy?: number }
+  ) {
+    const preview = await prisma.order.findFirst({
+      where: { id: orderId },
+      select: { driverId: true, source: true, status: true }
+    });
+    if (
+      preview?.source === OrderSource.TELEGRAM &&
+      preview.status === OrderStatus.STARTED &&
+      preview.driverId &&
+      point?.lat != null &&
+      point.lng != null
+    ) {
+      await recordTelegramTripPoint(preview.driverId, point.lat, point.lng, {
+        orderId,
+        force: true,
+        accuracy: point.accuracy
+      });
+    }
     const result = await prisma.$transaction(async (tx) => {
       const driver = await tx.driver.findUnique({ where: { userId: driverUserId } });
       if (!driver) throw new AppError("ملف السائق غير موجود", 404);
@@ -2037,14 +2082,29 @@ export const ordersService = {
       const setting = await tx.systemSettings.findFirst({ where: { key: "commission" } });
       if (!setting) throw new AppError("Missing commission settings", 400);
 
-      const amount = toNum(order.amount);
+      let amount = toNum(order.amount);
+      let tripDistanceMeters: number | null = null;
+      if (order.source === OrderSource.TELEGRAM) {
+        tripDistanceMeters = await measureTelegramTripMeters(order.id);
+        amount = telegramTripFare(
+          tripDistanceMeters,
+          toNum(setting.telegramMinFare ?? 150),
+          toNum(setting.telegramPer100mFare ?? 10)
+        );
+      }
+      const finalAmount = new Prisma.Decimal(amount.toFixed(2));
       const settingValue = toNum(setting.commissionValue);
       const calculated =
         setting.commissionType === CommissionType.PERCENTAGE ? (amount * settingValue) / 100 : settingValue;
 
       await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.COMPLETED, completedAt: new Date() }
+        data: {
+          status: OrderStatus.COMPLETED,
+          completedAt: new Date(),
+          amount: finalAmount,
+          tripDistanceMeters
+        }
       });
 
       await tx.driver.update({
@@ -2060,7 +2120,7 @@ export const ordersService = {
           driverId: order.driverId,
           commissionType: setting.commissionType,
           commissionValue: setting.commissionValue,
-          orderAmount: order.amount,
+          orderAmount: finalAmount,
           calculatedCommission: calculated,
           remainingAmount: calculated
         }
@@ -2124,6 +2184,9 @@ export const ordersService = {
       });
     });
     scheduleDriverDebtWorkSync(result.driverId);
+    if (result.source === OrderSource.TELEGRAM && result.driverId) {
+      rememberTelegramTrip(result.driverId, null);
+    }
     const promoAmount = toNum(result.discountAmount ?? 0);
     if (promoAmount > 0 && result.driverId) {
       notifyDriverCompensation(result.driverId, promoAmount);

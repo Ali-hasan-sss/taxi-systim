@@ -6,6 +6,7 @@ import { nativeAppSocketAuth } from "@taxi/expo-api-base";
 import { router } from "expo-router";
 import { io, type Socket } from "socket.io-client";
 import { fetchDriverProfile, getSocketOrigin } from "./lib/api";
+import { gpsFixFromLocation, readGpsFix, type GpsFix } from "./lib/gps-fix";
 import { getDriverLocationAccessState, isDriverLocationReady } from "./lib/location-access";
 import { playNewPendingOrderSound } from "./lib/pending-order-sound";
 import { clearDriverSession, getDriverSession } from "./lib/session";
@@ -29,8 +30,8 @@ const DriverSocketContext = createContext<DriverSocketContextValue>({
   orderDraftActive: false
 });
 
-/** فاصل بث الموقع للخادم — يكفي للإشراف التقريبي من لوحة المنسق */
-export const DRIVER_LOCATION_BROADCAST_INTERVAL_MS = 120_000;
+/** فاصل بث موقع GPS. أقصر من السابق حتى تبقى الخريطة قريبة من مكان السائق. */
+export const DRIVER_LOCATION_BROADCAST_INTERVAL_MS = 10_000;
 
 export function DriverSocketProvider({ children }: { children: ReactNode }) {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -39,6 +40,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
   const [orderDraftActive, setOrderDraftActive] = useState(false);
   const myDriverIdRef = useRef<string | null>(null);
   const isOnline = useDriverStore((s) => s.isOnline);
+  const tripTracking = useDriverStore((s) => s.telegramTripTracking);
   const setOnline = useDriverStore((s) => s.setOnline);
   const setWorkBlocked = useDriverStore((s) => s.setWorkBlocked);
   const isOnlineRef = useRef(isOnline);
@@ -226,18 +228,19 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let sub: Location.LocationSubscription | null = null;
 
-    const emitLoc = (lat: number, lng: number) => {
+    const emitLoc = (fix: GpsFix) => {
       if (!socket.connected) return;
-      socket.emit("driver:location", { driverId: myDriverId, lat, lng });
+      socket.emit("driver:location", {
+        driverId: myDriverId,
+        lat: fix.lat,
+        lng: fix.lng,
+        accuracy: fix.accuracy
+      });
     };
 
     const tryEmitCurrent = async () => {
-      try {
-        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        if (!cancelled) emitLoc(pos.coords.latitude, pos.coords.longitude);
-      } catch {
-        /* تجاهل */
-      }
+      const fix = await readGpsFix();
+      if (!cancelled && fix) emitLoc(fix);
     };
 
     const onSocketConnect = () => {
@@ -254,12 +257,13 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
 
       sub = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          distanceInterval: 0,
-          timeInterval: DRIVER_LOCATION_BROADCAST_INTERVAL_MS
+          accuracy: Location.Accuracy.BestForNavigation,
+          distanceInterval: tripTracking ? 12 : 20,
+          timeInterval: tripTracking ? 5_000 : DRIVER_LOCATION_BROADCAST_INTERVAL_MS
         },
         (loc) => {
-          emitLoc(loc.coords.latitude, loc.coords.longitude);
+          const fix = gpsFixFromLocation(loc);
+          if (fix) emitLoc(fix);
         }
       );
     })();
@@ -269,7 +273,7 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       socket.off("connect", onSocketConnect);
       void sub?.remove();
     };
-  }, [isOnline, myDriverId, socket]);
+  }, [isOnline, myDriverId, socket, tripTracking]);
 
   useEffect(() => {
     if (!isOnline) return;

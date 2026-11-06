@@ -32,6 +32,9 @@ interface DriverState {
   workBlockMessage: string | null;
   setWorkBlocked: (blocked: boolean, message?: string | null) => void;
   applyDebtWorkState: (stats: { workBlocked?: boolean; workBlockMessage?: string | null }) => void;
+  /** تتبع موقع أدق أثناء رحلة تيليغرام بعد استلام الزبون */
+  telegramTripTracking: boolean;
+  setTelegramTripTracking: (value: boolean) => void;
   /** يزيد عند تغيّر مالية السائق من السوكيت لتحديث الرئيسية */
   financeRevision: number;
   bumpFinanceRevision: () => void;
@@ -92,6 +95,8 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       workBlocked: Boolean(stats.workBlocked),
       workBlockMessage: stats.workBlocked ? (stats.workBlockMessage ?? get().workBlockMessage) : null
     }),
+  telegramTripTracking: false,
+  setTelegramTripTracking: (value) => set({ telegramTripTracking: value }),
   financeRevision: 0,
   bumpFinanceRevision: () => set((s) => ({ financeRevision: s.financeRevision + 1 })),
   roomPendingCount: 0,

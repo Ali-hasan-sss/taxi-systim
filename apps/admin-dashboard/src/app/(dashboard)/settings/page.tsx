@@ -37,6 +37,7 @@ export default function SettingsPage() {
   const [versionsSaving, setVersionsSaving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [telegramSaving, setTelegramSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const [adminName, setAdminName] = useState("");
@@ -45,6 +46,9 @@ export default function SettingsPage() {
   const [commissionType, setCommissionType] = useState<CommissionType>("PERCENTAGE");
   const [commissionValue, setCommissionValue] = useState("0");
   const [commissionDebtLimit, setCommissionDebtLimit] = useState("2000");
+  const [telegramMinFare, setTelegramMinFare] = useState("150");
+  const [telegramPer100mFare, setTelegramPer100mFare] = useState("10");
+  const [telegramBotEnabled, setTelegramBotEnabled] = useState(true);
   const [paymentMode, setPaymentMode] = useState<CommissionPaymentMode>("POSTPAID");
   const [savedPaymentMode, setSavedPaymentMode] = useState<CommissionPaymentMode>("POSTPAID");
   const [modeSwitchPreview, setModeSwitchPreview] = useState<PaymentModeSwitchPreview | null>(null);
@@ -95,6 +99,9 @@ export default function SettingsPage() {
           setCommissionType(setting.commissionType);
           setCommissionValue(String(setting.commissionValue ?? "0"));
           setCommissionDebtLimit(String(setting.commissionDebtLimit ?? "2000"));
+          setTelegramMinFare(String(setting.telegramMinFare ?? "150"));
+          setTelegramPer100mFare(String(setting.telegramPer100mFare ?? "10"));
+          setTelegramBotEnabled(setting.telegramBotEnabled !== false);
           const mode = setting.paymentMode === "PREPAID" ? "PREPAID" : "POSTPAID";
           setPaymentMode(mode);
           setSavedPaymentMode(mode);
@@ -162,7 +169,6 @@ export default function SettingsPage() {
       setError("الحد الأعلى للمبلغ المترتب يجب أن يكون رقمًا صالحًا غير سالب.");
       return;
     }
-
     setCommissionSaving(true);
     setError(null);
     setNotice(null);
@@ -208,6 +214,44 @@ export default function SettingsPage() {
   const submitCommission = async (e: FormEvent) => {
     e.preventDefault();
     await saveCommission(false);
+  };
+
+  const submitTelegram = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    const parsedTelegramFare = Number(telegramMinFare.trim().replace(",", "."));
+    if (!Number.isFinite(parsedTelegramFare) || parsedTelegramFare <= 0) {
+      setError("أجرة أول 2 كم يجب أن تكون رقمًا أكبر من صفر.");
+      return;
+    }
+    const parsedPer100m = Number(telegramPer100mFare.trim().replace(",", "."));
+    if (!Number.isFinite(parsedPer100m) || parsedPer100m < 0) {
+      setError("سعر كل 100 متر يجب أن يكون رقمًا غير سالب.");
+      return;
+    }
+    setTelegramSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await api.updateTelegramSettings(token, {
+        telegramMinFare: parsedTelegramFare,
+        telegramPer100mFare: parsedPer100m,
+        telegramBotEnabled
+      });
+      setTelegramMinFare(String(updated.telegramMinFare ?? parsedTelegramFare));
+      setTelegramPer100mFare(String(updated.telegramPer100mFare ?? parsedPer100m));
+      setTelegramBotEnabled(updated.telegramBotEnabled !== false);
+      setNotice(updated.telegramBotEnabled === false ? "تم إيقاف البوت. الزبون يرى رسالة الصيانة." : "تم حفظ إعدادات بوت تيليغرام.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "فشل تحديث إعدادات البوت";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setTelegramSaving(false);
+    }
   };
 
   const submitAppVersions = async (e: FormEvent) => {
@@ -423,6 +467,64 @@ export default function SettingsPage() {
             <div className="settings-actions">
               <button type="submit" className="btn btn-primary" disabled={commissionSaving}>
                 {commissionSaving ? "جارٍ الحفظ..." : "حفظ العمولة"}
+              </button>
+            </div>
+          </form>
+        </article>
+
+        <article className="card settings-card">
+          <h3 className="settings-card__title">بوت تيليغرام</h3>
+          <p className="settings-card__hint">
+            تشغيل البوت وتسعير طلباته. عند الإيقاف يرى الزبون أن البوت في حالة صيانة، ويعود له تنبيه حين يُشغَّل من جديد.
+          </p>
+
+          <form className="settings-form" onSubmit={submitTelegram}>
+            <div className="settings-field">
+              <span>حالة البوت</span>
+              <label className="switch-row">
+                <button
+                  type="button"
+                  className={`switch ${telegramBotEnabled ? "switch--on" : ""}`}
+                  onClick={() => setTelegramBotEnabled((value) => !value)}
+                  aria-pressed={telegramBotEnabled}
+                >
+                  <span className="switch__thumb" />
+                </button>
+                <span>{telegramBotEnabled ? "يعمل" : "متوقف للصيانة"}</span>
+              </label>
+            </div>
+
+            <label className="settings-field">
+              <span>أجرة أول 2 كم</span>
+              <small>أجرة الرحلة كاملة إذا كانت المسافة من استلام الزبون حتى التوصيل 2 كم أو أقل.</small>
+              <input
+                className="input-styled"
+                type="number"
+                min="1"
+                step="1"
+                value={telegramMinFare}
+                onChange={(e) => setTelegramMinFare(e.target.value)}
+                placeholder="مثال: 150"
+              />
+            </label>
+
+            <label className="settings-field">
+              <span>سعر كل 100 متر بعد 2 كم</span>
+              <small>يُضاف لكل 100 متر تبدأ بعد أول 2 كم. مثال: 500 متر بسعر 10 تصبح 50، والمجموع مع 150 هو 200.</small>
+              <input
+                className="input-styled"
+                type="number"
+                min="0"
+                step="1"
+                value={telegramPer100mFare}
+                onChange={(e) => setTelegramPer100mFare(e.target.value)}
+                placeholder="مثال: 10"
+              />
+            </label>
+
+            <div className="settings-actions">
+              <button type="submit" className="btn btn-primary" disabled={telegramSaving}>
+                {telegramSaving ? "جارٍ الحفظ..." : "حفظ إعدادات البوت"}
               </button>
             </div>
           </form>

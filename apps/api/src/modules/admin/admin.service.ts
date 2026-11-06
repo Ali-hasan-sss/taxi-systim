@@ -4,6 +4,7 @@ import { prisma } from "../../shared/prisma";
 import { getCommissionPaymentMode } from "../../shared/driver-debt-block";
 import { syriaCalendarDayIso } from "../../shared/syria-time";
 import { getConnectedOnlineDriverIds } from "../../socket";
+import { excludeTelegramCoordinatorUser } from "../telegram/telegram-coordinator";
 
 const ACTIVE_TRIP_STATUSES: OrderStatus[] = [
   OrderStatus.ACCEPTED,
@@ -292,7 +293,7 @@ export const adminService = {
       prisma.driver.count({ where: { user: { role: Role.DRIVER, isActive: true } } }),
       prisma.user.groupBy({
         by: ["role"],
-        where: { isActive: true },
+        where: { isActive: true, AND: [excludeTelegramCoordinatorUser()] },
         _count: { _all: true }
       }),
       io ? getConnectedOnlineDriverIds(io) : Promise.resolve([] as string[])

@@ -46,6 +46,7 @@ enum OrderVehicleRequirement {
 enum OrderSource {
   APP
   WEB_PUBLIC
+  TELEGRAM
 }
 
 /** نوع آلية العرض */
@@ -223,6 +224,8 @@ model Order {
   notes            String?
   vehicleRequirement OrderVehicleRequirement @default(ANY)
   source           OrderSource    @default(APP)
+  /** محادثة تيليغرام التي أُنشئ منها الطلب، لإرسال التحديثات للزبون */
+  telegramChatId   String?
   /** null للطلبات الواردة من الويب قبل بثها لغرفة السائقين */
   driversNotifiedAt DateTime?
   amount           Decimal      @db.Decimal(10, 2)
@@ -249,6 +252,8 @@ model Order {
   invoiceSentAt      DateTime?
   /** وقت إبلاغ المنسق بوصول السائق إلى موقع الزبون. ليس حالة طلب ولا يغيّر مسار التنفيذ. */
   driverAtCustomerNotifiedAt DateTime?
+  /** مسافة الرحلة بالأمتار من استلام الزبون حتى التوصيل. لطلبات تيليغرام. */
+  tripDistanceMeters Int?
   customer         Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   promotion        Promotion?   @relation(fields: [promotionId], references: [id], onDelete: SetNull)
   promoRedemption  PromotionRedemption?
@@ -329,10 +334,20 @@ model Notification {
 model DriverLocationHistory {
   id         String   @id @default(cuid())
   driverId   String
+  orderId    String?
   lat        Float
   lng        Float
   recordedAt DateTime @default(now())
   driver     Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, recordedAt])
+}
+
+/** محادثات بوت تيليغرام التي ستصلهما رسالة العودة بعد الصيانة */
+model TelegramSubscriber {
+  chatId               String   @id
+  awaitingResumeNotice Boolean  @default(false)
+  updatedAt            DateTime @updatedAt
 }
 
 model SystemSettings {
@@ -344,6 +359,12 @@ model SystemSettings {
   commissionDebtLimit Decimal    @default(2000) @db.Decimal(10, 2)
   /** ملحق الدفع = الوضع الحالي. مسبق الدفع = إيقاف عند الرصيد 0 */
   paymentMode     CommissionPaymentMode @default(POSTPAID)
+  /** الأجرة الابتدائية لطلبات بوت تيليغرام، وتغطي أول 2 كم */
+  telegramMinFare Decimal        @default(150) @db.Decimal(10, 2)
+  /** سعر كل 100 متر بعد أول 2 كم لطلبات بوت تيليغرام */
+  telegramPer100mFare Decimal    @default(10) @db.Decimal(10, 2)
+  /** إيقاف البوت يظهر للزبون رسالة صيانة */
+  telegramBotEnabled Boolean     @default(true)
   updatedByUserId String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt

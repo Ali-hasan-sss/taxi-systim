@@ -386,10 +386,18 @@ export async function driverNotifyAtCustomer(
   return res.json() as Promise<DriverOrderRow>;
 }
 
-export async function driverMarkCustomerBoarded(accessToken: string, orderId: string): Promise<DriverOrderRow> {
+export async function driverMarkCustomerBoarded(
+  accessToken: string,
+  orderId: string,
+  point?: { lat: number; lng: number; accuracy?: number } | null
+): Promise<DriverOrderRow> {
   const res = await driverFetchWithRefresh(
     `/orders/${encodeURIComponent(orderId)}/board`,
-    { method: "PATCH" },
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(point ? { lat: point.lat, lng: point.lng, accuracy: point.accuracy } : {})
+    },
     accessToken
   );
   if (!res.ok) {
@@ -426,6 +434,8 @@ export interface DriverOrderRow {
   broadcastTarget: string;
   vehicleRequirement?: DriverOrderVehicleRequirement;
   notes?: string | null;
+  source?: string;
+  tripDistanceMeters?: number | null;
   createdAt: string;
   /** وُقت إبلاغ المنسق بالوصول إلى موقع الزبون. غيابه يعني أن الرقم ما زال مخفيًا. */
   driverAtCustomerNotifiedAt?: string | null;
@@ -518,10 +528,20 @@ export async function driverAcceptOrder(accessToken: string, orderId: string): P
   return res.json() as Promise<DriverOrderRow>;
 }
 
-export async function driverCompleteOrder(accessToken: string, orderId: string): Promise<DriverOrderRow> {
+export async function driverCompleteOrder(
+  accessToken: string,
+  orderId: string,
+  point?: { lat: number; lng: number; accuracy?: number } | null
+): Promise<DriverOrderRow> {
   const res = await driverFetchWithRefresh(
     `/orders/${encodeURIComponent(orderId)}/complete`,
-    { method: "PATCH" },
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        point ? { lat: point.lat, lng: point.lng, accuracy: point.accuracy } : {}
+      )
+    },
     accessToken
   );
   if (!res.ok) {

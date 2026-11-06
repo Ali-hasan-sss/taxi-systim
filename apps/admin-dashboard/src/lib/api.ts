@@ -113,6 +113,9 @@ export interface CommissionSetting {
   commissionType: CommissionType;
   commissionValue: string | number;
   commissionDebtLimit?: string | number;
+  telegramMinFare?: string | number;
+  telegramPer100mFare?: string | number;
+  telegramBotEnabled?: boolean;
   paymentMode?: CommissionPaymentMode;
   updatedAt?: string;
 }
@@ -1064,6 +1067,8 @@ export const api = {
       commissionType: CommissionType;
       commissionValue: number;
       commissionDebtLimit: number;
+      telegramMinFare?: number;
+      telegramPer100mFare?: number;
       paymentMode?: CommissionPaymentMode;
       confirmZeroBalances?: boolean;
     }
@@ -1087,6 +1092,19 @@ export const api = {
       );
     }
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث إعدادات العمولة"));
+    return res.json() as Promise<CommissionSetting>;
+  },
+
+  async updateTelegramSettings(
+    accessToken: string,
+    payload: { telegramMinFare: number; telegramPer100mFare: number; telegramBotEnabled: boolean }
+  ) {
+    const res = await authorizedFetch(
+      "/settings/telegram",
+      { method: "PATCH", body: JSON.stringify(payload) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث إعدادات البوت"));
     return res.json() as Promise<CommissionSetting>;
   },
 

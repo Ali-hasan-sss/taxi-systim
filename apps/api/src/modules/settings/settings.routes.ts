@@ -32,12 +32,22 @@ settingsRouter.get("/commission", requireAuth, requireRole("ADMIN"), async (_req
 
 settingsRouter.patch("/commission", requireAuth, requireRole("ADMIN"), async (req: AuthRequest, res, next) => {
   try {
-    const { commissionType, commissionValue, commissionDebtLimit, paymentMode, confirmZeroBalances } = req.body as {
+    const {
+      commissionType,
+      commissionValue,
+      commissionDebtLimit,
+      paymentMode,
+      confirmZeroBalances,
+      telegramMinFare,
+      telegramPer100mFare
+    } = req.body as {
       commissionType: "PERCENTAGE" | "FIXED";
       commissionValue: number;
       commissionDebtLimit?: number;
       paymentMode?: "POSTPAID" | "PREPAID";
       confirmZeroBalances?: boolean;
+      telegramMinFare?: number;
+      telegramPer100mFare?: number;
     };
     if (commissionType !== "PERCENTAGE" && commissionType !== "FIXED") {
       res.status(400).json({ message: "نوع العمولة غير صالح" });
@@ -58,6 +68,18 @@ settingsRouter.patch("/commission", requireAuth, requireRole("ADMIN"), async (re
       res.status(400).json({ message: "الحد الأعلى للمبلغ المترتب يجب أن يكون رقمًا صالحًا غير سالب" });
       return;
     }
+    const nextMinFare =
+      telegramMinFare === undefined ? Number(current?.telegramMinFare ?? 150) : Number(telegramMinFare);
+    if (!Number.isFinite(nextMinFare) || nextMinFare <= 0 || nextMinFare > 99_999_999.99) {
+      res.status(400).json({ message: "السعر الابتدائي لطلبات تيليغرام يجب أن يكون رقمًا أكبر من صفر" });
+      return;
+    }
+    const nextPer100m =
+      telegramPer100mFare === undefined ? Number(current?.telegramPer100mFare ?? 10) : Number(telegramPer100mFare);
+    if (!Number.isFinite(nextPer100m) || nextPer100m < 0 || nextPer100m > 99_999_999.99) {
+      res.status(400).json({ message: "سعر كل 100 متر لطلبات تيليغرام يجب أن يكون رقمًا غير سالب" });
+      return;
+    }
     const previousMode = current?.paymentMode === "PREPAID" ? "PREPAID" : "POSTPAID";
     const nextMode = paymentMode ?? previousMode;
     const modeChanged = nextMode !== previousMode;
@@ -72,13 +94,17 @@ settingsRouter.patch("/commission", requireAuth, requireRole("ADMIN"), async (re
         });
         return;
       }
-      const setting = await accountingService.archiveAndZeroDriverBalancesForModeSwitch({
+      const switched = await accountingService.archiveAndZeroDriverBalancesForModeSwitch({
         fromMode: previousMode,
         toMode: nextMode,
         adminUserId: req.auth!.userId,
         commissionType,
         commissionValue,
         commissionDebtLimit: nextLimit
+      });
+      const setting = await prisma.systemSettings.update({
+        where: { id: switched.id },
+        data: { telegramMinFare: nextMinFare, telegramPer100mFare: nextPer100m }
       });
       void syncAllDriversWorkBlockState();
       res.json(setting);
@@ -87,19 +113,66 @@ settingsRouter.patch("/commission", requireAuth, requireRole("ADMIN"), async (re
 
     const setting = await prisma.systemSettings.upsert({
       where: { key: "commission" },
-      update: { commissionType, commissionValue, commissionDebtLimit: nextLimit, paymentMode: nextMode },
+      update: {
+        commissionType,
+        commissionValue,
+        commissionDebtLimit: nextLimit,
+        paymentMode: nextMode,
+        telegramMinFare: nextMinFare,
+        telegramPer100mFare: nextPer100m
+      },
       create: {
         key: "commission",
         commissionType,
         commissionValue,
         commissionDebtLimit: nextLimit,
-        paymentMode: nextMode
+        paymentMode: nextMode,
+        telegramMinFare: nextMinFare,
+        telegramPer100mFare: nextPer100m
       }
     });
     const previousLimit = current ? Number(current.commissionDebtLimit) : null;
     if (previousLimit !== nextLimit) {
       void syncDriversUsingGlobalDebtLimit();
     }
+    res.json(setting);
+  } catch (err) {
+    next(err);
+  }
+});
+
+settingsRouter.patch("/telegram", requireAuth, requireRole("ADMIN"), async (req: AuthRequest, res, next) => {
+  try {
+    const { telegramMinFare, telegramPer100mFare, telegramBotEnabled } = req.body as {
+      telegramMinFare?: number;
+      telegramPer100mFare?: number;
+      telegramBotEnabled?: boolean;
+    };
+    const current = await prisma.systemSettings.findUnique({ where: { key: "commission" } });
+    if (!current) {
+      res.status(400).json({ message: "احفظ إعدادات العمولة أولًا" });
+      return;
+    }
+    const nextMinFare = telegramMinFare === undefined ? Number(current.telegramMinFare) : Number(telegramMinFare);
+    if (!Number.isFinite(nextMinFare) || nextMinFare <= 0 || nextMinFare > 99_999_999.99) {
+      res.status(400).json({ message: "أجرة أول 2 كم يجب أن تكون رقمًا أكبر من صفر" });
+      return;
+    }
+    const nextPer100m =
+      telegramPer100mFare === undefined ? Number(current.telegramPer100mFare) : Number(telegramPer100mFare);
+    if (!Number.isFinite(nextPer100m) || nextPer100m < 0 || nextPer100m > 99_999_999.99) {
+      res.status(400).json({ message: "سعر كل 100 متر يجب أن يكون رقمًا غير سالب" });
+      return;
+    }
+    const enabled = typeof telegramBotEnabled === "boolean" ? telegramBotEnabled : current.telegramBotEnabled;
+    const setting = await prisma.systemSettings.update({
+      where: { id: current.id },
+      data: {
+        telegramMinFare: nextMinFare,
+        telegramPer100mFare: nextPer100m,
+        telegramBotEnabled: enabled
+      }
+    });
     res.json(setting);
   } catch (err) {
     next(err);

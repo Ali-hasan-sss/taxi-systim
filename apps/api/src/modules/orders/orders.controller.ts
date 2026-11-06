@@ -7,7 +7,7 @@ import {
   notifyDriverOrderAssignedPush,
   notifyDriverOrderResumedPush
 } from "../../shared/expo-push";
-import { assignOrderDto, cancelOrderDto, createOrderDto, driverAtCustomerDto, updateCompletedOrderAmountDto, updateOrderDetailsDto } from "./orders.dto";
+import { assignOrderDto, cancelOrderDto, createOrderDto, driverAtCustomerDto, driverTripPointDto, updateCompletedOrderAmountDto, updateOrderDetailsDto } from "./orders.dto";
 import {
   COORDINATOR_ORDERS_PAGE_DEFAULT,
   COORDINATOR_ORDERS_PAGE_MAX,
@@ -21,6 +21,11 @@ import { prisma } from "../../shared/prisma";
 import { accountingService } from "../accounting/accounting.service";
 import { emitChatMessage } from "../chat/chat-socket";
 import { chatService } from "../chat/chat.service";
+import {
+  notifyTelegramDriverAccepted,
+  notifyTelegramDriverArrived,
+  notifyTelegramInvoice
+} from "../telegram/telegram-notify";
 import {
   dispatchNewPendingOrderToDrivers,
   emitDriverClaimedOrder,
@@ -296,6 +301,7 @@ export const ordersController = {
         emitOrderStatusUpdated(io, order);
       }
       void notifyCoordinatorNeedsInfoPush(order.id);
+      void notifyTelegramDriverAccepted(order).catch((error) => console.error("[telegram] driver", error));
       res.json(ordersService.serializeDriverOrderRow(order));
     } catch (e) {
       next(e);
@@ -388,6 +394,9 @@ export const ordersController = {
         const message = chatService.clientMessage(result.chat.message, `${proto}://${host}/api`);
         const io = req.app.get("io") as Server | undefined;
         if (io) await emitChatMessage(io, result.chat.roomId, message, req.auth!.userId);
+        void notifyTelegramDriverArrived(result.order, dto.placeName).catch((error) =>
+          console.error("[telegram] arrived", error)
+        );
       }
       res.json(ordersService.serializeDriverOrderRow(result.order));
     } catch (e) {
@@ -397,7 +406,8 @@ export const ordersController = {
 
   async boardCustomer(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const order = await ordersService.markCustomerBoardedByDriver(req.auth!.userId, req.params.orderId);
+      const point = driverTripPointDto.parse(req.body ?? {});
+      const order = await ordersService.markCustomerBoardedByDriver(req.auth!.userId, req.params.orderId, point);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderStatusUpdated(io, order);
       res.json(ordersService.serializeDriverOrderRow(order));
@@ -425,10 +435,14 @@ export const ordersController = {
 
   async complete(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const order = await ordersService.completeOrder(req.params.orderId, req.auth!.userId);
+      const point = driverTripPointDto.parse(req.body ?? {});
+      const order = await ordersService.completeOrder(req.params.orderId, req.auth!.userId, point);
       const io = req.app.get("io") as Server | undefined;
       if (io) emitOrderStatusUpdated(io, order);
-      if (order.status === OrderStatus.COMPLETED) void notifyCoordinatorOrderCompletedPush(order.id);
+      if (order.status === OrderStatus.COMPLETED) {
+        void notifyCoordinatorOrderCompletedPush(order.id);
+        void notifyTelegramInvoice(order).catch((error) => console.error("[telegram] invoice", error));
+      }
       res.json(ordersService.serializeDriverOrderRow(order));
     } catch (e) {
       next(e);

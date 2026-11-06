@@ -5,6 +5,7 @@ import { prisma } from "../../shared/prisma";
 import { AppError } from "../../shared/app-error";
 import { normalizePhoneDigits } from "../../shared/phone";
 import { scheduleDriverDebtWorkSync } from "../../shared/driver-debt-block";
+import { excludeTelegramCoordinatorUser } from "../telegram/telegram-coordinator";
 
 export type DriverProfilePayload = {
   vehicleBrand?: string | null;
@@ -75,7 +76,7 @@ export const usersService = {
         role: filters.role,
         isActive: filters.isActive,
         deletedAt: null,
-        ...(searchWhere ?? {})
+        AND: [excludeTelegramCoordinatorUser(), ...(searchWhere ? [searchWhere] : [])]
       },
       select: {
         id: true,
@@ -491,7 +492,8 @@ export const usersService = {
 
     const coordinators = await prisma.coordinator.findMany({
       where: {
-        orders: { some: { driverId: user.driver.id } }
+        orders: { some: { driverId: user.driver.id } },
+        user: excludeTelegramCoordinatorUser()
       },
       include: {
         user: { select: { fullName: true, phone: true } }
@@ -508,7 +510,7 @@ export const usersService = {
 
   async buildEmployeesExportXlsx() {
     const users = await prisma.user.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, AND: [excludeTelegramCoordinatorUser()] },
       select: {
         fullName: true,
         phone: true,
