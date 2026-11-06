@@ -2,7 +2,7 @@
   "expo": {
     "name": "كابتن برو",
     "slug": "taxi-driver",
-    "version": "1.0.19",
+    "version": "1.0.20",
     "orientation": "portrait",
     "scheme": "taxi-driver",
     "userInterfaceStyle": "light",
@@ -81,7 +81,7 @@
     "android": {
       "package": "com.taxioffice.driver",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 19,
+      "versionCode": 20,
       "usesCleartextTraffic": true,
       "supportsRTL": true,
       "softwareKeyboardLayoutMode": "resize",

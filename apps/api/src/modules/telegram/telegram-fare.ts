@@ -2,7 +2,7 @@ import { haversineMeters } from "../../shared/gps-point";
 
 const INCLUDED_METERS = 2000;
 const STEP_METERS = 100;
-const JITTER_METERS = 15;
+const JITTER_METERS = 12;
 const MAX_SPEED_MPS = 45;
 
 export function telegramTripFare(distanceMeters: number, baseFare: number, per100m: number): number {
@@ -28,10 +28,15 @@ export function pathDistanceMeters(
     const current = points[index]!;
     const meters = haversineMeters(anchor.lat, anchor.lng, current.lat, current.lng);
     if (meters < JITTER_METERS) continue;
-    const seconds = (current.recordedAt.getTime() - anchor.recordedAt.getTime()) / 1000;
-    if (seconds > 1 && meters / seconds > MAX_SPEED_MPS) continue;
+    const seconds = Math.max(0, (current.recordedAt.getTime() - anchor.recordedAt.getTime()) / 1000);
+    if (seconds >= 2 && meters / seconds > MAX_SPEED_MPS) continue;
     total += meters;
     anchor = current;
+  }
+  if (total === 0 && points.length >= 2) {
+    const last = points[points.length - 1]!;
+    const straight = haversineMeters(points[0]!.lat, points[0]!.lng, last.lat, last.lng);
+    if (straight >= JITTER_METERS) return Math.round(straight);
   }
   return Math.round(total);
 }

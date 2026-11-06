@@ -1,7 +1,7 @@
 /** فوق هذا الخطأ تُرفض النقطة: مواقع الشبكة وVPN تأتي عادة بدقة مئات الأمتار أو أكثر. */
-export const GPS_MAX_ACCURACY_METERS = 80;
-/** حد أدق لمسار الأجرة حتى لا تُحتسب نقطة ضعيفة. */
-export const TRIP_MAX_ACCURACY_METERS = 50;
+export const GPS_MAX_ACCURACY_METERS = 150;
+/** نفس الحد لمسار الأجرة. 50 متراً كانت تُسقط إشارة السيارة داخل المدينة فتبقى المسافة 0. */
+export const TRIP_MAX_ACCURACY_METERS = 150;
 const MAX_SPEED_MPS = 45;
 
 export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -17,7 +17,8 @@ export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: 
 export function isUsableGps(lat: number, lng: number, accuracy: number | null | undefined, maxAccuracy = GPS_MAX_ACCURACY_METERS): boolean {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
-  if (accuracy == null || !Number.isFinite(accuracy) || accuracy <= 0 || accuracy > maxAccuracy) return false;
+  if (accuracy == null || !Number.isFinite(accuracy)) return true;
+  if (accuracy <= 0 || accuracy > maxAccuracy) return false;
   return true;
 }
 
