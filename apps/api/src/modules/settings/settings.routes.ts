@@ -8,6 +8,7 @@ import type { AuthRequest } from "../../shared/auth";
 import { getAppVersionSettings, updateAppVersionSettings } from "../../shared/app-version";
 import { AppError } from "../../shared/app-error";
 import { prisma } from "../../shared/prisma";
+import { publishOrderDraftPulseEnabled } from "../../shared/order-draft-pulse";
 import { syncAllDriversWorkBlockState, syncDriversUsingGlobalDebtLimit } from "../../shared/driver-debt-block";
 import { accountingService } from "../accounting/accounting.service";
 import { brandingImageUpload } from "./branding-upload";
@@ -173,6 +174,29 @@ settingsRouter.patch("/telegram", requireAuth, requireRole("ADMIN"), async (req:
         telegramBotEnabled: enabled
       }
     });
+    res.json(setting);
+  } catch (err) {
+    next(err);
+  }
+});
+
+settingsRouter.patch("/order-draft-pulse", requireAuth, requireRole("ADMIN"), async (req: AuthRequest, res, next) => {
+  try {
+    const enabled = (req.body as { enabled?: boolean })?.enabled;
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ message: "حدد حالة وميض تجهيز الطلب" });
+      return;
+    }
+    const current = await prisma.systemSettings.findUnique({ where: { key: "commission" } });
+    if (!current) {
+      res.status(400).json({ message: "احفظ إعدادات العمولة أولًا" });
+      return;
+    }
+    const setting = await prisma.systemSettings.update({
+      where: { id: current.id },
+      data: { orderDraftPulseEnabled: enabled }
+    });
+    publishOrderDraftPulseEnabled(enabled);
     res.json(setting);
   } catch (err) {
     next(err);

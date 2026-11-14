@@ -7,6 +7,7 @@ import { router } from "expo-router";
 import { io, type Socket } from "socket.io-client";
 import { fetchDriverProfile, getSocketOrigin } from "./lib/api";
 import { gpsFixFromLocation, readGpsFix, type GpsFix } from "./lib/gps-fix";
+import { noteTripMovement } from "./lib/trip-odometer";
 import { getDriverLocationAccessState, isDriverLocationReady } from "./lib/location-access";
 import { playNewPendingOrderSound } from "./lib/pending-order-sound";
 import { clearDriverSession, getDriverSession } from "./lib/session";
@@ -228,7 +229,9 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let sub: Location.LocationSubscription | null = null;
 
-    const emitLoc = (fix: GpsFix) => {
+    const emitLoc = (fix: GpsFix, at = Date.now()) => {
+      const orderId = useDriverStore.getState().telegramTripOrderId;
+      if (orderId) void noteTripMovement(orderId, fix.lat, fix.lng, at);
       if (!socket.connected) return;
       socket.emit("driver:location", {
         driverId: myDriverId,
@@ -258,12 +261,12 @@ export function DriverSocketProvider({ children }: { children: ReactNode }) {
       sub = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
-          distanceInterval: tripTracking ? 12 : 20,
-          timeInterval: tripTracking ? 5_000 : DRIVER_LOCATION_BROADCAST_INTERVAL_MS
+          distanceInterval: tripTracking ? 8 : 20,
+          timeInterval: tripTracking ? 3_000 : DRIVER_LOCATION_BROADCAST_INTERVAL_MS
         },
         (loc) => {
           const fix = gpsFixFromLocation(loc);
-          if (fix) emitLoc(fix);
+          if (fix) emitLoc(fix, loc.timestamp || Date.now());
         }
       );
     })();

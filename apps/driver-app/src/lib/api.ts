@@ -531,16 +531,18 @@ export async function driverAcceptOrder(accessToken: string, orderId: string): P
 export async function driverCompleteOrder(
   accessToken: string,
   orderId: string,
-  point?: { lat: number; lng: number; accuracy?: number } | null
+  point?: { lat: number; lng: number; accuracy?: number } | null,
+  pathMeters?: number
 ): Promise<DriverOrderRow> {
   const res = await driverFetchWithRefresh(
     `/orders/${encodeURIComponent(orderId)}/complete`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        point ? { lat: point.lat, lng: point.lng, accuracy: point.accuracy } : {}
-      )
+      body: JSON.stringify({
+        ...(point ? { lat: point.lat, lng: point.lng, accuracy: point.accuracy } : {}),
+        ...(pathMeters != null && Number.isFinite(pathMeters) ? { pathMeters: Math.round(pathMeters) } : {})
+      })
     },
     accessToken
   );

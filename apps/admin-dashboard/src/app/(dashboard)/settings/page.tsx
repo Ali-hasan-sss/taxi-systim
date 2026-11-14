@@ -38,6 +38,8 @@ export default function SettingsPage() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [telegramSaving, setTelegramSaving] = useState(false);
+  const [orderDraftPulseEnabled, setOrderDraftPulseEnabled] = useState(true);
+  const [orderDraftPulseSaving, setOrderDraftPulseSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const [adminName, setAdminName] = useState("");
@@ -102,6 +104,7 @@ export default function SettingsPage() {
           setTelegramMinFare(String(setting.telegramMinFare ?? "150"));
           setTelegramPer100mFare(String(setting.telegramPer100mFare ?? "10"));
           setTelegramBotEnabled(setting.telegramBotEnabled !== false);
+          setOrderDraftPulseEnabled(setting.orderDraftPulseEnabled !== false);
           const mode = setting.paymentMode === "PREPAID" ? "PREPAID" : "POSTPAID";
           setPaymentMode(mode);
           setSavedPaymentMode(mode);
@@ -214,6 +217,31 @@ export default function SettingsPage() {
   const submitCommission = async (e: FormEvent) => {
     e.preventDefault();
     await saveCommission(false);
+  };
+
+  const toggleOrderDraftPulse = async () => {
+    if (!token || orderDraftPulseSaving) return;
+    const next = !orderDraftPulseEnabled;
+    setOrderDraftPulseEnabled(next);
+    setOrderDraftPulseSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await api.updateOrderDraftPulse(token, next);
+      const enabled = updated.orderDraftPulseEnabled !== false;
+      setOrderDraftPulseEnabled(enabled);
+      setNotice(enabled ? "تم تفعيل وميض تجهيز الطلب عند السائقين." : "تم إيقاف وميض تجهيز الطلب.");
+    } catch (err) {
+      setOrderDraftPulseEnabled(!next);
+      const message = err instanceof Error ? err.message : "فشل تحديث وميض تجهيز الطلب";
+      if (message === "SESSION_EXPIRED") {
+        handleSessionExpired();
+        return;
+      }
+      setError(message);
+    } finally {
+      setOrderDraftPulseSaving(false);
+    }
   };
 
   const submitTelegram = async (e: FormEvent) => {
@@ -470,6 +498,28 @@ export default function SettingsPage() {
               </button>
             </div>
           </form>
+        </article>
+
+        <article className="card settings-card">
+          <h3 className="settings-card__title">وميض تجهيز الطلب</h3>
+          <p className="settings-card__hint">
+            عند التفعيل يظهر وميض حول شعار تطبيق السائق بينما يجهّز أي منسق طلباً. عند الإيقاف يتوقف الوميض فوراً.
+          </p>
+          <div className="settings-field">
+            <span>حالة الوميض</span>
+            <label className="switch-row">
+              <button
+                type="button"
+                className={`switch ${orderDraftPulseEnabled ? "switch--on" : ""}`}
+                onClick={() => void toggleOrderDraftPulse()}
+                disabled={orderDraftPulseSaving}
+                aria-pressed={orderDraftPulseEnabled}
+              >
+                <span className="switch__thumb" />
+              </button>
+              <span>{orderDraftPulseSaving ? "جارٍ الحفظ..." : orderDraftPulseEnabled ? "مفعّل" : "متوقف"}</span>
+            </label>
+          </div>
         </article>
 
         <article className="card settings-card">

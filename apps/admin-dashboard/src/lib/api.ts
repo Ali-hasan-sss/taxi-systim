@@ -116,6 +116,7 @@ export interface CommissionSetting {
   telegramMinFare?: string | number;
   telegramPer100mFare?: string | number;
   telegramBotEnabled?: boolean;
+  orderDraftPulseEnabled?: boolean;
   paymentMode?: CommissionPaymentMode;
   updatedAt?: string;
 }
@@ -1105,6 +1106,16 @@ export const api = {
       accessToken
     );
     if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث إعدادات البوت"));
+    return res.json() as Promise<CommissionSetting>;
+  },
+
+  async updateOrderDraftPulse(accessToken: string, enabled: boolean) {
+    const res = await authorizedFetch(
+      "/settings/order-draft-pulse",
+      { method: "PATCH", body: JSON.stringify({ enabled }) },
+      accessToken
+    );
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "فشل تحديث وميض تجهيز الطلب"));
     return res.json() as Promise<CommissionSetting>;
   },
 

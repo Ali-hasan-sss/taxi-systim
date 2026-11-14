@@ -365,6 +365,8 @@ model SystemSettings {
   telegramPer100mFare Decimal    @default(10) @db.Decimal(10, 2)
   /** إيقاف البوت يظهر للزبون رسالة صيانة */
   telegramBotEnabled Boolean     @default(true)
+  /** وميض الشعار عند السائقين بينما يجهّز المنسق طلباً */
+  orderDraftPulseEnabled Boolean @default(true)
   updatedByUserId String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt

@@ -2039,7 +2039,7 @@ export const ordersService = {
   async completeOrder(
     orderId: string,
     driverUserId: string,
-    point?: { lat?: number; lng?: number; accuracy?: number }
+    point?: { lat?: number; lng?: number; accuracy?: number; pathMeters?: number }
   ) {
     const preview = await prisma.order.findFirst({
       where: { id: orderId },
@@ -2085,7 +2085,13 @@ export const ordersService = {
       let amount = toNum(order.amount);
       let tripDistanceMeters: number | null = null;
       if (order.source === OrderSource.TELEGRAM) {
-        tripDistanceMeters = await measureTelegramTripMeters(order.id);
+        const traced = await measureTelegramTripMeters(order.id);
+        const reported = point?.pathMeters;
+        const deviceMeters =
+          reported != null && Number.isFinite(reported) && reported >= 0 && reported <= 200_000
+            ? Math.round(reported)
+            : 0;
+        tripDistanceMeters = Math.max(traced, deviceMeters);
         amount = telegramTripFare(
           tripDistanceMeters,
           toNum(setting.telegramMinFare ?? 150),

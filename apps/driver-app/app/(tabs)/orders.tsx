@@ -40,6 +40,7 @@ import { playOrderResumedSound } from "../../src/lib/order-resumed-sound";
 import { chatRoomHref, getOrderChatRoom } from "../../src/lib/chat";
 import { feedback } from "../../src/lib/feedback";
 import { readGpsFix } from "../../src/lib/gps-fix";
+import { beginTripOdometer, clearTripOdometer, noteTripMovement, readTripMeters } from "../../src/lib/trip-odometer";
 
 function authFailureMessage(msg: string): boolean {
   return /Unauthorized|غير مصرح|Forbidden|401|403|تجديد الجلسة|انتهت صلاحية الجلسة|Invalid refresh/i.test(msg);
@@ -84,7 +85,7 @@ export default function DriverOrdersTab() {
   const workBlocked = useDriverStore((s) => s.workBlocked);
   const workBlockMessage = useDriverStore((s) => s.workBlockMessage);
   const setRoomPendingCount = useDriverStore((s) => s.setRoomPendingCount);
-  const setTelegramTripTracking = useDriverStore((s) => s.setTelegramTripTracking);
+  const setTelegramTripOrderId = useDriverStore((s) => s.setTelegramTripOrderId);
   const isOnlineRef = useRef(isOnline);
   isOnlineRef.current = isOnline;
 
@@ -158,8 +159,10 @@ export default function DriverOrdersTab() {
   }, []);
 
   useEffect(() => {
-    setTelegramTripTracking(inProgress?.status === "STARTED" && inProgress.source === "TELEGRAM");
-  }, [inProgress?.status, inProgress?.source, setTelegramTripTracking]);
+    const tracking =
+      inProgress?.status === "STARTED" && inProgress.source === "TELEGRAM" ? inProgress.id : null;
+    setTelegramTripOrderId(tracking);
+  }, [inProgress?.id, inProgress?.status, inProgress?.source, setTelegramTripOrderId]);
 
   const loadRoom = useCallback(async (isPull = false) => {
     const session = await getDriverSession();
@@ -380,6 +383,7 @@ export default function DriverOrdersTab() {
     try {
       const point = await readGpsFix();
       const row = await driverMarkCustomerBoarded(session.accessToken, orderId, point);
+      if (row.source === "TELEGRAM") await beginTripOdometer(row.id, point);
       setInProgress(row);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "تعذر تأكيد الركوب";
@@ -402,6 +406,7 @@ export default function DriverOrdersTab() {
     setError(null);
     try {
       await driverCancelOrder(session.accessToken, orderId);
+      await clearTripOdometer(orderId);
       setInProgress(null);
       feedback.success("تم إلغاء الطلب وإعادة بثّه لغرفة الطلبات، وتسجيل غرامة 100 ل.س.", "تم الإلغاء");
       await loadRoom(false);
@@ -429,7 +434,10 @@ export default function DriverOrdersTab() {
     setError(null);
     try {
       const point = await readGpsFix();
-      const row = await driverCompleteOrder(session.accessToken, orderId, point);
+      if (point) await noteTripMovement(orderId, point.lat, point.lng);
+      const pathMeters = await readTripMeters(orderId);
+      const row = await driverCompleteOrder(session.accessToken, orderId, point, pathMeters);
+      await clearTripOdometer(orderId);
       setInProgress(null);
       if (row.source === "TELEGRAM") {
         const km =

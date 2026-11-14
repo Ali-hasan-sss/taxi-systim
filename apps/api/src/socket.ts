@@ -19,6 +19,11 @@ import { orderToSocketPayload } from "./modules/orders/order-socket-payload";
 import { driverMatchesOrderVehicle, driverWhereMatchesOrderVehicle } from "./modules/orders/order-vehicle-filter";
 import { recordTelegramTripPoint } from "./modules/telegram/trip-track";
 import { isTeleport, isUsableGps } from "./shared/gps-point";
+import {
+  bindOrderDraftPulseListener,
+  orderDraftPulseAllows,
+  refreshOrderDraftPulseEnabled
+} from "./shared/order-draft-pulse";
 
 const memOnline = new Map<string, boolean>();
 const memLocations = new Map<string, { lat: number; lng: number; at: number }>();
@@ -36,7 +41,7 @@ const driverSocketIds = new Set<string>();
 let lastOrderDraftBroadcast: boolean | null = null;
 
 function emitOrderDraftState(io: Server) {
-  const active = orderDraftTimers.size > 0;
+  const active = orderDraftPulseAllows() && orderDraftTimers.size > 0;
   const payload = { active };
   io.to(ROOM_ALL_DRIVERS).emit(socketEvents.ORDER_DRAFT_TYPING, payload);
   for (const socketId of driverSocketIds) {
@@ -66,6 +71,20 @@ function setOrderDraftActive(io: Server, socketId: string, active: boolean) {
   );
   emitOrderDraftState(io);
 }
+
+let boundOrderDraftIo: Server | null = null;
+
+function clearOrderDraftPulse(io: Server) {
+  for (const timer of orderDraftTimers.values()) clearTimeout(timer);
+  orderDraftTimers.clear();
+  emitOrderDraftState(io);
+}
+
+bindOrderDraftPulseListener((allowed) => {
+  const io = boundOrderDraftIo;
+  if (!io || allowed) return;
+  clearOrderDraftPulse(io);
+});
 
 function holdOrderDraftAfterDisconnect(io: Server, socketId: string) {
   if (!orderDraftTimers.has(socketId)) return;
@@ -512,6 +531,7 @@ async function rejectOutdatedSocket(socket: Socket, kind: MobileAppKind): Promis
 
 export const initSocket = (io: Server) => {
   socketServer = io;
+  boundOrderDraftIo = io;
   io.use(async (socket, next) => {
     const meta = readHandshakeAppMeta(socket.handshake);
     const ua = String(socket.handshake.headers["user-agent"] ?? "");
@@ -541,7 +561,10 @@ export const initSocket = (io: Server) => {
       driverSocketIds.add(socket.id);
       void socket.join(`driver:${driverId}`);
       void socket.join(ROOM_ALL_DRIVERS);
-      socket.emit(socketEvents.ORDER_DRAFT_TYPING, { active: orderDraftTimers.size > 0 });
+      const pulseAllowed = await refreshOrderDraftPulseEnabled();
+      socket.emit(socketEvents.ORDER_DRAFT_TYPING, {
+        active: pulseAllowed && orderDraftTimers.size > 0
+      });
     });
 
     socket.on("coordinator:register", async (coordinatorId: string) => {
@@ -592,7 +615,8 @@ export const initSocket = (io: Server) => {
       }
       socket.data.chatUserId = userId;
       if (socket.data.appRole === "COORDINATOR" && typeof socket.data.pendingOrderDraft === "boolean") {
-        setOrderDraftActive(io, socket.id, socket.data.pendingOrderDraft);
+        const pulseAllowed = await refreshOrderDraftPulseEnabled();
+        setOrderDraftActive(io, socket.id, pulseAllowed && socket.data.pendingOrderDraft);
         delete socket.data.pendingOrderDraft;
       }
       void socket.join(`user:${userId}`);
@@ -784,7 +808,8 @@ export const initSocket = (io: Server) => {
           socket.data.appRole = user.role;
         }
       }
-      setOrderDraftActive(io, socket.id, active);
+      const pulseAllowed = await refreshOrderDraftPulseEnabled();
+      setOrderDraftActive(io, socket.id, pulseAllowed && active);
     });
 
     socket.on("disconnect", () => {

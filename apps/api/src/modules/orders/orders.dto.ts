@@ -100,7 +100,8 @@ export const driverTripPointDto = z
   .object({
     lat: z.number().finite().gte(-90).lte(90).optional(),
     lng: z.number().finite().gte(-180).lte(180).optional(),
-    accuracy: z.number().finite().positive().optional()
+    accuracy: z.number().finite().positive().optional(),
+    pathMeters: z.number().finite().nonnegative().max(200_000).optional()
   })
   .refine((data) => (data.lat == null) === (data.lng == null), {
     message: "أرسل خط العرض وخط الطول معًا"
